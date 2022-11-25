@@ -10,7 +10,6 @@ import json
 
 
 
-
 class LineShape:
     """
     Class represents the line fracture shape.
@@ -886,8 +885,6 @@ def unit_square_vtxs():
         [-0.5, 0.5, 0]])
 
 
-
-
 class Fractures:
     # regularization of 2d fractures
     def __init__(self, fractures, epsilon):
@@ -922,7 +919,7 @@ class Fractures:
         lines = {}
         fr_min, fr_max = fr_range
         #fr_max = 20
-        fr_min = 20
+        #fr_min = 20
         print("len self fractures ", len(self.fractures))
         print("fr range ", fr_range)
         for i, (line, fr) in enumerate(zip(self.lines, self.fractures)):

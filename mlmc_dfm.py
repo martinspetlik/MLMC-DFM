@@ -29,12 +29,12 @@ class ProcessSimple:
         # 'Debug' mode is on - keep sample directories
         self.use_pbs = False
         # Use PBS sampling pool
-        self.n_levels = 1
+        self.n_levels = 2
         self.n_moments = 25
         # Number of MLMC levels
 
         # step_range = [0.055, 0.0035]
-        step_range = [100, 5]
+        step_range = [25, 5]
         # step_range = [0.1, 0.055]
         # step   - elements
         # 0.1    - 262
@@ -129,7 +129,7 @@ class ProcessSimple:
         if recollect:
             sampler.recollect_samples()
         else:
-            self.generate_jobs(sampler, n_samples=[5], renew=renew)
+            self.generate_jobs(sampler, n_samples=[5, 2], renew=renew)
             self.all_collect(sampler)  # Check if all samples are finished
 
     def setup_config(self, clean):
@@ -152,6 +152,8 @@ class ProcessSimple:
         sim_config_dict['field_template'] = "!FieldFE {mesh_data_file: \"$INPUT_DIR$/%s\", field_name: %s}"
         sim_config_dict['env'] = dict(flow123d=self.flow123d, gmsh=self.gmsh, gmsh_version=1)  # The Environment.
         sim_config_dict['work_dir'] = self.work_dir
+        sim_config_dict['yaml_file'] = os.path.join(self.work_dir, '01_conductivity.yaml')
+        sim_config_dict['yaml_file_homogenization'] = os.path.join(self.work_dir, 'flow_templ.yaml')
 
         # simulation_config = {
         #     'work_dir': self.work_dir,
@@ -166,12 +168,12 @@ class ProcessSimple:
         simulation_factory = DFMSim(config=sim_config_dict, clean=clean)
 
         # Create HDF sample storage
-        # sample_storage = SampleStorageHDF(
-        #     file_path=os.path.join(self.work_dir, "mlmc_{}.hdf5".format(self.n_levels)),
-        #     # append=self.append
-        # )
+        sample_storage = SampleStorageHDF(
+            file_path=os.path.join(self.work_dir, "mlmc_{}.hdf5".format(self.n_levels)),
+            # append=self.append
+        )
 
-        sample_storage = Memory()
+        #sample_storage = Memory()
 
         # Create sampler, it manages sample scheduling and so on
         sampler = Sampler(sample_storage=sample_storage, sampling_pool=sampling_pool, sim_factory=simulation_factory,
@@ -202,7 +204,7 @@ class ProcessSimple:
             self.init_sample_timeout = 60
             self.sample_timeout = 60
             self.adding_samples_coef = 0.1
-            self.flow123d = ["flow123d/flow123d-gnu:3.9.1", "flow123d"]  # "/home/martin/flow123d/bin/fterm --no-term rel run"
+            self.flow123d = ["flow123d/flow123d-gnu:3.1.0", "flow123d"]  # "/home/martin/flow123d/bin/fterm --no-term rel run"
             self.gmsh = "/home/martin/gmsh/bin/gmsh"
 
     def create_sampling_pool(self):

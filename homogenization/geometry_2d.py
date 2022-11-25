@@ -179,7 +179,8 @@ class Geometry2d:
 
         compound = bw.Compound(free_shapes)
         compound.set_free_shapes()
-        self.brep_file = os.path.abspath(self.basename + ".brep")
+        #self.brep_file = os.path.abspath(self.basename + ".brep")
+        self.brep_file = self.basename + ".brep"
         with open(self.brep_file, 'w') as f:
             bw.write_model(f, compound, bw.Identity)
 
@@ -360,6 +361,7 @@ class Geometry2d:
         #call([gmsh_path, "-2", "-format", "msh2", self.geo_file])
         #try:
         mesh_file = "mesh.msh"
+        print("self.geo_file ", self.geo_file)
         process = subprocess.run([gmsh_path, "-2", "-format", "msh2", "-algo", "meshadapt", self.geo_file], stderr=subprocess.PIPE, stdout=subprocess.PIPE)
 
         if process.returncode != 0:
@@ -419,6 +421,8 @@ class Geometry2d:
 
         with open(self.msh_file, "w") as f:
             self.mesh.write_ascii(f)
+
+        print("elid to fr ", elid_to_fr)
         return self.mesh, elid_to_fr
 
 # def make_geometry(**kwargs):

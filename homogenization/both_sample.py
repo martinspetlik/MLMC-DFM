@@ -11,6 +11,7 @@ import numpy as np
 import threading
 import subprocess
 import yaml
+import ruamel.yaml
 import attr
 import collections
 import traceback
@@ -73,60 +74,60 @@ def substitute_placeholders(file_in, file_out, params):
     return used_params
 
 
-class FlowThread(threading.Thread):
-
-    def __init__(self, basename, outer_regions, config_dict):
-        self.base = basename
-        self.outer_regions_list = outer_regions
-        self.flow_args = config_dict["flow_executable"].copy()
-        n_steps = config_dict["n_pressure_loads"]
-        t = np.pi * np.arange(0, n_steps) / n_steps
-        self.p_loads = np.array([np.cos(t), np.sin(t)]).T
-        super().__init__()
-
-    def run(self):
-        in_f = in_file(self.base)
-        out_dir = self.base
-        # n_loads = len(self.p_loads)
-        # flow_in = "flow_{}.yaml".format(self.base)
-        params = dict(
-            mesh_file=mesh_file(self.base),
-            fields_file=fields_file(self.base),
-            outer_regions=str(self.outer_regions_list),
-            n_steps=len(self.p_loads)
-            )
-        substitute_placeholders("flow_templ.yaml", in_f, params)
-        # self.flow_args = ["docker", "run", "-v", "{}:{}".format(out_dir, out_dir),
-        #                   "docker://flow123d/flow123d-gnu:3.9.0", "flow123d"]
-        self.flow_args.extend(['--output_dir', out_dir, in_f])
-
-        if os.path.exists(os.path.join(out_dir, "flow_fields.msh")):
-            return True
-        with open(self.base + "_stdout", "w") as stdout:
-            with open(self.base + "_stderr", "w") as stderr:
-                print("flow args ", self.flow_args)
-                completed = subprocess.run(self.flow_args, stdout=stdout, stderr=stderr)
-            print("Exit status: ", completed.returncode)
-            status = completed.returncode == 0
-        conv_check = self.check_conv_reasons(os.path.join(out_dir, "flow123.0.log"))
-        print("converged: ", conv_check)
-        return status  # and conv_check
-
-    def check_conv_reasons(self, log_fname):
-        with open(log_fname, "r") as f:
-            for line in f:
-                tokens = line.split(" ")
-                try:
-                    i = tokens.index('convergence')
-                    if tokens[i + 1] == 'reason':
-                        value = tokens[i + 2].rstrip(",")
-                        conv_reason = int(value)
-                        if conv_reason < 0:
-                            print("Failed to converge: ", conv_reason)
-                            return False
-                except ValueError:
-                    continue
-        return True
+# class FlowThread(threading.Thread):
+#
+#     def __init__(self, basename, outer_regions, config_dict):
+#         self.base = basename
+#         self.outer_regions_list = outer_regions
+#         self.flow_args = config_dict["flow_executable"].copy()
+#         n_steps = config_dict["n_pressure_loads"]
+#         t = np.pi * np.arange(0, n_steps) / n_steps
+#         self.p_loads = np.array([np.cos(t), np.sin(t)]).T
+#         super().__init__()
+#
+#     def run(self):
+#         in_f = in_file(self.base)
+#         out_dir = self.base
+#         # n_loads = len(self.p_loads)
+#         # flow_in = "flow_{}.yaml".format(self.base)
+#         params = dict(
+#             mesh_file=mesh_file(self.base),
+#             fields_file=fields_file(self.base),
+#             outer_regions=str(self.outer_regions_list),
+#             n_steps=len(self.p_loads)
+#             )
+#         substitute_placeholders("flow_templ.yaml", in_f, params)
+#         # self.flow_args = ["docker", "run", "-v", "{}:{}".format(out_dir, out_dir),
+#         #                   "docker://flow123d/flow123d-gnu:3.9.0", "flow123d"]
+#         self.flow_args.extend(['--output_dir', out_dir, in_f])
+#
+#         if os.path.exists(os.path.join(out_dir, "flow_fields.msh")):
+#             return True
+#         with open(self.base + "_stdout", "w") as stdout:
+#             with open(self.base + "_stderr", "w") as stderr:
+#                 print("flow args ", self.flow_args)
+#                 completed = subprocess.run(self.flow_args, stdout=stdout, stderr=stderr)
+#             print("Exit status: ", completed.returncode)
+#             status = completed.returncode == 0
+#         conv_check = self.check_conv_reasons(os.path.join(out_dir, "flow123.0.log"))
+#         print("converged: ", conv_check)
+#         return status  # and conv_check
+#
+#     def check_conv_reasons(self, log_fname):
+#         with open(log_fname, "r") as f:
+#             for line in f:
+#                 tokens = line.split(" ")
+#                 try:
+#                     i = tokens.index('convergence')
+#                     if tokens[i + 1] == 'reason':
+#                         value = tokens[i + 2].rstrip(",")
+#                         conv_reason = int(value)
+#                         if conv_reason < 0:
+#                             print("Failed to converge: ", conv_reason)
+#                             return False
+#                 except ValueError:
+#                     continue
+#         return True
 
 
 @attr.s(auto_attribs=True)
@@ -206,6 +207,8 @@ class BulkMicroScale(BulkBase):
         self.microscale_tensors = None
 
     def element_data(self, mesh, eid):
+        # print("mesh ", mesh)
+        # print("eid ", eid)
         if self.microscale_tensors is None:
             self.microscale_tensors = self.microscale.effective_tensor_from_bulk()
         return 1.0, self.microscale_tensors[eid]
@@ -217,7 +220,7 @@ class BulkFromFine(BulkBase):
         self.mean_val = np.mean(values)
         tria = sc_spatial.Delaunay(points)
         #print("Values, shape:", values.shape)
-        self.interp =  sc_interpolate.LinearNDInterpolator(tria, values.T, fill_value=0)
+        self.interp = sc_interpolate.LinearNDInterpolator(tria, values.T, fill_value=0)
         self.interp_nearest = sc_interpolate.LinearNDInterpolator(points, values.T)
 
     def element_data(self, mesh, eid):
@@ -226,7 +229,7 @@ class BulkFromFine(BulkBase):
         v = self.interp(center[0:2])
         if np.alltrue(v == 0):
             #v = self.interp_nearest(center[0:2])
-            v = [[self.mean_val,0,self.mean_val]]
+            v = [[self.mean_val, 0, self.mean_val]]
         #print("V, shape:", v.shape)
         v00, v01, v11 = v[0]
         cond = np.array([[v00, v01], [v01, v11]])
@@ -235,6 +238,9 @@ class BulkFromFine(BulkBase):
         if e0 < 1e-20 or e1 < 1e-20:
             print(e0, e1, v, center)
             assert False
+
+        print("cond ", cond)
+        exit()
         return 1.0, cond
 
 
@@ -245,6 +251,29 @@ class BulkChoose(BulkBase):
     def element_data(self, mesh, eid):
         idx = np.random.randint(len(self.cond_tn))
         return 1.0, self.cond_tn[idx].reshape(2,2)
+
+
+class BulkHomogenization(BulkBase):
+    def __init__(self, config_dict):
+        self._cond_tns = None
+        self._get_tensors(config_dict["cond_tns_yaml_file"])
+        self.mean_log_conductivity = None # @TODO: auxiliary param
+        self._center_points = np.asarray(list(self._cond_tns.keys()))
+
+    def _get_tensors(self, cond_tn_file):
+        with open(cond_tn_file, "r") as f:
+            self._cond_tns = ruamel.yaml.load(f)
+
+    def element_data(self, mesh, eid):
+        el_type, tags, node_ids = mesh.elements[eid]
+        center = np.mean([np.array(mesh.nodes[nid]) for nid in node_ids], axis=0)[0:2]
+
+        dist_2 = np.sum((self._center_points - center) ** 2, axis=1)
+        cond_tn = self._cond_tns[tuple(self._center_points[np.argmin(dist_2)])]
+
+        print("cond tn ", cond_tn)
+
+        return 1.0, cond_tn[0].reshape(2, 2)
 
 
 @attr.s(auto_attribs=True)
@@ -275,8 +304,7 @@ class FractureModel:
         else:
             # print("self.max_fr ", self.max_fr)
             # print("self.bulk_model.mean_log_conductivity ", int(np.mean(self.bulk_model.mean_log_conductivity)))
-            cond = self.target_sigma * self.max_fr * 10 ** int(np.mean(self.bulk_model.mean_log_conductivity))
-            # print("cond ", cond)
+            cond = self.target_sigma * self.max_fr * 10 ** int(np.mean(self.bulk_model.mean_log_conductivity)) # @TODO: remove abs numbers ASAP
             cs = np.sqrt(12 * cond / (self.water_density * self.gravity_accel / self.water_viscosity))
 
         print("i_fr: {}, cs: {}, cond: {}".format(i_fr, cs, cond))
@@ -381,10 +409,11 @@ class FlowProblem:
     _fracture_cs: Any = None
     _fracture_len: Any = None
 
+    pressure_loads: Any = None
+
     @classmethod
     def make_fine(cls, fr_range, fractures, config_dict):
         bulk_conductivity = config_dict["sim_config"]['bulk_conductivity']
-
 
         if "cond_tn_pop_file" in config_dict["fine"]:
             #@TODO: sample from saved population of conductivity tensors
@@ -393,21 +422,30 @@ class FlowProblem:
             #bulk_model = BulkChoose(finer_level_path)
         else:
             bulk_model = BulkFields(**bulk_conductivity)
-        return FlowProblem("fine", fr_range, fractures, bulk_model, config_dict["sim_config"])
+        return FlowProblem("fine", fr_range, fractures, bulk_model, config_dict)
+
+    # @classmethod
+    # def make_coarse(cls, fr_range, fractures, micro_scale_problem, config_dict):
+    #     bulk_model = BulkMicroScale(micro_scale_problem)
+    #     return FlowProblem("coarse",
+    #                        fr_range, fractures, bulk_model, config_dict)
 
     @classmethod
-    def make_coarse(cls, i_level, fr_range, fractures, micro_scale_problem, config_dict):
-        bulk_model = BulkMicroScale(micro_scale_problem)
-        return FlowProblem(i_level, "coarse",
+    def make_coarse(cls, fr_range, fractures, config_dict):
+        #bulk_model = BulkMicroScale(micro_scale_problem)
+        print("coarse fr range ", fr_range)
+        bulk_model = BulkHomogenization(config_dict)
+        bulk_model.mean_log_conductivity = 10**-6
+
+        return FlowProblem("coarse",
                            fr_range, fractures, bulk_model, config_dict)
 
     @classmethod
-    def make_microscale(cls, i_level, fr_range, fractures, fine_flow, config_dict):
+    def make_microscale(cls, fr_range, fractures, fine_flow, config_dict):
         # use bulk fields from the fine level
         bulk_model = BulkFromFine(fine_flow)
 
-        return FlowProblem(i_level, "coarse_ref",
-                           fr_range, fractures, bulk_model, config_dict)
+        return FlowProblem("coarse_ref", fr_range, fractures, bulk_model, config_dict)
 
     @property
     def pressure_loads(self):
@@ -534,7 +572,7 @@ class FlowProblem:
         self.reg_to_group[bulk_reg.id] = 0
 
         # make outer polygon
-        geom = self.config_dict["geometry"]
+        geom = self.config_dict["sim_config"]["geometry"]
         lx, ly = geom["domain_box"]
 
         if "outer_polygon" in geom:
@@ -553,8 +591,17 @@ class FlowProblem:
         self.group_positions[0] = np.mean(self.outer_polygon, axis=0)
 
         square_fr_range = [self.fr_range[0], np.min([self.fr_range[1], self.outer_polygon[1][0] - self.outer_polygon[0][0]])]
-        square_fr_range = [10, square_fr_range[1]]
-        print("square fr range ", square_fr_range)
+        #square_fr_range = [10, square_fr_range[1]]
+        #print("square fr range ", square_fr_range)
+
+        # if self.config_dict.get("homogenization", False):
+        #     coarse_step = self.config_dict["coarse"]["step"] * 2
+        #     square_fr_range[0] = coarse_step
+
+        print("square_fr_range ", square_fr_range)
+        #exit()
+
+
         #self.fracture_lines = self.fractures.get_lines(self.fr_range)
         self.fracture_lines = self.fractures.get_lines(square_fr_range)
         # print("fracture lines ", self.fracture_lines)
@@ -587,13 +634,18 @@ class FlowProblem:
     def make_mesh(self):
         import homogenization.geometry_2d as geom
         mesh_file = "mesh_{}.msh".format(self.basename)
+
+        print("os.getcwd() ", os.getcwd())
+        print("mesh file ", mesh_file)
         self.skip_decomposition = os.path.exists(mesh_file)
+
+        print("self. skip decomposition ", self.skip_decomposition)
 
         #print("self regions ", self.regions)
         if not self.skip_decomposition:
             self.make_fracture_network()
 
-            gmsh_executable = self.config_dict["gmsh_executable"]
+            gmsh_executable = self.config_dict["sim_config"]["gmsh_executable"]
             g2d = geom.Geometry2d("mesh_" + self.basename, self.regions)
             g2d.add_compoud(self.decomp)
             g2d.make_brep_geometry()
@@ -601,8 +653,9 @@ class FlowProblem:
             g2d.call_gmsh(gmsh_executable, step_range)
             print("self.reg_to_fr ", self.reg_to_fr)
             self.mesh, self.elid_to_fr = g2d.modify_mesh(self.reg_to_fr)
+            print("self.elid_to_fr ", self.elid_to_fr)
 
-        elif self.skip_decomposition and self.config_dict["mesh_window"]:
+        elif self.skip_decomposition and self.config_dict["sim_config"]["mesh_window"]:
             self._make_mesh_window()
         else:
             self.make_fracture_network()
@@ -619,7 +672,7 @@ class FlowProblem:
         :param cond_2d_samples: Array Nx2x2 of 2d tensor samples from own and other subsample problems.
         :return:
         """
-        fracture_model = FractureModel(self.fractures, self.reg_to_fr, **self.config_dict['fracture_model'],
+        fracture_model = FractureModel(self.fractures, self.reg_to_fr, **self.config_dict["sim_config"]['fracture_model'],
                                        bulk_model=self.bulk_model)
         elem_ids, cs_field, cond_tn_field, fracture_cs, fracture_len = write_fields(self.mesh, self.basename,
                                                                                     self.bulk_model, fracture_model,
@@ -629,6 +682,8 @@ class FlowProblem:
         self._cond_tn_field = cond_tn_field
         self._fracture_cs = fracture_cs
         self._fracture_len = fracture_len
+
+
 
     def bulk_field(self):
         assert self._elem_ids is not None
@@ -822,22 +877,28 @@ class FlowProblem:
 
         return e_val
 
-    def effective_tensor_from_bulk(self):
+    def effective_tensor_from_bulk(self, pressure_loads=None, reg_to_group_1=None, basename=None):
         """
         :param bulk_regions: mapping reg_id -> tensor_group_id, groups of regions for which the tensor will be computed.
         :return: {group_id: conductivity_tensor} List of effective tensors.
         """
         bulk_regions = self.reg_to_group
 
+        if pressure_loads is None:
+            pressure_loads = self.pressure_loads
+
+        print("bulk regions ", bulk_regions)
+        print("self.regions ", self.regions)
+
         print("self.reg_to_group ", self.reg_to_group)
-        print("self.pressure_loads ", self.pressure_loads)
+        print("self.pressure_loads ", pressure_loads)
 
         #compute_effective_cond.effective_tensor_from_bulk(self.regions, bulk_regions, self.pressure_loads, os.path.join(self.basename, "flow_fields.msh"))
 
         #print("bulk regions ", bulk_regions)
 
         out_mesh = gmsh_io.GmshIO()
-        with open(os.path.join(self.basename, "flow_fields.msh"), "r") as f:
+        with open("flow_fields.msh", "r") as f:
             out_mesh.read(f)
         time_idx = 0
         time, field_cs = out_mesh.element_data['cross_section'][time_idx]
@@ -846,10 +907,9 @@ class FlowProblem:
 
         assert len(field_cs) == len(ele_reg_vol)
         velocity_field = out_mesh.element_data['velocity_p0']
-
         #print("velocity field ", velocity_field)
 
-        loads = self.pressure_loads
+        loads = pressure_loads
         print("loads ", loads)
         group_idx = {group_id: i_group for i_group, group_id in enumerate(set(bulk_regions.values()))}
         n_groups = len(group_idx)
@@ -977,14 +1037,14 @@ class FlowProblem:
         lim = max(max(X), max(fluxes[:, 0]), max(Y), max(fluxes[:, 1])) * 1.2
         #ax.set_xlim(-lim, lim)
         #ax.set_ylim(-lim, lim)
-        self.labeled_arrow(ax, [0,0], 0.9 * e_val[0] * e_vec[:, 0], "{:5.2g}".format(e_val[0])  )
-        self.labeled_arrow(ax, [0,0], 0.9 * e_val[1] * e_vec[:, 1], "{:5.2g}".format(e_val[1])  )
+        self.labeled_arrow(ax, [0,0], 0.9 * e_val[0] * e_vec[:, 0], "{:5.2g}".format(e_val[0]))
+        self.labeled_arrow(ax, [0,0], 0.9 * e_val[1] * e_vec[:, 1], "{:5.2g}".format(e_val[1]))
         fig.suptitle("Conductivity tensor: {}".format(label))
 
         #ax_polar.grid(True)
-        fig.savefig("cond_tn_{}.pdf".format(label))
+        #fig.savefig("cond_tn_{}.pdf".format(label))
         plt.close(fig)
-        #plt.show()
+        plt.show()
 
     def summary(self):
 
@@ -2216,10 +2276,10 @@ def run_multiple_samples(work_dir, sample_dict, n_samples=10):
         shutil.move("fine", dir_name)
         if os.path.exists(os.path.join(dir_name, "fields_fine.msh")):
             os.remove(os.path.join(dir_name, "fields_fine.msh"))
-        shutil.move( "fields_fine.msh", dir_name)
-        shutil.move( "summary.yaml", dir_name)
+        shutil.move("fields_fine.msh", dir_name)
+        shutil.move("summary.yaml", dir_name)
         shutil.move("mesh_fine.msh", dir_name)
-        shutil.move( "mesh_fine.brep", dir_name)
+        shutil.move("mesh_fine.brep", dir_name)
         shutil.move("mesh_fine.tmp.geo", dir_name)
         shutil.move("mesh_fine.tmp.msh", dir_name)
         if os.path.exists("fine"):
