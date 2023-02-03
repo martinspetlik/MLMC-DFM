@@ -176,6 +176,8 @@ class BulkFields(BulkBase):
     angle_mean: float = attr.ib(converter=float)
     angle_concentration: float = attr.ib(converter=float)
 
+    #print("cov_log_conductivity ", cov_log_conductivity)
+
     def element_data(self, mesh, eid):
         # Unrotated tensor (eigenvalues)
         if self.cov_log_conductivity is None:
@@ -417,6 +419,9 @@ class FlowProblem:
 
         if "cond_tn_pop_file" in config_dict["fine"]:
             #@TODO: sample from saved population of conductivity tensors
+
+            cond_tn_pop = np.load(config_dict["fine"]["cond_tn_pop_file"])
+
             pass
             # bulk_cond_tn_pop_file = config_dict["fine"]["cond_tn_pop_file"]
             #bulk_model = BulkChoose(finer_level_path)
@@ -452,7 +457,7 @@ class FlowProblem:
         return self.thread.p_loads
 
     def add_region(self, name, dim, mesh_step=0.0, boundary=False):
-        print("mesh step ", mesh_step)
+        #print("mesh step ", mesh_step)
         reg = Region(name, dim, boundary, mesh_step)
         reg.id = len(self.regions)
         self.regions.append(reg)
@@ -504,7 +509,7 @@ class FlowProblem:
         for i_fr, (p0, p1) in fracture_lines.items():
 
             reg = self.add_region("fr_{}".format(i_fr), dim=1, mesh_step=self.mesh_step)
-            print("i_fr: {}, reg.id: {}".format(i_fr, reg.id))
+            #print("i_fr: {}, reg.id: {}".format(i_fr, reg.id))
             self.reg_to_fr[reg.id] = i_fr
             fracture_regions.append(reg)
             if self.skip_decomposition:
@@ -882,6 +887,8 @@ class FlowProblem:
         :param bulk_regions: mapping reg_id -> tensor_group_id, groups of regions for which the tensor will be computed.
         :return: {group_id: conductivity_tensor} List of effective tensors.
         """
+
+        sym_condition = False
         bulk_regions = self.reg_to_group
 
         if pressure_loads is None:
@@ -949,28 +956,51 @@ class FlowProblem:
             # least square fit for the symmetric conductivity tensor
             rhs = flux.flatten()
             # columns for the tensor values: C00, C01, C11
-            pressure_matrix = np.zeros((len(rhs), 3))
+            pressure_matrix = np.zeros((len(rhs), 4))
+            if sym_condition:
+                pressure_matrix = np.zeros((len(rhs)+1, 4))
+
             for i_load, (p0, p1) in enumerate(loads):
                 i0 = 2 * i_load
                 i1 = i0 + 1
                 #@TODO: skalarni soucin rychlosti s (p0, p1)
-                pressure_matrix[i0] = [p0, p1, 0]
-                pressure_matrix[i1] = [0, p0, p1]
+                # pressure_matrix[i0] = [p0, p1, 0]
+                # pressure_matrix[i1] = [0, p0, p1]
+                pressure_matrix[i0] = [p0, p1, 0, 0]
+                pressure_matrix[i1] = [0, 0, p0, p1]
+
+            if sym_condition:
+                pressure_matrix[-1] = [0, 1, -1, 0]
+                rhs = np.append(rhs, [0])
+
+
             print("pressure matrix ", pressure_matrix)
             print("rhs ", rhs)
-            _, residuals, rank, sing_values = np.linalg.lstsq(pressure_matrix, rhs)
-            #
-            #
-            # print("residuals ", residuals)
-            # print("rank ", rank)
-            # print("sing values ", sing_values)
+            print("rhs type ", type(rhs))
+            print("rhs ", rhs)
 
-            C = np.linalg.lstsq(pressure_matrix, rhs)[0]
+            C, residuals, rank, sing_values = np.linalg.lstsq(pressure_matrix, rhs)
+            #
+            #
+
+            print("residuals ", residuals)
+            print("rank ", rank)
+            print("sing values ", sing_values)
+            #exit()
+
+            #C = np.linalg.lstsq(pressure_matrix, rhs)[0]
             print("C ", C)
-            cond_tn = np.array([[C[0], C[1]], [C[1], C[2]]])
+            print("(C[1]-C[2])/(C[1]+C[2]/2) ", np.abs((C[1]-C[2])/((C[1]+C[2]/2))))
+            #C[1] = C[1]
+            #cond_tn = np.array([[C[0], C[1]], [C[1], C[2]]])
+            cond_tn = np.array([[C[0], C[1]], [C[2], C[3]]])
+            diff = np.abs((C[1]-C[2])/((C[1]+C[2]/2)))
+
+            #exit()
 
             e_val = None
             if residuals > 10**(-8):
+                exit()
                 e_val = FlowProblem.line_fit(flux)
 
             if i_group < 10:
@@ -982,8 +1012,10 @@ class FlowProblem:
                  #if e_val is None:
                  e_val, e_vec = np.linalg.eigh(cond_tn)
                  print("e val ", e_val)
+
                  #print("log mean eval cond", np.log10(np.mean(e_val)))
                  self.plot_effective_tensor(flux, cond_tn, self.basename + "_" + group_labels[i_group])
+                 #exit()
                  #print(cond_tn)
             cond_tensors[group_id] = cond_tn
         self.cond_tensors = cond_tensors
@@ -993,7 +1025,7 @@ class FlowProblem:
         print("self.cond_tensors ", self.cond_tensors)
         print("self.flux ", self.flux)
         print("self. pressure matrix ", self.pressure_matrix)
-        return cond_tensors
+        return cond_tensors, diff
 
     def labeled_arrow(self, ax, start, end, label):
         """

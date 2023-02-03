@@ -127,7 +127,7 @@ class ProcessSimple:
         # self.generate_jobs(sampler, n_samples=None, renew=renew, target_var=1e-3)
         # self.generate_jobs(sampler, n_samples=[500, 500], renew=renew, target_var=1e-5)
         if recollect:
-            sampler.recollect_samples()
+            raise NotImplementedError("Not supported in released version")
         else:
             self.generate_jobs(sampler, n_samples=[5, 2], renew=renew)
             self.all_collect(sampler)  # Check if all samples are finished

@@ -122,6 +122,7 @@ class DFMSim(Simulation):
     FIELDS_FILE = "flow_fields.msh"
     COND_TN_POP_FILE = 'cond_tn_pop.npy'
     COND_TN_FILE = "cond_tensors.yaml"
+    COMMON_FILES = "l_step_{}_common_files"
 
     """
     Gather data for single flow call (coarse/fine)
@@ -188,7 +189,7 @@ class DFMSim(Simulation):
 
         # Set fine simulation common files directory
         # Files in the directory are used by each simulation at that level
-        common_files_dir = os.path.join(self.work_dir, "l_step_{}_common_files".format(fine_step))
+        common_files_dir = os.path.join(self.work_dir, DFMSim.COMMON_FILES.format(fine_step))
         force_mkdir(common_files_dir, force=self.clean)
 
         self.mesh_file = os.path.join(common_files_dir, DFMSim.MESH_FILE)
@@ -218,7 +219,7 @@ class DFMSim(Simulation):
         # Files in the directory are used by each simulation at that level
         coarse_sim_common_files_dir = None
         if coarse_step != 0:
-            coarse_sim_common_files_dir = os.path.join(self.work_dir, "l_step_{}_common_files".format(coarse_step))
+            coarse_sim_common_files_dir = os.path.join(self.work_dir, DFMSim.COMMON_FILES.format(coarse_step))
 
         # Simulation config
         # Configuration is used in mlmc.tool.pbs_job.PbsJob instance which is run from PBS process
@@ -231,11 +232,6 @@ class DFMSim(Simulation):
         config["sim_config"] = self.config_dict
         config["fine"]["common_files_dir"] = common_files_dir
         config["coarse"]["common_files_dir"] = coarse_sim_common_files_dir
-
-        cond_tn_pop = os.path.join(self.work_dir, "l_step_{}_common_files".format(fine_step), DFMSim.COND_TN_POP_FILE)
-        #print("cond tn pop ", cond_tn_pop)
-        if os.path.exists(cond_tn_pop):
-            config["fine"]["cond_tn_pop_file"] = cond_tn_pop
 
         #config["fields_used_params"] = self._fields_used_params  # Params for Fields instance, which is created in PbsJob
 
@@ -301,6 +297,8 @@ class DFMSim(Simulation):
 
         cond_tensors = {}
 
+        percentage_sym_tn_diff = []
+
         k = 0
         for i in range(n_subdomains):
             center_x = subdomain_box[0] / 2 + (lx - subdomain_box[0]) / (n_subdomains - 1) * i - lx / 2
@@ -356,13 +354,17 @@ class DFMSim(Simulation):
                 status, p_loads, outer_reg_names = DFMSim._run_homogenization_sample(fine_flow, config)
 
                 done.append(fine_flow)
-                cond_tn = fine_flow.effective_tensor_from_bulk(p_loads, outer_reg_names, fine_flow.basename)
+                cond_tn, diff = fine_flow.effective_tensor_from_bulk(p_loads, outer_reg_names, fine_flow.basename)
                 #DFMSim.make_summary(done)
+                percentage_sym_tn_diff.append(diff)
 
-                print("cond_tn ", cond_tn)
+                #print("cond_tn ", cond_tn)
                 # @TODO: save cond tn and center to npz file
 
                 cond_tensors[(center_x, center_y)] = cond_tn
+
+                cond_tn_pop_file = os.path.join(config["coarse"]["common_files_dir"], DFMSim.COND_TN_POP_FILE)
+                np.save(cond_tn_pop_file, cond_tn[0])
 
                 dir_name = os.path.join(work_dir, subdir_name)
                 config["dir_name"] = dir_name
@@ -385,6 +387,8 @@ class DFMSim(Simulation):
 
                 os.chdir(h_dir)
 
+        print("np.mean(percentage_sym_tn_diff) ", np.mean(percentage_sym_tn_diff))
+
         #os.chdir("homogenization")
         return cond_tensors
 
@@ -402,6 +406,7 @@ class DFMSim(Simulation):
         fractures = DFMSim.generate_fractures(config)
 
         coarse_step = config["coarse"]["step"]
+        fine_step = config["fine"]["step"]
 
         print("fine_step", config["fine"]["step"])
         print("coarse_step", config["coarse"]["step"])
@@ -443,6 +448,9 @@ class DFMSim(Simulation):
         # except:
         #     pass
 
+        # if coarse_step == 0:
+        #     print("config fine", config["fine"])
+        #     exit()
 
         ####################
         ### fine problem ###
@@ -492,6 +500,11 @@ class DFMSim(Simulation):
             cond_tensors = DFMSim.homogenization(copy.deepcopy(config))
             DFMSim._save_tensors(cond_tensors)
 
+            cond_tn_pop = os.path.join(DFMSim.COMMON_FILES.format(fine_step), DFMSim.COND_TN_POP_FILE)
+            # print("cond tn pop ", cond_tn_pop)
+            if os.path.exists(cond_tn_pop):
+                config["fine"]["cond_tn_pop_file"] = cond_tn_pop
+
             config["cond_tns_yaml_file"] = os.path.abspath(DFMSim.COND_TN_FILE)
 
             ######################
@@ -522,7 +535,6 @@ class DFMSim(Simulation):
         with open(DFMSim.COND_TN_FILE, "w") as f:
             yaml.dump(cond_tensors, f)
 
-
         # import time
         # time.sleep(2)
         # with open(DFMSim.COND_TN_FILE, "r") as f:
@@ -530,9 +542,6 @@ class DFMSim(Simulation):
         #
         # print("cond_tns ", cond_tns)
         # exit()
-
-
-
 
     # @staticmethod
     # def make_fields(fields, fine_mesh_data, coarse_mesh_data):
@@ -569,6 +578,7 @@ class DFMSim(Simulation):
                :param common_files_dir: Directory with simulations common files (flow_input.yaml, )
                :return: simulation result, ndarray
                """
+
         # if homogenization:
         outer_reg_names = []
         for reg in flow_problem.side_regions:
@@ -593,12 +603,11 @@ class DFMSim(Simulation):
             n_steps=len(p_loads)
         )
 
-        print("in_f ", in_f)
-
-        print("outerregions ", outer_regions_list)
-        print("p_loads ", p_loads)
-
-        print("os.getcwd() ", os.getcwd())
+        # print("in_f ", in_f)
+        # print("outerregions ", outer_regions_list)
+        # print("p_loads ", p_loads)
+        #
+        # print("os.getcwd() ", os.getcwd())
 
         out_dir = os.getcwd()
 
@@ -608,8 +617,8 @@ class DFMSim(Simulation):
 
         flow_args.extend(['--output_dir', out_dir, os.path.join(out_dir, in_f)])
 
-        print("flow args ", flow_args)
-        print("out dir ", out_dir)
+        # print("flow args ", flow_args)
+        # print("out dir ", out_dir)
 
         if os.path.exists(os.path.join(out_dir, DFMSim.FIELDS_FILE)):
             return True
