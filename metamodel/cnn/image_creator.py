@@ -4,6 +4,7 @@ import numpy as np
 import yaml
 import gmsh_io
 from rasterization import rasterize
+from matplotlib import pyplot as plt
 
 MESH_FILE = "mesh_fine.msh"
 FIELDS_MESH_FILE = "fields_fine.msh"
@@ -16,14 +17,29 @@ def get_output(data_dir):
     return cond_tn[0]
 
 
-def image_creator(data_dir, feature_names=[['conductivity_tensor']], quantity_name="conductivity"):
+def image_creator(data_dir, feature_names=[['conductivity_tensor'], ['cross_section']], quantity_name="conductivity"):
     print("image creator ")
     mesh = os.path.join(data_dir, MESH_FILE)
 
     print("mesh ", mesh)
+    mesh_nodes, triangles, lines, ele_ids = extract_mesh_gmsh_io(mesh, image=True)
 
-    mesh_nodes, triangles, ele_ids = extract_mesh_gmsh_io(mesh, image=True)
+    print("lines ", lines)
 
+    # for key, (node_0, node_1) in lines.items():
+    #     print("key ", key)
+    #     print("node_0 id: {} node_1 id: {} ".format(node_0, node_1))
+    #     print("node_0: {} node_1 id: {} ".format(mesh_nodes[node_0], mesh_nodes[node_1]))
+    #
+    #
+    #     max_key = np.max(list(mesh_nodes.keys()))
+    #
+    #     mesh_nodes[max_key + 1] = []
+    #
+    #     print("max_key ", max_key)
+    #     exit()
+
+        #mesh_nodes[nodes]
 
     # sample_storage = SampleStorageHDF(file_path=hdf_path)
     # sample_storage.chunk_size = 1e8
@@ -57,33 +73,101 @@ def image_creator(data_dir, feature_names=[['conductivity_tensor']], quantity_na
         # i += 1
         # if i > 2:
         #     break
-
         features, all_fields = get_node_features(field_mesh, feature_names)
 
-        print("features ", features)
-        print("all fields ", all_fields[0])
+        print("all fields ", all_fields)
+        # print("all_fields cross_section", all_fields["cross_section"])
+        # print("all_fields cross_section", all_fields[1]["cross_section"])
 
-        cond_tn_elements = []
+
+        cond_tn_elements_triangles = []
+        cond_tn_elements_lines = []
+        cs_lines = []
         for _ in range(n_tn_elements):
-            cond_tn_elements.append(dict(zip(ele_ids, np.zeros(len(ele_ids)))))
+            cond_tn_elements_triangles.append(dict(zip(triangles.keys(), np.zeros(len(triangles.keys())))))
+            cond_tn_elements_lines.append(dict(zip(lines.keys(), np.zeros(len(lines.keys())))))
+            cs_lines = dict()
 
-        for feature_name in feature_names[0]:
-            if len(all_fields) > 1:
-                raise NotImplementedError
+        for feature_name in feature_names:
+            feature_name = feature_name[0]
+            if feature_name == "conductivity_tensor":
+                for e_id, val in zip(ele_ids, list(all_fields[0][feature_name].values())):
+                        if e_id in triangles:
+                            #print("e_id: {} in triangles ".format(e_id))
+                            for idx, v in enumerate(val):
+                                cond_tn_elements_triangles[idx][e_id] = v
 
-            for e_id, val in zip(ele_ids, list(all_fields[0][feature_name].values())):
-                for idx, v in enumerate(val):
-                    cond_tn_elements[idx][e_id] = v
+                        elif e_id in lines:
+                            #print("e_id: {} in lines ".format(e_id))
+                            for idx, v in enumerate(val):
+                                cond_tn_elements_lines[idx][e_id] = v
 
-        rasterize(mesh_nodes, triangles, cond_tn_elements[0])
-        # rasterize_values = []
-        # for e in range(n_tn_elements):
-        #     rasterize_values.append(rasterize(mesh_nodes, triangles, cond_tn_elements[e]))
+            elif feature_name == "cross_section":
+                for e_id, val in zip(ele_ids, list(all_fields[0][feature_name].values())):
+                    if e_id in lines:
+                        cs_lines.setdefault(val[0], []).append(e_id)
+
+        print("cs lines ", cs_lines)
+
+        trimesh, cvs_lines = rasterize(mesh_nodes, triangles, cond_tn_elements_triangles[0],
+                  lines, cond_tn_elements_lines[0], cs_lines, save_image=True)
+
+        cvs_lines = np.flip(cvs_lines, axis=0)
+        trimesh = np.flip(trimesh, axis=0)
+
+        np.save(os.path.join(sample_dir, "trimesh_bypixel_256"), trimesh)
+        np.save(os.path.join(sample_dir, "lines_bypixel_256"), cvs_lines)
+
+        trimes_values = np.load(os.path.join(sample_dir, "trimesh_bypixel_256.npy"))
+        lines_values = np.load(os.path.join(sample_dir, "lines_bypixel_256.npy"))
+
+        trimes_values = np.array(trimes_values.data)
+        #print("trimes_values ", trimes_values)
+
+        flatten_trimes = trimes_values.reshape(-1)
+        flatten_lines_values = lines_values.reshape(-1)
+
+        not_nan_indices = np.argwhere(~np.isnan(flatten_lines_values))
+        flatten_trimes[not_nan_indices] = flatten_lines_values[not_nan_indices]
+        trimes_values = flatten_trimes.reshape((int(np.sqrt(len(flatten_trimes))),
+                                                int(np.sqrt(len(flatten_trimes)))))
+
+
+        from PIL import Image as im
+
+        print("trimes values ", trimes_values)
+
+
+        # img_data = im.fromarray(trimes_values)
+        # img_data.save('dfm_model_from_array.png')
+
+        #plt.rcParams["figure.figsize"] = [7.50, 3.50]
+        # plt.rcParams["figure.autolayout"] = True
+
+        #arr = np.random.rand(5, 5)
+        plt.gray()
+        plt.imshow(trimes_values)
+
+        plt.show()
+
+        plt.gray()
+        plt.imshow(lines_values)
+
+        plt.show()
+
+
+
+        # print("np.isnan ", np.isnan(lines_values))
+        # exit()
         #
-        # rasterize_values = np.array(rasterize_values)
-        # print("rasterize_values.shape ", rasterize_values.shape)
-        # np.savez_compressed(os.path.join(sample_dir, "bypixel_512"), a=rasterize_values)
-
+        # print("trimes values ", trimes_values)
+        # print("lines values ", lines_values)
+        # print("lines values shape ", lines_values.shape)
+        # for i in range(lines_values.shape[0]):
+        #     for j in range(lines_values.shape[1]):
+        #         if not np.isnan(lines_values[i][j]):
+        #             print("lines_values[i][j] ", lines_values[i][j])
+        # exit()
 
         output_value = get_output(data_dir)
         print("output value ", output_value)
@@ -121,11 +205,7 @@ def get_node_features(fields_mesh, feature_names):
     :param feature_names: [[], []] - fields in each sublist are joint to one feature, each sublist corresponds to one vertex feature
     :return: list
     """
-    print("fields mesh ", fields_mesh)
     mesh = gmsh_io.GmshIO(fields_mesh)
-
-
-
     features = []
     all_joint_features = []
     all_fields = []
@@ -153,6 +233,7 @@ def extract_mesh_gmsh_io(mesh_file, get_points=False, image=False):
 
     bulk_elements = []
     triangles = {}
+    lines = {}
 
     for id, el in mesh.elements.items():
         _, tags, i_nodes = el
@@ -173,7 +254,11 @@ def extract_mesh_gmsh_io(mesh_file, get_points=False, image=False):
         point_region_ids[i] = region_id
         ele_ids[i] = id_bulk
         ele_nodes[id_bulk] = i_nodes
-        triangles[ele_ids[i]] = i_nodes
+
+        if len(i_nodes) == 2:
+            lines[ele_ids[i]] = i_nodes
+        elif len(i_nodes) == 3:
+            triangles[ele_ids[i]] = i_nodes
 
     if get_points:
         min_pt = np.min(centers, axis=0)
@@ -189,15 +274,15 @@ def extract_mesh_gmsh_io(mesh_file, get_points=False, image=False):
         return {'points': points, 'point_region_ids': point_region_ids, 'ele_ids': ele_ids, 'region_map': region_map}
 
     if image:
-        return mesh.nodes, triangles, ele_ids
-
+        return mesh.nodes, triangles, lines, ele_ids
     return ele_nodes
 
 
 if __name__ == "__main__":
-    data_dir = "/home/martin/Documents/MLMC-DFM/test/01_cond_field/homogenization_samples_no_fractures_constant_field"
+    #data_dir = "/home/martin/Documents/MLMC-DFM/test/01_cond_field/homogenization_samples_no_fractures"
+    data_dir = "/home/martin/Documents/MLMC-DFM/test/01_cond_field/homogenization_samples_fractures"
 
-    i = 0
+    i = 1
     while True:
         sample_dir = os.path.join(data_dir, "sample_{}".format(i))
         if os.path.exists(sample_dir):
