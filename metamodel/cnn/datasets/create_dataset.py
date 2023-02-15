@@ -4,10 +4,12 @@ import numpy as np
 import yaml
 import gmsh_io
 from rasterization import rasterize
+import time
 from matplotlib import pyplot as plt
 
 MESH_FILE = "mesh_fine.msh"
 FIELDS_MESH_FILE = "fields_fine.msh"
+SUMMARY_FILE = "summary.yaml"
 
 
 def create_output(sample_dir, symmetrize=True):
@@ -17,7 +19,7 @@ def create_output(sample_dir, symmetrize=True):
     :param symmetrize: bool, if True symmetrize conductivity tensor
     :return: None
     """
-    with open(os.path.join(sample_dir, "summary.yaml"), "r") as f:
+    with open(os.path.join(sample_dir, SUMMARY_FILE), "r") as f:
         summary_dict = yaml.load(f, Loader=yaml.Loader)
     cond_tn = np.array(summary_dict['fine']['cond_tn'])[0]
 
@@ -51,6 +53,7 @@ def create_input(sample_dir, n_pixels_x=256, feature_names=[['conductivity_tenso
     """
     n_tn_elements = 6  # number of tensor elements in use - upper triangular matrix of 3x3 tensor
     mesh = os.path.join(sample_dir, MESH_FILE)
+
     mesh_nodes, triangles, lines, ele_ids = extract_mesh_gmsh_io(mesh, image=True)
 
     field_mesh = os.path.join(sample_dir, FIELDS_MESH_FILE)
@@ -195,14 +198,27 @@ def extract_mesh_gmsh_io(mesh_file, get_points=False, image=False):
 
 if __name__ == "__main__":
     #data_dir = "/home/martin/Documents/MLMC-DFM/test/01_cond_field/homogenization_samples_no_fractures"
-    data_dir = "/home/martin/Documents/MLMC-DFM/test/01_cond_field/homogenization_samples_fractures"
+    #data_dir = "/home/martin/Documents/MLMC-DFM/test/01_cond_field/homogenization_samples_fractures"
+    data_dir = "/home/martin/Documents/MLMC-DFM/test/01_cond_field/homogenization_samples"
+
+    start_time = time.time()
 
     i = 0
     while True:
         sample_dir = os.path.join(data_dir, "sample_{}".format(i))
+        print("sample dir ", sample_dir)
         if os.path.exists(sample_dir):
+            if not os.path.exists(os.path.join(sample_dir, MESH_FILE)) \
+                    or not os.path.exists(os.path.join(sample_dir, SUMMARY_FILE)):
+                i += 1
+                continue
+
             create_input(sample_dir, n_pixels_x=256)
             create_output(sample_dir, symmetrize=True)
             i += 1
+
         else:
             break
+
+    stop_time = time.time()
+    print("total time: {}, time per sample: {}".format(stop_time - start_time, (stop_time-start_time)/(i+1)))

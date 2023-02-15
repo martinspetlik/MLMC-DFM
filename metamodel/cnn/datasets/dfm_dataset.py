@@ -13,13 +13,14 @@ class DFMDataset(Dataset):
     """DFM models dataset"""
 
     def __init__(self, data_dir, bulk_file_name="bulk_256.npz", fracture_file_name="fractures_256.npz",
-                 output_file_name="output_tensor.npy", transform=None):
+                 output_file_name="output_tensor.npy", transform=None, two_dim=True):
 
         self._data_dir = data_dir
         self._bulk_file_name = bulk_file_name
         self._fracture_file_name = fracture_file_name
         self._output_file_name = output_file_name
         self.transform = transform
+        self._two_dim = two_dim
 
         self._bulk_file_paths = []
         self._fracture_file_paths = []
@@ -56,7 +57,6 @@ class DFMDataset(Dataset):
 
     def __getitem__(self, idx):
         bulk_path, fractures_path = self._bulk_file_paths[idx], self._fracture_file_paths[idx]
-        #print("bulk_path ", bulk_path)
         output_path = self._output_file_paths[idx]
 
         if isinstance(bulk_path, (list, np.ndarray)):
@@ -70,33 +70,25 @@ class DFMDataset(Dataset):
         fractures_features = np.load(fractures_path)["data"]
         output_features = np.load(output_path, allow_pickle=True)
 
-        # @TODO: logarithm data to get normal distribution
+        if self._two_dim:
+            indices = [0,1,3]
+            bulk_features = bulk_features[indices, ...]
+            fractures_features = fractures_features[indices, ...]
+            output_features = output_features[indices, ...]
+
         bulk_features_shape = bulk_features.shape
 
         flatten_bulk_features = bulk_features.reshape(-1)
         flatten_fracture_features = fractures_features.reshape(-1)
 
         not_nan_indices = np.argwhere(~np.isnan(flatten_fracture_features))
-        #print("not nan indices ", not_nan_indices)
         flatten_bulk_features[not_nan_indices] = flatten_fracture_features[not_nan_indices]
         final_features = flatten_bulk_features.reshape(bulk_features_shape)
 
-        #final_features = np.transpose(final_features, (1, 2, 0))
+        final_features = torch.from_numpy(final_features)
+        output_features = torch.from_numpy(output_features)
+
+        if self.transform is not None:
+            final_features = self.transform(final_features)
 
         return final_features, output_features
-
-
-
-if __name__ == "__main__":
-    #dfm_dataset = DFMDataset(data_dir='/home/martin/Documents/MLMC-DFM/test/01_cond_field/homogenization_samples_fractures')
-    dfm_dataset = DFMDataset(data_dir='/home/martin/Documents/MLMC-DFM/test/01_cond_field/homogenization_samples')
-
-    for i in range(len(dfm_dataset)):
-        sample = dfm_dataset[i]
-
-        # Plot features
-        features = np.transpose(sample[0], (2,0,1))
-        for feature in features:
-            plt.gray()
-            plt.imshow(feature)
-            plt.show()
