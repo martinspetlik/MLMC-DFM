@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.transforms as transforms
 import torch.optim as optim
-from metamodel.cnn.models.net1 import Net1
+from metamodel.cnn.models.trials.net_1 import Net1
 from metamodel.cnn.datasets.dfm_dataset import DFMDataset
 from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
@@ -16,15 +16,16 @@ from metamodel.cnn.models.auxiliary_functions import get_mean_std, log_data
 #============
 # config
 #===========
-data_dir='/home/martin/Documents/MLMC-DFM/test/01_cond_field/homogenization_samples_dfm'
+data_dir='/home/martin/Documents/MLMC-DFM/test/01_cond_field/nn_data/homogenization_samples_no_fractures'
 use_cuda = False
 num_epochs = 50
 batch_size = 10
-n_train_samples = 400
+train_samples_ratio = 0.8
 val_samples_ratio = 0.2
 print_batches = 10
 log_input = False
 normalize_input = True
+
 
 
 #===================================
@@ -33,6 +34,8 @@ normalize_input = True
 mean, std = 0, 1
 if normalize_input:
     dataset_for_mean_std = DFMDataset(data_dir=data_dir,transform=None, two_dim=True)
+
+    n_train_samples = int(len(dataset_for_mean_std) * train_samples_ratio)
 
     train_val_set = dataset_for_mean_std[:n_train_samples]
     train_set = train_val_set[int(n_train_samples * val_samples_ratio):]
@@ -60,11 +63,13 @@ if len(transformations) > 0:
 #============================
 dataset = DFMDataset(data_dir=data_dir, transform=data_transform)
 
+n_train_samples = int(len(dataset) * train_samples_ratio)
+
 train_val_set = dataset[:n_train_samples]
 validation_set = train_val_set[:int(n_train_samples*val_samples_ratio)]
 train_set = train_val_set[int(n_train_samples*val_samples_ratio):]
 test_set = dataset[n_train_samples:]
-print("len(trainset): {}, len(valset): {}, len(testset): {}".format(train_set, validation_set, test_set))
+print("len(trainset): {}, len(valset): {}, len(testset): {}".format(len(train_set), len(validation_set), len(test_set)))
 
 train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, shuffle=True)
 validation_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, shuffle=False)
