@@ -7,6 +7,7 @@ import torch.nn.functional as F
 import torchvision.transforms as transforms
 import torch.optim as optim
 from metamodel.cnn.models.trials.net_1 import Net1
+from metamodel.cnn.models.trials.net_optuna_2 import Net
 from metamodel.cnn.datasets.dfm_dataset import DFMDataset
 from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
@@ -18,14 +19,13 @@ from metamodel.cnn.models.auxiliary_functions import get_mean_std, log_data
 #===========
 data_dir='/home/martin/Documents/MLMC-DFM/test/01_cond_field/nn_data/homogenization_samples_no_fractures'
 use_cuda = False
-num_epochs = 50
+num_epochs = 5
 batch_size = 10
 train_samples_ratio = 0.8
 val_samples_ratio = 0.2
 print_batches = 10
 log_input = False
 normalize_input = True
-
 
 
 #===================================
@@ -41,7 +41,7 @@ if normalize_input:
     train_set = train_val_set[int(n_train_samples * val_samples_ratio):]
 
     train_loader_mean_std = torch.utils.data.DataLoader(train_set, batch_size=batch_size, shuffle=False)
-    mean, std = get_mean_std(train_loader_mean_std)
+    mean, std, mean_out, std_out = get_mean_std(train_loader_mean_std)
 
 
 #=======================
@@ -79,7 +79,25 @@ test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuff
 #===========================
 # Model, loss, optimizer
 #===========================
-cnn_model = Net1()
+def set_model(code):
+
+    if code == "Net":
+        trial = None
+        max_channel = 3
+        kernel_size = 3
+        stride = 2
+        pool = None
+
+        return Net(trial, pool=pool, max_channel=max_channel, kernel_size=kernel_size, stride=stride)
+
+    else:
+        return Net1()
+
+
+cnn_model = set_model("Net")
+print("cnn_model.parameters()", cnn_model.parameters())
+
+
 if torch.cuda.is_available() and use_cuda:
     cnn_model = cnn_model.cuda()
 
@@ -107,8 +125,7 @@ def train_one_epoch(epoch_index, tb_writer):
 
         optimizer.zero_grad()
 
-        outputs = cnn_model(inputs)
-
+        outputs = torch.squeeze(cnn_model(inputs))
         loss = loss_fn(outputs, targets)
         loss.backward()
 
@@ -186,3 +203,4 @@ for epoch in range(num_epochs):
             'data_mean': mean,
             'data_std': std
         }, model_path)
+
