@@ -1,6 +1,8 @@
+import sys
 import time
 import torch
 import torchvision
+import argparse
 import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
@@ -13,103 +15,160 @@ from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
 from metamodel.cnn.models.auxiliary_functions import get_mean_std, log_data
 
+def train_model(data_dir, use_cuda=False):
 
-#============
-# config
-#===========
-data_dir='/home/martin/Documents/MLMC-DFM/test/01_cond_field/nn_data/homogenization_samples_no_fractures'
-use_cuda = False
-num_epochs = 5
-batch_size = 10
-train_samples_ratio = 0.8
-val_samples_ratio = 0.2
-print_batches = 10
-log_input = False
-normalize_input = True
-
-
-#===================================
-# Get mean and std for each channel
-#===================================
-mean, std = 0, 1
-if normalize_input:
-    dataset_for_mean_std = DFMDataset(data_dir=data_dir,transform=None, two_dim=True)
-
-    n_train_samples = int(len(dataset_for_mean_std) * train_samples_ratio)
-
-    train_val_set = dataset_for_mean_std[:n_train_samples]
-    train_set = train_val_set[int(n_train_samples * val_samples_ratio):]
-
-    train_loader_mean_std = torch.utils.data.DataLoader(train_set, batch_size=batch_size, shuffle=False)
-    mean, std, mean_out, std_out = get_mean_std(train_loader_mean_std)
+    #============
+    # config
+    #===========
+    num_epochs = 5
+    batch_size = 10
+    train_samples_ratio = 0.8
+    val_samples_ratio = 0.2
+    print_batches = 50
+    log_input = False
+    normalize_input = True
 
 
-#=======================
-# data transforms
-#=======================
-transformations = []
-data_transform = None
-if log_input:
-    transformations.append(transforms.Lambda(log_data))
-if normalize_input:
-    transformations.append(transforms.Normalize(mean=mean, std=std))
+    #===================================
+    # Get mean and std for each channel
+    #===================================
+    mean, std = 0, 1
+    if normalize_input:
+        dataset_for_mean_std = DFMDataset(data_dir=data_dir,transform=None, two_dim=True)
 
-if len(transformations) > 0:
-    data_transform = transforms.Compose(transformations)
+        n_train_samples = int(len(dataset_for_mean_std) * train_samples_ratio)
 
+        train_val_set = dataset_for_mean_std[:n_train_samples]
+        train_set = train_val_set[int(n_train_samples * val_samples_ratio):]
 
-#============================
-# Datasets and data loaders
-#============================
-dataset = DFMDataset(data_dir=data_dir, transform=data_transform)
-
-n_train_samples = int(len(dataset) * train_samples_ratio)
-
-train_val_set = dataset[:n_train_samples]
-validation_set = train_val_set[:int(n_train_samples*val_samples_ratio)]
-train_set = train_val_set[int(n_train_samples*val_samples_ratio):]
-test_set = dataset[n_train_samples:]
-print("len(trainset): {}, len(valset): {}, len(testset): {}".format(len(train_set), len(validation_set), len(test_set)))
-
-train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, shuffle=True)
-validation_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, shuffle=False)
-test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuffle=False)
+        train_loader_mean_std = torch.utils.data.DataLoader(train_set, batch_size=batch_size, shuffle=False)
+        mean, std, mean_out, std_out = get_mean_std(train_loader_mean_std)
 
 
-#===========================
-# Model, loss, optimizer
-#===========================
-def set_model(code):
+    #=======================
+    # data transforms
+    #=======================
+    transformations = []
+    data_transform = None
+    if log_input:
+        transformations.append(transforms.Lambda(log_data))
+    if normalize_input:
+        transformations.append(transforms.Normalize(mean=mean, std=std))
 
-    if code == "Net":
-        trial = None
-        max_channel = 3
-        kernel_size = 3
-        stride = 2
-        pool = None
-
-        return Net(trial, pool=pool, max_channel=max_channel, kernel_size=kernel_size, stride=stride)
-
-    else:
-        return Net1()
+    if len(transformations) > 0:
+        data_transform = transforms.Compose(transformations)
 
 
-cnn_model = set_model("Net")
-print("cnn_model.parameters()", cnn_model.parameters())
+    #============================
+    # Datasets and data loaders
+    #============================
+    dataset = DFMDataset(data_dir=data_dir, transform=data_transform)
+
+    n_train_samples = int(len(dataset) * train_samples_ratio)
+
+    train_val_set = dataset[:n_train_samples]
+    validation_set = train_val_set[:int(n_train_samples*val_samples_ratio)]
+    train_set = train_val_set[int(n_train_samples*val_samples_ratio):]
+    test_set = dataset[n_train_samples:]
+    print("len(trainset): {}, len(valset): {}, len(testset): {}".format(len(train_set), len(validation_set), len(test_set)))
+
+    train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, shuffle=True)
+    validation_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, shuffle=False)
+    test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuffle=False)
 
 
-if torch.cuda.is_available() and use_cuda:
-    cnn_model = cnn_model.cuda()
+    #===========================
+    # Model, loss, optimizer
+    #===========================
+    def set_model(code):
 
-loss_fn = nn.MSELoss()
-optimizer = optim.SGD(cnn_model.parameters(), lr=0.001, momentum=0.9)
+        if code == "Net":
+            trial = None
+            max_channel = 3
+            kernel_size = 3
+            stride = 2
+            pool = None
 
-best_vloss = 1_000_000.
+            return Net(trial, pool=pool, max_channel=max_channel, kernel_size=kernel_size, stride=stride)
+
+        else:
+            return Net1()
+
+    cnn_model = set_model("Net")
+
+    if torch.cuda.is_available() and use_cuda:
+        cnn_model = cnn_model.cuda()
+
+    loss_fn = nn.MSELoss()
+    optimizer = optim.SGD(cnn_model.parameters(), lr=0.001, momentum=0.9)
+
+    best_vloss = 1_000_000.
+
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    writer = SummaryWriter('runs/dfm_trainer_{}'.format(timestamp))
+
+    #=========================
+    # Loop through epochs
+    #=========================
+    start_time = time.time()
+    for epoch in range(num_epochs):
+        # Make sure gradient tracking is on, and do a pass over the data
+        cnn_model.train(True)
+        avg_loss = train_one_epoch(train_loader, cnn_model, optimizer, loss_fn, epoch, writer, use_cuda=use_cuda,
+                                   print_batches=print_batches)
+
+        # We don't need gradients on to do reporting
+        cnn_model.train(False)
+        #torch.cuda.empty_cache()
+
+        # validation loss
+        running_vloss = 0.0
+        for i, vdata in enumerate(validation_loader):
+            vinputs, vtargets = vdata
+
+            if torch.cuda.is_available() and use_cuda:
+                vinputs = vinputs.cuda()
+                vtargets = vtargets.cuda()
+
+            vinputs = vinputs.float()
+            vtargets = vtargets.float()
+
+            voutputs = torch.squeeze(cnn_model(vinputs))
+            vloss = loss_fn(voutputs, vtargets)
+            running_vloss += vloss
+
+        avg_vloss = running_vloss / (i + 1)
+        print('LOSS train {} valid {}'.format(avg_loss, avg_vloss))
+
+        # Log the running loss averaged per batch
+        # for both training and validation
+        writer.add_scalars('Training vs. Validation Loss',
+                        {'Training' : avg_loss, 'Validation' : avg_vloss },
+                        int(epoch)+1)
+        writer.flush()
+
+        # Track best performance, and save the model's state
+        if avg_vloss < best_vloss:
+            best_vloss = avg_vloss
+            model_path = 'model_{}_{}_{}'.format(cnn_model._name, timestamp, epoch)
+            torch.save(cnn_model.state_dict(), model_path)
+
+            torch.save({
+                'epoch': int(epoch)+1,
+                'model_state_dict': cnn_model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'train_loss': avg_loss,
+                'valid_loss': avg_vloss,
+                'training_time': time.time()-start_time,
+                'data_mean': mean,
+                'data_std': std
+            }, model_path)
+
 
 #================================
 # one epoch training procedure
 #================================
-def train_one_epoch(epoch_index, tb_writer):
+def train_one_epoch(train_loader, cnn_model, optimizer, loss_fn, epoch_index, tb_writer, use_cuda=False, print_batches=10):
     running_loss = 0.
     last_loss = 0.
 
@@ -142,65 +201,10 @@ def train_one_epoch(epoch_index, tb_writer):
 
     return last_loss
 
-timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-writer = SummaryWriter('runs/dfm_trainer_{}'.format(timestamp))
 
-#=========================
-# Loop through epochs
-#=========================
-start_time = time.time()
-for epoch in range(num_epochs):
-    print('EPOCH {}:'.format(epoch))
-
-    # Make sure gradient tracking is on, and do a pass over the data
-    cnn_model.train(True)
-    avg_loss = train_one_epoch(epoch, writer)
-
-    # We don't need gradients on to do reporting
-    cnn_model.train(False)
-
-    #torch.cuda.empty_cache()
-
-    # validation loss
-    running_vloss = 0.0
-    for i, vdata in enumerate(validation_loader):
-        vinputs, vtargets = vdata
-
-        if torch.cuda.is_available() and use_cuda:
-            vinputs = vinputs.cuda()
-            vtargets = vtargets.cuda()
-
-        vinputs = vinputs.float()
-        vtargets = vtargets.float()
-
-        voutputs = cnn_model(vinputs)
-        vloss = loss_fn(voutputs, vtargets)
-        running_vloss += vloss
-
-    avg_vloss = running_vloss / (i + 1)
-    print('LOSS train {} valid {}'.format(avg_loss, avg_vloss))
-
-    # Log the running loss averaged per batch
-    # for both training and validation
-    writer.add_scalars('Training vs. Validation Loss',
-                    {'Training' : avg_loss, 'Validation' : avg_vloss },
-                    int(epoch)+1)
-    writer.flush()
-
-    # Track best performance, and save the model's state
-    if avg_vloss < best_vloss:
-        best_vloss = avg_vloss
-        model_path = 'model_{}_{}_{}'.format(cnn_model._name, timestamp, epoch)
-        torch.save(cnn_model.state_dict(), model_path)
-
-        torch.save({
-            'epoch': int(epoch)+1,
-            'model_state_dict': cnn_model.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-            'train_loss': avg_loss,
-            'valid_loss': avg_vloss,
-            'training_time': time.time()-start_time,
-            'data_mean': mean,
-            'data_std': std
-        }, model_path)
-
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument('data_dir', help='Data directory')
+    parser.add_argument("-c", "--cuda", default=False, action='store_true', help="use cuda")
+    args = parser.parse_args(sys.argv[1:])
+    train_model(args.data_dir, use_cuda=args.cuda)
