@@ -1,7 +1,8 @@
+import os
 import sys
 import time
 import torch
-import torchvision
+#import torchvision
 import argparse
 import numpy as np
 import torch.nn as nn
@@ -95,6 +96,7 @@ def train_model(data_dir, use_cuda=False):
             return Net1()
 
     cnn_model = set_model("Net")
+    print("torch.cuda.is_available ", torch.cuda.is_available())
 
     if torch.cuda.is_available() and use_cuda:
         cnn_model = cnn_model.cuda()
@@ -150,7 +152,9 @@ def train_model(data_dir, use_cuda=False):
         # Track best performance, and save the model's state
         if avg_vloss < best_vloss:
             best_vloss = avg_vloss
-            model_path = 'model_{}_{}_{}'.format(cnn_model._name, timestamp, epoch)
+            print("os.getcwd() ", os.getcwd())
+            model_path = os.path.join(os.getcwd(),
+                                      'model_{}_{}_{}'.format(cnn_model._name, timestamp, epoch))
             torch.save(cnn_model.state_dict(), model_path)
 
             torch.save({
@@ -203,6 +207,7 @@ def train_one_epoch(train_loader, cnn_model, optimizer, loss_fn, epoch_index, tb
 
 
 if __name__ == "__main__":
+    print("torch.cuda.is_available() ", torch.cuda.is_available())
     parser = argparse.ArgumentParser()
     parser.add_argument('data_dir', help='Data directory')
     parser.add_argument("-c", "--cuda", default=False, action='store_true', help="use cuda")
