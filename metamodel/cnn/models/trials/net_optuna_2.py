@@ -6,7 +6,7 @@ import torch.nn.functional as F
 
 class Net(nn.Module):
 
-    def __init__(self, trial, pool, max_channel, kernel_size, stride, use_dropout=False, input_size=256, min_channel=3):
+    def __init__(self, trial=None, pool=None, max_channel=3, kernel_size=3, stride=3, use_dropout=False, input_size=256, min_channel=3):
 
         super(Net, self).__init__()
         self._name = "pure_cnn_net"

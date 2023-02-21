@@ -1,4 +1,8 @@
 import os
+import sys
+import argparse
+import logging
+import joblib
 import torch
 import torchvision
 import torch.nn as nn
@@ -6,6 +10,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 import optuna
 from optuna.trial import TrialState
+from optuna.samplers import TPESampler
 import time
 import numpy as np
 import torch.nn.functional as F
@@ -18,7 +23,7 @@ from datetime import datetime
 from metamodel.cnn.models.auxiliary_functions import get_mean_std, log_data
 
 
-def train_one_epoch(model, optimizer, loss_fn=nn.MSELoss):
+def train_one_epoch(model, optimizer, loss_fn=nn.MSELoss(), use_cuda=True):
     """
     Train NN
     :param model:
@@ -40,7 +45,7 @@ def train_one_epoch(model, optimizer, loss_fn=nn.MSELoss):
 
         optimizer.zero_grad()
 
-        outputs = model(inputs)
+        outputs = torch.squeeze(model(inputs))
 
         loss = loss_fn(outputs, targets)
         loss.backward()
@@ -54,11 +59,10 @@ def train_one_epoch(model, optimizer, loss_fn=nn.MSELoss):
     return train_loss
 
 
-def validate(model, validation_loader, loss_fn=nn.MSELoss):
+def validate(model, loss_fn=nn.MSELoss(), use_cuda=False):
     """
     Validate model
     :param model:
-    :param validation_loader:
     :param loss_fn:
     :return:
     """
@@ -73,7 +77,7 @@ def validate(model, validation_loader, loss_fn=nn.MSELoss):
         vinputs = vinputs.float()
         vtargets = vtargets.float()
 
-        voutputs = model(vinputs)
+        voutputs = torch.squeeze(model(vinputs))
         vloss = loss_fn(voutputs, vtargets)
         running_vloss += vloss
 
@@ -83,71 +87,84 @@ def validate(model, validation_loader, loss_fn=nn.MSELoss):
 
 
 def objective(trial):
-    #num_conv_layers = trial.suggest_int("num_conv_layers", 2, 4)  # Number of convolutional layers
-    #same_channels = trial.suggest_categorical("same_channels", [False, True])
-
-    # channels = []
-    #
-    # print("range", list(range(3, 48, 6)))
-    # print("np linspace ", int(np.linspace(3, 48, num=num_conv_layers)))
-
-    # for i in range(num_conv_layers):
-    #     channels.append(trial.suggest_int())
-    #
-    # #@TODO: suggest discrete uniform with suggest_int
-    #
-    # channels = [int(trial.suggest_discrete_uniform("channels_"+str(i), 3, 48, 6))
-    #                for i in range(num_conv_layers)]              # Number of filters for the convolutional layers
-
-    #print("channels ", channels)
-
-    max_channel = trial.suggest_int("max_channel", 3, 32, 64, 128)
-
-    kernel_size = trial.suggest_int("kernel_size", 3, 5)
+    best_vloss = 1_000_000.
+    # Settings
+    max_channel = 3 #trial.suggest_categorical("max_channel",[3, 32, 64, 128])
+    kernel_size = 3 #trial.suggest_int("kernel_size", 3)
     stride = trial.suggest_int("stride", 2, 3)
-    #num_neurons = trial.suggest_int("num_neurons", 10, 400, 10)  # Number of neurons of FC1 layer
+    #pool = trial.suggest_categorical("pool", [None, "max", "avg"])
+    # optimizer_name = trial.suggest_categorical("optimizer", ["Adam", "SGD"])
+    lr = trial.suggest_categorical("lr", [1e-3]) #trial.suggest_float("lr", 1e-4, 1e-2, log=True)
 
-    pool = trial.suggest_categorical("pool", [None, "max", "avg"])
-    #drop_conv2 = trial.suggest_float("drop_conv2", 0., 0.5)     # Dropout for convolutional layer 2
-    #drop_fc1 = trial.suggest_float("drop_fc1", 0., 0.5)         # Dropout for FC1 layer
+    # max_channel = trial.suggest_int("max_channel", 3)
+    # kernel_size = trial.suggest_int("kernel_size", 3)
+    # stride = trial.suggest_int("stride", 2)
+    pool = trial.suggest_categorical("pool", [None])
+    optimizer_name = trial.suggest_categorical("optimizer", ["Adam"])
+    #lr = trial.suggest_float("lr", 1e-3)
 
-    # Generate the model
-    model = Net(trial, pool, max_channel, kernel_size, stride).to(device)
+    # Initilize model
+    model_kwargs = {"pool": pool,
+                    "max_channel": max_channel,
+                    "kernel_size": kernel_size,
+                    "stride": stride}
+    model = Net(trial, **model_kwargs).to(device)
 
-    # Generate the optimizers
-    optimizer_name = trial.suggest_categorical("optimizer", ["Adam", "SGD"])  # Optimizers
-    lr = trial.suggest_float("lr", 1e-4, 1e-2, log=True)                                 # Learning rates
-    optimizer = getattr(optim, optimizer_name)(model.parameters(), lr=lr)
+    # Initialize optimizer
+    optimizer_kwargs = {"lr": lr}
+    optimizer = getattr(optim, optimizer_name)(params=model.parameters(), **optimizer_kwargs)
+
+    trial.set_user_attr("model_class", model.__class__)
+    trial.set_user_attr("optimizer_class", optimizer.__class__)
+    trial.set_user_attr("model_name", model._name)
+    trial.set_user_attr("model_kwargs", model_kwargs)
+    trial.set_user_attr("optimizer_kwargs", optimizer_kwargs)
 
     # Training of the model
+    start_time = time.time()
     for epoch in range(num_epochs):
-        train_one_epoch(model, optimizer)  # Train the model
-        accuracy = validate(model)   # Evaluate the model
+        avg_loss = train_one_epoch(model, optimizer, loss_fn=nn.MSELoss(), use_cuda=use_cuda)  # Train the model
+        avg_vloss = validate(model, loss_fn=nn.MSELoss(), use_cuda=use_cuda)   # Evaluate the model
+
+        if avg_vloss < best_vloss:
+            best_vloss = avg_vloss
+            model_path = 'model_{}_{}'.format(model._name, epoch)
+            trial.set_user_attr("epoch", epoch)
+            for key, value in trial.params.items():
+                model_path += "_{}_{}".format(key, value)
+            model_path = os.path.join(output_dir, model_path)
+
+            torch.save({
+                'epoch': int(epoch) + 1,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'train_loss': avg_loss,
+                'valid_loss': avg_vloss,
+                'training_time': time.time() - start_time,
+                'data_mean': mean,
+                'data_std': std
+            }, model_path)
 
         # For pruning (stops trial early if not promising)
-        trial.report(accuracy, epoch)
+        trial.report(avg_vloss, epoch)
         # Handle pruning based on the intermediate value.
         if trial.should_prune():
             raise optuna.exceptions.TrialPruned()
 
-    return accuracy
+    return avg_vloss
 
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('data_dir', help='Data directory')
+    parser.add_argument('output_dir', help='Output directory')
+    parser.add_argument("-c", "--cuda", default=False, action='store_true', help="use cuda")
+    args = parser.parse_args(sys.argv[1:])
 
-    # -------------------------------------------------------------------------
-    # Optimization study for a PyTorch CNN with Optuna
-    # -------------------------------------------------------------------------
-
-    # Use cuda if available for faster computations
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    # ============
-    # config
-    # ===========
-    data_dir = '/home/martin/Documents/MLMC-DFM/test/01_cond_field/nn_data/homogenization_samples_no_fractures'
-    use_cuda = False
-    num_epochs = 50
+    data_dir = args.data_dir
+    output_dir = args.output_dir
+    use_cuda = args.cuda
+    num_epochs = 2
     batch_size_train = 25
     batch_size_test = 250
     train_samples_ratio = 0.8
@@ -157,47 +174,19 @@ if __name__ == '__main__':
     normalize_input = True
 
     # Ooptuna params
-    num_trials = 100
+    num_trials = 2#100
 
-    # limit_obs = True
-    #
-    #
-    # # *** Note: For more accurate results, do not limit the observations.
-    # #           If not limited, however, it might take a very long time to run.
-    # #           Another option is to limit the number of epochs. ***
-    #
-    # if limit_obs:  # Limit number of observations
-    #     number_of_train_examples = 500 * batch_size_train  # Max train observations
-    #     number_of_test_examples = 5 * batch_size_test      # Max test observations
-    # else:
-    #     number_of_train_examples = 60000                   # Max train observations
-    #     number_of_test_examples = 10000                    # Max test observations
-    # # -------------------------------------------------------------------------
+    device = torch.device("cuda" if torch.cuda.is_available() and use_cuda else "cpu")
+    print("device ", device)
 
     # Make runs repeatable
     random_seed = 12345
     torch.backends.cudnn.enabled = False  # Disable cuDNN use of nondeterministic algorithms
     torch.manual_seed(random_seed)
-
-    # # Create directory 'files', if it doesn't exist, to save the dataset
-    # directory_name = 'files'
-    # if not os.path.exists(directory_name):
-    #     os.mkdir(directory_name)
-    #
-    # # Download MNIST dataset to 'files' directory and normalize it
-    # train_loader = torch.utils.data.DataLoader(
-    #     torchvision.datasets.MNIST('/files/', train=True, download=True,
-    #                                transform=torchvision.transforms.Compose([
-    #                                    torchvision.transforms.ToTensor(),
-    #                                    torchvision.transforms.Normalize((0.1307,), (0.3081,))])),
-    #     batch_size=batch_size_train, shuffle=True)
-    #
-    # test_loader = torch.utils.data.DataLoader(
-    #     torchvision.datasets.MNIST('/files/', train=False, download=True,
-    #                                transform=torchvision.transforms.Compose([
-    #                                    torchvision.transforms.ToTensor(),
-    #                                    torchvision.transforms.Normalize((0.1307,), (0.3081,))])),
-    #     batch_size=batch_size_test, shuffle=True)
+    output_dir = os.path.join(output_dir, str(random_seed))
+    if os.path.exists(output_dir):
+        raise IsADirectoryError("Results output dir {} already exists".format(output_dir))
+    os.mkdir(output_dir)
 
     # ===================================
     # Get mean and std for each channel
@@ -227,6 +216,7 @@ if __name__ == '__main__':
     if len(transformations) > 0:
         data_transform = transforms.Compose(transformations)
 
+
     # ============================
     # Datasets and data loaders
     # ============================
@@ -242,12 +232,16 @@ if __name__ == '__main__':
                                                                         len(test_set)))
 
     train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size_train, shuffle=True)
-    validation_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size_test, shuffle=False)
+    validation_loader = torch.utils.data.DataLoader(validation_set, batch_size=batch_size_test, shuffle=False)
     test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size_test, shuffle=False)
 
-    # Create an Optuna study to maximize test accuracy
-    study = optuna.create_study(direction="maximize")
+
+    study = optuna.create_study(sampler=TPESampler(seed=random_seed), direction="maximize")
     study.optimize(objective, n_trials=num_trials)
+
+    study.set_user_attr("n_train_samples", len(train_set))
+    study.set_user_attr("n_val_samples", len(validation_set))
+    study.set_user_attr("n_test_samples", len(test_set))
 
     # -------------------------------------------------------------------------
     # Results
@@ -287,3 +281,7 @@ if __name__ == '__main__':
     print('\nMost important hyperparameters:')
     for key, value in most_important_parameters.items():
         print('  {}:{}{:.2f}%'.format(key, (15-len(key))*' ', value*100))
+
+    # serialize dataset object and optuna study object
+    joblib.dump(dataset, os.path.join(output_dir, "dataset.pkl"))
+    joblib.dump(study, os.path.join(output_dir, "study.pkl"))
