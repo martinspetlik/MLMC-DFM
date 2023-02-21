@@ -5,7 +5,7 @@ import yaml
 import gmsh_io
 from rasterization import rasterize
 import time
-from matplotlib import pyplot as plt
+#from matplotlib import pyplot as plt
 
 MESH_FILE = "mesh_fine.msh"
 FIELDS_MESH_FILE = "fields_fine.msh"
@@ -87,15 +87,15 @@ def create_input(sample_dir, n_pixels_x=256, feature_names=[['conductivity_tenso
                     if e_id in lines:
                         cs_lines.setdefault(val[0], []).append(e_id)
 
-
         bulk_data_array = np.empty((n_tn_elements, n_pixels_x, n_pixels_x))
         fractures_data_array = np.empty((n_tn_elements, n_pixels_x, n_pixels_x))
+
         for k in range(n_tn_elements):
             trimesh, cvs_lines = rasterize(mesh_nodes, triangles, cond_tn_elements_triangles[k],
                       lines, cond_tn_elements_lines[k], cs_lines, n_pixels_x, save_image=True)
 
             bulk_data_array[k] = np.flip(trimesh, axis=0)
-            fractures_data_array[k] =np.flip(cvs_lines, axis=0)
+            fractures_data_array[k] = np.flip(cvs_lines, axis=0)
 
         np.savez_compressed(os.path.join(sample_dir, "bulk_{}".format(n_pixels_x)), data=bulk_data_array)
         np.savez_compressed(os.path.join(sample_dir, "fractures_{}".format(n_pixels_x)), data=fractures_data_array)
@@ -198,8 +198,9 @@ def extract_mesh_gmsh_io(mesh_file, get_points=False, image=False):
 
 if __name__ == "__main__":
     #data_dir = "/home/martin/Documents/MLMC-DFM/test/01_cond_field/homogenization_samples_no_fractures"
-    #data_dir = "/home/martin/Documents/MLMC-DFM/test/01_cond_field/homogenization_samples_fractures"
-    data_dir = "/home/martin/Documents/MLMC-DFM/test/01_cond_field/homogenization_samples"
+    #data_dir = "/home/martin/Documents/MLMC-DFM/test/01_cond_field/nn_data/homogenization_samples_dfm"
+    data_dir = "/home/martin/Documents/MLMC-DFM/test/01_cond_field/nn_data/homogenization_samples_no_fractures"
+    #data_dir = "/home/martin/Documents/MLMC-DFM/test/01_cond_field/nn_data/homogenization_samples_6_5_8_c_2"
 
     start_time = time.time()
 

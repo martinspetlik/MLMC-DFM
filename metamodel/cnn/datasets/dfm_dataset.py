@@ -90,5 +90,7 @@ class DFMDataset(Dataset):
 
         if self.transform is not None:
             final_features = self.transform(final_features)
+            #@TODO: transform output features - own transformation compose object
+            #output_features = self.transform(output_features)
 
         return final_features, output_features
