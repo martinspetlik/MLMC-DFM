@@ -5,7 +5,7 @@ import yaml
 import gmsh_io
 from rasterization import rasterize
 import time
-from matplotlib import pyplot as plt
+#from matplotlib import pyplot as plt
 
 MESH_FILE = "mesh_fine.msh"
 FIELDS_MESH_FILE = "fields_fine.msh"
