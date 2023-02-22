@@ -3,7 +3,20 @@ import numpy as np
 
 
 def log_data(data):
-    return torch.log(data)
+    output_data = torch.empty((data.shape))
+    output_data[0][...] = torch.log(data[0])
+    output_data[1][...] = data[1]
+    output_data[2][...] = torch.log(data[2])
+
+    return output_data
+
+def exp_data(data):
+    output_data = torch.empty((data.shape))
+    output_data[0][...] = torch.exp(data[0])
+    output_data[1][...] = data[1]
+    output_data[2][...] = torch.exp(data[2])
+
+    return output_data
 
 
 def get_mean_std(data_loader):

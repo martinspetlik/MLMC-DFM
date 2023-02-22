@@ -13,13 +13,14 @@ class DFMDataset(Dataset):
     """DFM models dataset"""
 
     def __init__(self, data_dir, bulk_file_name="bulk_256.npz", fracture_file_name="fractures_256.npz",
-                 output_file_name="output_tensor.npy", transform=None, two_dim=True):
+                 output_file_name="output_tensor.npy", input_transform=None, output_transform=None, two_dim=True):
 
         self._data_dir = data_dir
         self._bulk_file_name = bulk_file_name
         self._fracture_file_name = fracture_file_name
         self._output_file_name = output_file_name
-        self.transform = transform
+        self.input_transform = input_transform
+        self.output_transform = output_transform
         self._two_dim = two_dim
 
         self._bulk_file_paths = []
@@ -88,9 +89,10 @@ class DFMDataset(Dataset):
         final_features = torch.from_numpy(final_features)
         output_features = torch.from_numpy(output_features)
 
-        if self.transform is not None:
-            final_features = self.transform(final_features)
-            #@TODO: transform output features - own transformation compose object
-            #output_features = self.transform(output_features)
+        if self.input_transform is not None:
+            final_features = self.input_transform(final_features)
+        if self.output_transform is not None:
+            reshaped_output = torch.reshape(output_features, (*output_features.shape, 1, 1))
+            output_features = np.squeeze(self.output_transform(reshaped_output))
 
         return final_features, output_features

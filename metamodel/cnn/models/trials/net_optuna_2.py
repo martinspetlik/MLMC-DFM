@@ -6,13 +6,16 @@ import torch.nn.functional as F
 
 class Net(nn.Module):
 
-    def __init__(self, trial=None, pool=None, max_channel=3, kernel_size=3, stride=3, use_dropout=False, input_size=256, min_channel=3):
+    def __init__(self, trial=None, pool=None, max_channel=3, kernel_size=3, stride=3, use_dropout=False,
+                 input_size=256, min_channel=3, use_batch_norm=False):
 
         super(Net, self).__init__()
         self._name = "pure_cnn_net"
         self._use_dropout = use_dropout
         self._pool = pool
         self._convs = nn.ModuleList()
+        self._batch_norms = nn.ModuleList()
+        self._use_batch_norm = use_batch_norm
 
         n_layers = 0
         while True:
@@ -31,8 +34,8 @@ class Net(nn.Module):
                                         out_channels=channels[i+1],
                                         kernel_size=kernel_size,
                                         stride=stride))
-
-            #print("in_channels: {}, out_channels: {}".format(channels[i - 1], channels[i]))
+            if self._use_batch_norm:
+                self._batch_norms.append(nn.BatchNorm2d(channels[i+1]))
 
 
     def forward(self, x):
@@ -42,13 +45,19 @@ class Net(nn.Module):
             elif self._pool == "avg":
                 pool = F.avg_pool2d
 
-            if i == len(self._convs)-1:
+            if i == len(self._convs) - 1:
                 x = conv_i(x)
+            elif self._use_batch_norm:
+                if self._pool is not None:
+                    if self._use_dropout and i == 2:
+                        x = F.relu(pool(self.conv2_drop(self._batch_norms[i](conv_i(x))), 2))
+                else:
+                    x = F.relu(self._batch_norms[i](conv_i(x)))
             else:
                 if self._pool is not None:
                     if self._use_dropout and i == 2:
-                        x = F.relu(pool(self.conv2_drop(conv_i(x)), 2))
+                        x = F.relu(pool(self.conv2_drop(self._batch_norms[i](conv_i(x))), 2))
                 else:
-                    x = F.relu(conv_i(x))
+                    x = F.relu(self._batch_norms[i](conv_i(x)))
 
         return x

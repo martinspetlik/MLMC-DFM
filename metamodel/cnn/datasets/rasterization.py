@@ -41,7 +41,7 @@ def rasterize(mesh_nodes, triangles, cond_tn_elements_triangles,
     tris['rf_value'] = np.squeeze(np.array(list(srf.values())))
     trimesh = canvas.trimesh(verts, tris, interpolate='nearest')
 
-    cvs_lines = np.zeros((n_pixels_x, n_pixels_x))
+    cvs_lines = np.full((n_pixels_x, n_pixels_x), np.nan)
     if len(lines) > 0:
         cvs_lines = rasterize_lines(canvas, verts, lines, cond_tn_elements_lines,  cs_lines)
 
