@@ -47,7 +47,7 @@ def load_models(results_dir, study):
         transforms_list = [transforms.Normalize(mean=zeros_mean, std=std),
                             transforms.Normalize(mean=mean, std=ones_std)]
 
-        if "output_log" in study.user_attrs:
+        if "output_log" in study.user_attrs and study.user_attrs["output_log"]:
             transforms_list.append(transforms.Lambda(exp_data))
 
         inverse_transform = transforms.Compose(transforms_list)
@@ -85,6 +85,8 @@ def load_models(results_dir, study):
             targets_list.append(targets.numpy())
             predictions_list.append(predictions.numpy())
 
+            #print("targets_lists[0][0] ", targets_list[0][0])
+
             loss_fn = study.best_trial.user_attrs["loss_fn_name"]()
             loss = loss_fn(predictions, targets)
             running_loss += loss
@@ -97,9 +99,11 @@ def load_models(results_dir, study):
 
             inv_running_loss += loss_fn(inv_predictions, inv_targets)
 
-
             inv_targets_list.append(inv_targets.numpy())
             inv_predictions_list.append(inv_predictions.numpy())
+
+            # print("inv_targets_lists[0][0] ", inv_targets_list[0][0])
+            # exit()
 
             # if i % 10 == 9:
             #     plot_tensors(predictions.numpy(), targets.numpy(), label="test_sample_{}".format(i),
@@ -108,7 +112,7 @@ def load_models(results_dir, study):
         test_loss = running_loss / (i + 1)
         inv_test_loss = inv_running_loss / (i + 1)
 
-        #plot_target_prediction(targets_list, predictions_list)
+        #plot_target_prediction(np.array(targets_list), np.array(predictions_list))
         plot_target_prediction(np.array(inv_targets_list), np.array(inv_predictions_list))
 
         print("epochs: {}, train loss: {}, valid loss: {}, test loss: {}, inv test loss: {}".format(epoch,

@@ -6,20 +6,20 @@ import torch.nn.functional as F
 
 class Net(nn.Module):
 
-    def __init__(self, trial, n_conv_layers, max_channel, pool, kernel_size=3, stride=1, use_batch_norm=True,
-                 n_hidden_layers=1, max_hidden_neurons=520, hidden_activation=F.relu,
-                 input_size=256, min_channel=3, use_dropout=False):
-
-
+    def __init__(self, trial=None, n_conv_layers=3, max_channel=3, pool=None, kernel_size=3, stride=1,pool_size=2,
+                 pool_stride=2, use_batch_norm=True, n_hidden_layers=1, max_hidden_neurons=520,
+                 hidden_activation=F.relu, input_size=256, min_channel=3, use_dropout=False):
         super(Net, self).__init__()
         self._name = "pure_cnn_net"
         self._use_dropout = use_dropout
         self._pool = pool
+        self._pool_size = pool_size
+        self._pool_stride = pool_stride
         self._convs = nn.ModuleList()
         self._hidden_layers = nn.ModuleList()
-        self._batch_norms = nn.ModuleList()
         self._use_batch_norm = use_batch_norm
         self._hidden_activation = hidden_activation
+        self._batch_norms = nn.ModuleList()
 
         channels = np.linspace(start=min_channel, stop=max_channel, num=n_conv_layers+1, dtype=int)
         print("channels ", channels)
@@ -34,17 +34,20 @@ class Net(nn.Module):
 
             input_size = int(((input_size - kernel_size) / stride)) + 1
 
-        print("input_size ", input_size)
+            if self._pool is not None:
+                input_size = int(((input_size - pool_size) / pool_stride)) + 1
 
         hidden_neurons = np.linspace(start=max_hidden_neurons, stop=min_channel, num=n_hidden_layers, dtype=int)
-        print("hidden neurons ", hidden_neurons)
 
+        print("input size ", input_size)
+        print("channel ", channels[i+1])
+
+        input_size = channels[i+1] * input_size * input_size
         for i in range(n_hidden_layers):
-            self._hidden_layers.append(input_size, hidden_neurons[i])
+            self._hidden_layers.append(nn.Linear(input_size, hidden_neurons[i]))
             input_size = hidden_neurons[i]
 
         self._output_layer = nn.Linear(input_size, min_channel)
-
 
     def forward(self, x):
         for i, conv_i in enumerate(self._convs):  # For each convolutional layer
@@ -56,21 +59,33 @@ class Net(nn.Module):
             if self._use_batch_norm:
                 if self._pool is not None:
                     if self._use_dropout and i == 2:
-                        x = F.relu(pool(self.conv2_drop(self._batch_norms[i](conv_i(x))), 2))
+                        x = F.relu(pool(self.conv2_drop(self._batch_norms[i](conv_i(x))),
+                                        kernel_size=self._pool_size, stride=self._pool_stride))
+                    else:
+                        x = F.relu(pool(self._batch_norms[i](conv_i(x)),
+                                        kernel_size=self._pool_size, stride=self._pool_stride))
                 else:
                     x = F.relu(self._batch_norms[i](conv_i(x)))
             else:
                 if self._pool is not None:
                     if self._use_dropout and i == 2:
-                        x = F.relu(pool(self.conv2_drop(conv_i(x)), 2))
+                        x = F.relu(pool(self.conv2_drop(conv_i(x)),
+                                        kernel_size=self._pool_size, stride=self._pool_stride))
+                    else:
+                        x = F.relu(pool(conv_i(x), kernel_size=self._pool_size, stride=self._pool_stride))
                 else:
                     x = F.relu(conv_i(x))
 
+        x = torch.flatten(x, 1)
 
         for i, hidden_i in enumerate(self._hidden_layers):
+            #print("x.shape ", x.shape)
             x = self._hidden_activation(hidden_i(x))
+            #print("out x.shape ", x.shape)
+
 
         x = self._output_layer(x)
+        #print("final x shape ", x.shape)
 
 
         return x

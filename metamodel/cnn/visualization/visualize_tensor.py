@@ -12,7 +12,7 @@ def reshape_to_tensors(tn_array):
     return symmetric_tn
 
 
-def plot_tensors(cond_tn_prediction, cond_tn_target, label="tensors", separate_images=False):
+def plot_tensors(cond_tn_prediction, cond_tn_target, label="tensors", plot_separate_images=False):
     """
     Plot principal components of tensors
     """
@@ -23,7 +23,7 @@ def plot_tensors(cond_tn_prediction, cond_tn_target, label="tensors", separate_i
     cond_tn_prediction_2d = cond_tn_prediction[0:2, 0:2]
     cond_tn_target_2d = cond_tn_target[0:2, 0:2]
 
-    if separate_images:
+    if plot_separate_images:
         plot_cond_tn(cond_tn_target_2d, label="target_tn_"+label, color="red")
         plot_cond_tn(cond_tn_prediction_2d, label="prediction_tn_"+label, color="blue")
     else:

@@ -252,16 +252,16 @@ if __name__ == '__main__':
     data_dir = args.data_dir
     output_dir = args.output_dir
     use_cuda = args.cuda
-    config = {"num_epochs": 1,
+    config = {"num_epochs": 10,
               "batch_size_train": 25,
               "batch_size_test": 250,
               "train_samples_ratio": 0.8,
               "val_samples_ratio": 0.2,
               "print_batches": 10,
-              "log_input": False,
+              "log_input": True,
               "normalize_input": True,
               "log_output": False,
-              "normalize_output": False}
+              "normalize_output": True}
 
     # Ooptuna params
     num_trials = 2#100
@@ -278,7 +278,7 @@ if __name__ == '__main__':
         raise IsADirectoryError("Results output dir {} already exists".format(output_dir))
     os.mkdir(output_dir)
 
-    study = optuna.create_study(sampler=TPESampler(seed=random_seed), direction="maximize")
+    study = optuna.create_study(sampler=TPESampler(seed=random_seed), direction="minimize")
 
     # ================================
     # Datasets and data loaders
