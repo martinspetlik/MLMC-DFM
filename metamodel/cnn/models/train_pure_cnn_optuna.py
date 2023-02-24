@@ -32,7 +32,6 @@ def train_one_epoch(model, optimizer, train_loader, config, loss_fn=nn.MSELoss()
     :return:
     """
     running_loss = 0.
-
     for i, data in enumerate(train_loader):
         inputs, targets = data
 
@@ -67,21 +66,22 @@ def validate(model, validation_loader, loss_fn=nn.MSELoss(), use_cuda=False):
     :return:
     """
     running_vloss = 0.0
-    for i, vdata in enumerate(validation_loader):
-        vinputs, vtargets = vdata
+    with torch.no_grad():
+        for i, vdata in enumerate(validation_loader):
+            vinputs, vtargets = vdata
 
-        if torch.cuda.is_available() and use_cuda:
-            vinputs = vinputs.cuda()
-            vtargets = vtargets.cuda()
+            if torch.cuda.is_available() and use_cuda:
+                vinputs = vinputs.cuda()
+                vtargets = vtargets.cuda()
 
-        vinputs = vinputs.float()
-        vtargets = vtargets.float()
+            vinputs = vinputs.float()
+            vtargets = vtargets.float()
 
-        voutputs = torch.squeeze(model(vinputs))
-        vloss = loss_fn(voutputs, vtargets)
-        running_vloss += vloss
+            voutputs = torch.squeeze(model(vinputs))
+            vloss = loss_fn(voutputs, vtargets)
+            running_vloss += vloss.item()
 
-    avg_vloss = running_vloss / (i + 1)
+        avg_vloss = running_vloss / (i + 1)
 
     return avg_vloss
 

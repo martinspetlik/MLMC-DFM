@@ -27,7 +27,7 @@ from metamodel.cnn.models.train_pure_cnn_optuna import train_one_epoch, prepare_
 def objective(trial, train_loader, validation_loader):
     best_vloss = 1_000_000.
     # Settings
-    test = False
+    test = True
     if test:
         n_conv_layers = 3
         max_channel = 32 #trial.suggest_categorical("max_channel",[3, 32, 64, 128])
@@ -102,32 +102,47 @@ def objective(trial, train_loader, validation_loader):
 
     # Training of the model
     start_time = time.time()
+    avg_loss_list = []
+    avg_vloss_list = []
+    avg_vloss = best_vloss
+    best_epoch = 0
+    model_state_dict = []
+    optimizer_state_dict = []
     for epoch in range(config["num_epochs"]):
+        model.train(True)
         avg_loss = train_one_epoch(model, optimizer, train_loader, config, loss_fn=loss_fn_name(), use_cuda=use_cuda)  # Train the model
+        model.train(False)
         avg_vloss = validate(model, validation_loader, loss_fn=loss_fn_name(), use_cuda=use_cuda)   # Evaluate the model
+
+        avg_loss_list.append(avg_loss)
+        avg_vloss_list.append(avg_vloss)
 
         if avg_vloss < best_vloss:
             best_vloss = avg_vloss
-            model_path = 'model_{}_{}'.format(model._name, epoch)
-            trial.set_user_attr("epoch", epoch)
-            for key, value in trial.params.items():
-                model_path += "_{}_{}".format(key, value)
-            model_path = os.path.join(output_dir, model_path)
+            best_epoch = epoch
 
-            torch.save({
-                'epoch': int(epoch) + 1,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'train_loss': avg_loss,
-                'valid_loss': avg_vloss,
-                'training_time': time.time() - start_time,
-            }, model_path)
+            model_state_dict = model.state_dict()
+            optimizer_state_dict = optimizer.state_dict()
 
         # For pruning (stops trial early if not promising)
         trial.report(avg_vloss, epoch)
         # Handle pruning based on the intermediate value.
         if trial.should_prune():
             raise optuna.exceptions.TrialPruned()
+
+    model_path = 'trial_{}_losses_model_{}'.format(trial.number, model._name)
+    for key, value in trial.params.items():
+        model_path += "_{}_{}".format(key, value)
+    model_path = os.path.join(output_dir, model_path)
+
+    torch.save({
+        'best_epoch': best_epoch,
+        'best_model_state_dict': model_state_dict,
+        'best_optimizer_state_dict': optimizer_state_dict,
+        'train_loss': avg_loss_list,
+        'valid_loss': avg_vloss_list,
+        'training_time': time.time() - start_time,
+    }, model_path)
 
     return avg_vloss
 
@@ -142,7 +157,7 @@ if __name__ == '__main__':
     data_dir = args.data_dir
     output_dir = args.output_dir
     use_cuda = args.cuda
-    config = {"num_epochs": 50,
+    config = {"num_epochs": 5,
               "batch_size_train": 25,
               "batch_size_test": 250,
               "train_samples_ratio": 0.8,
@@ -154,7 +169,7 @@ if __name__ == '__main__':
               "normalize_output": True}
 
     # Optuna params
-    num_trials = 75
+    num_trials = 2
 
     device = torch.device("cuda" if torch.cuda.is_available() and use_cuda else "cpu")
     print("device ", device)

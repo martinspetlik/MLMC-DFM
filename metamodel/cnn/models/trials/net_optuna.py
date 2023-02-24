@@ -10,7 +10,7 @@ class Net(nn.Module):
                  pool_stride=2, use_batch_norm=True, n_hidden_layers=1, max_hidden_neurons=520,
                  hidden_activation=F.relu, input_size=256, min_channel=3, use_dropout=False):
         super(Net, self).__init__()
-        self._name = "pure_cnn_net"
+        self._name = "cnn_net"
         self._use_dropout = use_dropout
         self._pool = pool
         self._pool_size = pool_size
@@ -38,9 +38,6 @@ class Net(nn.Module):
                 input_size = int(((input_size - pool_size) / pool_stride)) + 1
 
         hidden_neurons = np.linspace(start=max_hidden_neurons, stop=min_channel, num=n_hidden_layers, dtype=int)
-
-        print("input size ", input_size)
-        print("channel ", channels[i+1])
 
         input_size = channels[i+1] * input_size * input_size
         for i in range(n_hidden_layers):
@@ -79,13 +76,7 @@ class Net(nn.Module):
         x = torch.flatten(x, 1)
 
         for i, hidden_i in enumerate(self._hidden_layers):
-            #print("x.shape ", x.shape)
             x = self._hidden_activation(hidden_i(x))
-            #print("out x.shape ", x.shape)
-
 
         x = self._output_layer(x)
-        #print("final x shape ", x.shape)
-
-
         return x

@@ -20,7 +20,7 @@ from metamodel.cnn.models.auxiliary_functions import exp_data
 
 
 def get_saved_model_path(results_dir, best_trial):
-    model_path = 'model_{}_{}'.format(best_trial.user_attrs["model_name"], best_trial.user_attrs["epoch"])
+    model_path = 'trial_{}_losses_model_{}'.format(best_trial.number, best_trial.user_attrs["model_name"])
     for key, value in best_trial.params.items():
         model_path += "_{}_{}".format(key, value)
     return os.path.join(results_dir, model_path)
@@ -63,13 +63,17 @@ def load_models(results_dir, study):
                                                                    **study.best_trial.user_attrs["optimizer_kwargs"])
 
         checkpoint = torch.load(model_path)
-        model.load_state_dict(checkpoint['model_state_dict'])
+        model.load_state_dict(checkpoint['best_model_state_dict'])
         model.eval()
 
-        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        epoch = checkpoint['epoch']
+        optimizer.load_state_dict(checkpoint['best_optimizer_state_dict'])
+        epoch = checkpoint['best_epoch']
         train_loss = checkpoint['train_loss']
         valid_loss = checkpoint['valid_loss']
+
+        # print("train loss ", train_loss)
+        # print("valid loss ", valid_loss)
+        # exit()
 
         running_loss, inv_running_loss = 0, 0
         targets_list, predictions_list = [], []
