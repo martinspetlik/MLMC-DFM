@@ -81,12 +81,11 @@ def objective(trial, train_loader, validation_loader):
                     "hidden_activation": hidden_activation
                     }
 
-
-    print("lr ", lr)
-    print("optimizer name ", optimizer_name)
-    print("model kwargs ", model_kwargs)
-
-    return np.random.uniform(0, 1, size=1)
+    # print("lr ", lr)
+    # print("optimizer name ", optimizer_name)
+    # print("model kwargs ", model_kwargs)
+    #
+    # return np.random.uniform(0, 1, size=1)
 
     model = Net(trial, **model_kwargs).to(device)
 
@@ -143,7 +142,7 @@ if __name__ == '__main__':
     data_dir = args.data_dir
     output_dir = args.output_dir
     use_cuda = args.cuda
-    config = {"num_epochs": 75,
+    config = {"num_epochs": 50,
               "batch_size_train": 25,
               "batch_size_test": 250,
               "train_samples_ratio": 0.8,
