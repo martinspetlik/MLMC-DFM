@@ -6,8 +6,9 @@ py_script=`pwd`/$1
 pbs_script=`pwd`/$1.pbs
 script_path=${py_script%/*}
 
-data_dir=$2
-output_dir=$3
+trials_config_path=$2
+data_dir=$3
+output_dir=$4
 
 cat >$pbs_script <<EOF
 #!/bin/bash
@@ -40,7 +41,7 @@ python3 -m pip install -r /home/martin_spetlik/MLMC-DFM/requirements.txt
 #which python3
 
 cd ${script_path}
-python3 ${py_script} ${data_dir} ${output_dir}
+python3 ${py_script} ${trials_config_path} ${data_dir} ${output_dir}
 
 deactivate
 EOF

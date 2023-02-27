@@ -141,7 +141,7 @@ if __name__ == '__main__':
 
     use_cuda = args.cuda
 
-    config = {"num_epochs": 5,
+    config = {"num_epochs": 75,
               "batch_size_train": 25,
               "batch_size_test": 250,
               "train_samples_ratio": 0.8,
@@ -153,7 +153,7 @@ if __name__ == '__main__':
               "normalize_output": True}
 
     # Optuna params
-    num_trials = 2
+    num_trials = 250
 
     device = torch.device("cuda" if torch.cuda.is_available() and use_cuda else "cpu")
     print("device ", device)
