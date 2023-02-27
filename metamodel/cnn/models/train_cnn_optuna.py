@@ -21,51 +21,27 @@ from metamodel.cnn.datasets.dfm_dataset import DFMDataset
 from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
 from metamodel.cnn.models.auxiliary_functions import get_mean_std, log_data
-from metamodel.cnn.models.train_pure_cnn_optuna import train_one_epoch, prepare_dataset, validate
+from metamodel.cnn.models.train_pure_cnn_optuna import train_one_epoch, prepare_dataset, validate, load_trials_config
 
 
-def objective(trial, train_loader, validation_loader):
+def objective(trial, trials_config, train_loader, validation_loader):
     best_vloss = 1_000_000.
-    # Settings
-    test = False
-    if test:
-        n_conv_layers = 5
-        max_channel = 3 #trial.suggest_categorical("max_channel",[3, 32, 64, 128])
-        kernel_size = 5 #trial.suggest_int("kernel_size", 3)
-        #stride = trial.suggest_int("stride", 2, 3)
-        stride = 1
-        #pool = trial.suggest_categorical("pool", [None, "max", "avg"])
-        # optimizer_name = trial.suggest_categorical("optimizer", ["Adam", "SGD"])
-        optimizer_name = trial.suggest_categorical("optimizer", ["Adam"])
-        lr = trial.suggest_categorical("lr", [1e-3]) #trial.suggest_float("lr", 1e-4, 1e-2, log=True)
-        use_batch_norm = True
-        loss_fn_name = nn.MSELoss
-        # max_channel = trial.suggest_int("max_channel", 3)
-        # kernel_size = trial.suggest_int("kernel_size", 3)
-        # stride = trial.suggest_int("stride", 2)
-        pool = trial.suggest_categorical("pool", [None])
-        pool_size = 2
-        pool_stride = 3
-        max_hidden_neurons = 520
-        n_hidden_layers = 1
-        hidden_activation = F.relu
 
-    else:
-        loss_fn_name = nn.MSELoss
-        max_channel = trial.suggest_categorical("max_channel",[3, 32, 64, 128])
-        n_conv_layers = trial.suggest_categorical("n_conv_layers", [3, 4, 5])
-        kernel_size = trial.suggest_int("kernel_size", 3, 5, step=2)
-        stride = 1 #trial.suggest_int("stride", 1, 3)
-        pool = trial.suggest_categorical("pool", [None, "max", "avg"])
-        pool_size = trial.suggest_int("pool_size", 2, 4, step=2)
-        pool_stride = trial.suggest_int("pool_stride", 2, 3)
-        lr = 1e-3 #trial.suggest_float("lr", 1e-4, 1e-2, log=True)
-        use_batch_norm = trial.suggest_categorical("use_batch_norm", [True, False])
-        max_hidden_neurons = trial.suggest_categorical("max_hidden_neurons", [520, 260])
-        n_hidden_layers = trial.suggest_categorical("n_hidden_layers", [1, 2, 3])
+    loss_fn_name = nn.MSELoss
+    max_channel = trial.suggest_categorical("max_channel", trials_config["max_channel"])
+    n_conv_layers = trial.suggest_categorical("n_conv_layers", trials_config["n_conv_layers"])
+    kernel_size = trial.suggest_categorical("kernel_size", trials_config["kernel_size"])
+    stride = trial.suggest_categorical("stride", trials_config["stride"])
+    pool = trial.suggest_categorical("pool", trials_config["pool"])
+    pool_size = trial.suggest_categorical("pool_size", trials_config["pool_size"])
+    pool_stride = trial.suggest_categorical("pool_stride", trials_config["pool_stride"])
+    lr = trial.suggest_categorical("lr", trials_config["lr"])
+    use_batch_norm = trial.suggest_categorical("use_batch_norm", trials_config["use_batch_norm"])
+    max_hidden_neurons = trial.suggest_categorical("max_hidden_neurons", trials_config["max_hidden_neurons"])
+    n_hidden_layers = trial.suggest_categorical("n_hidden_layers", trials_config["n_hidden_layers"])
 
-        optimizer_name = "Adam"  #trial.suggest_categorical("optimizer", ["Adam"])
-        hidden_activation = F.relu
+    optimizer_name = "Adam"  # trial.suggest_categorical("optimizer", ["Adam"])
+    hidden_activation = F.relu
 
     # Initilize model
     model_kwargs = {"n_conv_layers": n_conv_layers,
@@ -80,12 +56,6 @@ def objective(trial, train_loader, validation_loader):
                     "max_hidden_neurons": max_hidden_neurons,
                     "hidden_activation": hidden_activation
                     }
-
-    # print("lr ", lr)
-    # print("optimizer name ", optimizer_name)
-    # print("model kwargs ", model_kwargs)
-    #
-    # return np.random.uniform(0, 1, size=1)
 
     model = Net(trial, **model_kwargs).to(device)
 
@@ -135,7 +105,8 @@ def objective(trial, train_loader, validation_loader):
             # Handle pruning based on the intermediate value.
             if trial.should_prune():
                 raise optuna.exceptions.TrialPruned()
-        except:
+        except Exception as e:
+            print(str(e))
             return avg_vloss
 
     for key, value in trial.params.items():
@@ -156,6 +127,7 @@ def objective(trial, train_loader, validation_loader):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
+    parser.add_argument('trials_config_path', help='Path tp trials config')
     parser.add_argument('data_dir', help='Data directory')
     parser.add_argument('output_dir', help='Output directory')
     parser.add_argument("-c", "--cuda", default=False, action='store_true', help="use cuda")
@@ -165,8 +137,11 @@ if __name__ == '__main__':
 
     data_dir = args.data_dir
     output_dir = args.output_dir
+    trials_config = load_trials_config(args.trials_config_path)
+
     use_cuda = args.cuda
-    config = {"num_epochs": 50,
+
+    config = {"num_epochs": 5,
               "batch_size_train": 25,
               "batch_size_test": 250,
               "train_samples_ratio": 0.8,
@@ -178,7 +153,7 @@ if __name__ == '__main__':
               "normalize_output": True}
 
     # Optuna params
-    num_trials = 100
+    num_trials = 2
 
     device = torch.device("cuda" if torch.cuda.is_available() and use_cuda else "cpu")
     print("device ", device)
@@ -206,7 +181,7 @@ if __name__ == '__main__':
     test_loader = torch.utils.data.DataLoader(test_set, batch_size=config["batch_size_test"], shuffle=False)
 
     def obj_func(trial):
-        return objective(trial, train_loader, validation_loader)
+        return objective(trial, trials_config, train_loader, validation_loader)
 
 
 

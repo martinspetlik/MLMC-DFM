@@ -12,6 +12,7 @@ import optuna
 from optuna.trial import TrialState
 from optuna.samplers import TPESampler
 import time
+import yaml
 import numpy as np
 import torch.nn.functional as F
 import torchvision.transforms as transforms
@@ -21,6 +22,12 @@ from metamodel.cnn.datasets.dfm_dataset import DFMDataset
 from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
 from metamodel.cnn.models.auxiliary_functions import get_mean_std, log_data
+
+
+def load_trials_config(path_to_config):
+    with open(path_to_config, "r") as f:
+        trials_config = yaml.load(f, Loader=yaml.FullLoader)
+    return trials_config
 
 
 def train_one_epoch(model, optimizer, train_loader, config, loss_fn=nn.MSELoss(), use_cuda=True):
