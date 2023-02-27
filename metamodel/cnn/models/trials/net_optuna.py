@@ -21,8 +21,10 @@ class Net(nn.Module):
         self._hidden_activation = hidden_activation
         self._batch_norms = nn.ModuleList()
 
+        if self._pool == "None":
+            self._pool = None
+
         channels = np.linspace(start=min_channel, stop=max_channel, num=n_conv_layers+1, dtype=int)
-        print("channels ", channels)
 
         for i in range(n_conv_layers):
             self._convs.append(nn.Conv2d(in_channels=channels[i],
