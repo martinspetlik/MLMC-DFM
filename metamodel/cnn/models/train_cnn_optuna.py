@@ -27,13 +27,13 @@ from metamodel.cnn.models.train_pure_cnn_optuna import train_one_epoch, prepare_
 def objective(trial, train_loader, validation_loader):
     best_vloss = 1_000_000.
     # Settings
-    test = True
+    test = False
     if test:
-        n_conv_layers = 3
-        max_channel = 32 #trial.suggest_categorical("max_channel",[3, 32, 64, 128])
-        kernel_size = 3 #trial.suggest_int("kernel_size", 3)
+        n_conv_layers = 5
+        max_channel = 3 #trial.suggest_categorical("max_channel",[3, 32, 64, 128])
+        kernel_size = 5 #trial.suggest_int("kernel_size", 3)
         #stride = trial.suggest_int("stride", 2, 3)
-        stride = 2
+        stride = 1
         #pool = trial.suggest_categorical("pool", [None, "max", "avg"])
         # optimizer_name = trial.suggest_categorical("optimizer", ["Adam", "SGD"])
         optimizer_name = trial.suggest_categorical("optimizer", ["Adam"])
@@ -45,7 +45,7 @@ def objective(trial, train_loader, validation_loader):
         # stride = trial.suggest_int("stride", 2)
         pool = trial.suggest_categorical("pool", [None])
         pool_size = 2
-        pool_stride = 2
+        pool_stride = 3
         max_hidden_neurons = 520
         n_hidden_layers = 1
         hidden_activation = F.relu
@@ -55,7 +55,7 @@ def objective(trial, train_loader, validation_loader):
         max_channel = trial.suggest_categorical("max_channel",[3, 32, 64, 128])
         n_conv_layers = trial.suggest_categorical("n_conv_layers", [3, 4, 5])
         kernel_size = trial.suggest_int("kernel_size", 3, 5, step=2)
-        stride = trial.suggest_int("stride", 1, 3)
+        stride = 1 #trial.suggest_int("stride", 1, 3)
         pool = trial.suggest_categorical("pool", [None, "max", "avg"])
         pool_size = trial.suggest_int("pool_size", 2, 4, step=2)
         pool_stride = trial.suggest_int("pool_stride", 2, 3)
@@ -108,29 +108,36 @@ def objective(trial, train_loader, validation_loader):
     best_epoch = 0
     model_state_dict = []
     optimizer_state_dict = []
-    for epoch in range(config["num_epochs"]):
-        model.train(True)
-        avg_loss = train_one_epoch(model, optimizer, train_loader, config, loss_fn=loss_fn_name(), use_cuda=use_cuda)  # Train the model
-        model.train(False)
-        avg_vloss = validate(model, validation_loader, loss_fn=loss_fn_name(), use_cuda=use_cuda)   # Evaluate the model
-
-        avg_loss_list.append(avg_loss)
-        avg_vloss_list.append(avg_vloss)
-
-        if avg_vloss < best_vloss:
-            best_vloss = avg_vloss
-            best_epoch = epoch
-
-            model_state_dict = model.state_dict()
-            optimizer_state_dict = optimizer.state_dict()
-
-        # For pruning (stops trial early if not promising)
-        trial.report(avg_vloss, epoch)
-        # Handle pruning based on the intermediate value.
-        if trial.should_prune():
-            raise optuna.exceptions.TrialPruned()
 
     model_path = 'trial_{}_losses_model_{}'.format(trial.number, model._name)
+    if os.path.exists(model_path):
+        return avg_vloss
+
+    for epoch in range(config["num_epochs"]):
+        try:
+            model.train(True)
+            avg_loss = train_one_epoch(model, optimizer, train_loader, config, loss_fn=loss_fn_name(), use_cuda=use_cuda)  # Train the model
+            model.train(False)
+            avg_vloss = validate(model, validation_loader, loss_fn=loss_fn_name(), use_cuda=use_cuda)   # Evaluate the model
+
+            avg_loss_list.append(avg_loss)
+            avg_vloss_list.append(avg_vloss)
+
+            if avg_vloss < best_vloss:
+                best_vloss = avg_vloss
+                best_epoch = epoch
+
+                model_state_dict = model.state_dict()
+                optimizer_state_dict = optimizer.state_dict()
+
+            # For pruning (stops trial early if not promising)
+            trial.report(avg_vloss, epoch)
+            # Handle pruning based on the intermediate value.
+            if trial.should_prune():
+                raise optuna.exceptions.TrialPruned()
+        except:
+            return avg_vloss
+
     for key, value in trial.params.items():
         model_path += "_{}_{}".format(key, value)
     model_path = os.path.join(output_dir, model_path)
@@ -152,12 +159,14 @@ if __name__ == '__main__':
     parser.add_argument('data_dir', help='Data directory')
     parser.add_argument('output_dir', help='Output directory')
     parser.add_argument("-c", "--cuda", default=False, action='store_true', help="use cuda")
+    parser.add_argument("-a", "--append", default=False, action='store_true', help="append models")
+
     args = parser.parse_args(sys.argv[1:])
 
     data_dir = args.data_dir
     output_dir = args.output_dir
     use_cuda = args.cuda
-    config = {"num_epochs": 5,
+    config = {"num_epochs": 50,
               "batch_size_train": 25,
               "batch_size_test": 250,
               "train_samples_ratio": 0.8,
@@ -169,7 +178,7 @@ if __name__ == '__main__':
               "normalize_output": True}
 
     # Optuna params
-    num_trials = 2
+    num_trials = 100
 
     device = torch.device("cuda" if torch.cuda.is_available() and use_cuda else "cpu")
     print("device ", device)
@@ -179,9 +188,12 @@ if __name__ == '__main__':
     torch.backends.cudnn.enabled = False  # Disable cuDNN use of nondeterministic algorithms
     torch.manual_seed(random_seed)
     output_dir = os.path.join(output_dir, "seed_{}".format(random_seed))
-    if os.path.exists(output_dir):
+    if os.path.exists(output_dir) and not args.append:
         raise IsADirectoryError("Results output dir {} already exists".format(output_dir))
-    os.mkdir(output_dir)
+    if not args.append:
+        os.mkdir(output_dir)
+    elif not os.path.exists(output_dir):
+        raise NotADirectoryError("output dir {} not exists".format(output_dir))
 
     study = optuna.create_study(sampler=TPESampler(seed=random_seed), direction="minimize")
 
@@ -226,7 +238,7 @@ if __name__ == '__main__':
     df = df.loc[df['state'] == 'COMPLETE']        # Keep only results that did not prune
     df = df.drop('state', axis=1)                 # Exclude state column
     df = df.sort_values('value')                  # Sort based on accuracy
-    df.to_csv('optuna_results.csv', index=False)  # Save to csv file
+    df.to_csv(os.path.join(output_dir, 'optuna_results.csv'), index=False)  # Save to csv file
 
     # Display results in a dataframe
     print("\nOverall Results (ordered by accuracy):\n {}".format(df))
