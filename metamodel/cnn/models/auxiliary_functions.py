@@ -45,3 +45,31 @@ def get_mean_std(data_loader):
     output_std = (output_channels_sqrd_sum / num_batches - output_mean ** 2) ** 0.5
 
     return mean, std, output_mean, output_std
+
+
+def reshape_to_tensors(tn_array, dim=2):
+    tn = np.eye(dim)
+    tn[np.triu_indices(dim)] = tn_array
+
+    diagonal_values = np.diag(tn)
+    symmetric_tn = tn + tn.T
+    np.fill_diagonal(symmetric_tn, diagonal_values)
+    return symmetric_tn
+
+
+def get_eigendecomp(flatten_values, dim=2):
+    tensor = reshape_to_tensors(np.squeeze(flatten_values), dim=dim)
+
+    return np.linalg.eigh(tensor)
+
+
+def n_layers_to_size_one(kernel_size, stride, input_size=256):
+    n_layers = 0
+    while True:
+        input_size = int(((input_size - kernel_size) / stride)) + 1
+        n_layers += 1
+
+        if input_size == 1:
+            return n_layers
+        elif input_size < 1:
+            return -1
