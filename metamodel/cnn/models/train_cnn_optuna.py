@@ -20,7 +20,7 @@ from metamodel.cnn.models.trials.net_optuna import Net
 from metamodel.cnn.datasets.dfm_dataset import DFMDataset
 from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
-from metamodel.cnn.models.auxiliary_functions import get_mean_std, log_data
+from metamodel.cnn.models.auxiliary_functions import get_mean_std, log_data, n_layers_to_size_one
 from metamodel.cnn.models.train_pure_cnn_optuna import train_one_epoch, prepare_dataset, validate, load_trials_config
 
 
@@ -43,6 +43,12 @@ def objective(trial, trials_config, train_loader, validation_loader):
     optimizer_name = "Adam"  # trial.suggest_categorical("optimizer", ["Adam"])
     hidden_activation = F.relu
 
+    n_layers = n_layers_to_size_one(kernel_size, stride, input_size=256)
+
+    if n_layers != n_conv_layers:
+        print("n layers: {}, n_conv_layers: {}".format(n_layers, n_conv_layers))
+        return best_vloss
+
     # Initilize model
     model_kwargs = {"n_conv_layers": n_conv_layers,
                     "max_channel": max_channel,
@@ -56,6 +62,9 @@ def objective(trial, trials_config, train_loader, validation_loader):
                     "max_hidden_neurons": max_hidden_neurons,
                     "hidden_activation": hidden_activation
                     }
+
+    # print("model_kwargs ", model_kwargs)
+    # return np.random.uniform(0, 1)
 
     model = Net(trial, **model_kwargs).to(device)
 
@@ -141,7 +150,7 @@ if __name__ == '__main__':
 
     use_cuda = args.cuda
 
-    config = {"num_epochs": 5,
+    config = {"num_epochs": trials_config["num_epochs"],
               "batch_size_train": 25,
               "batch_size_test": 250,
               "train_samples_ratio": 0.8,
@@ -153,13 +162,13 @@ if __name__ == '__main__':
               "normalize_output": True}
 
     # Optuna params
-    num_trials = 2
+    num_trials = trials_config["num_trials"]
 
     device = torch.device("cuda" if torch.cuda.is_available() and use_cuda else "cpu")
     print("device ", device)
 
     # Make runs repeatable
-    random_seed = 12345
+    random_seed = trials_config["random_seed"]
     torch.backends.cudnn.enabled = False  # Disable cuDNN use of nondeterministic algorithms
     torch.manual_seed(random_seed)
     output_dir = os.path.join(output_dir, "seed_{}".format(random_seed))
