@@ -20,7 +20,7 @@ from metamodel.cnn.models.trials.net_optuna import Net
 from metamodel.cnn.datasets.dfm_dataset import DFMDataset
 from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
-from metamodel.cnn.models.auxiliary_functions import get_mean_std, log_data, n_layers_to_size_one
+from metamodel.cnn.models.auxiliary_functions import get_mean_std, log_data, check_shapes
 from metamodel.cnn.models.train_pure_cnn_optuna import train_one_epoch, prepare_dataset, validate, load_trials_config
 
 
@@ -43,10 +43,15 @@ def objective(trial, trials_config, train_loader, validation_loader):
     optimizer_name = "Adam"  # trial.suggest_categorical("optimizer", ["Adam"])
     hidden_activation = F.relu
 
-    n_layers = n_layers_to_size_one(kernel_size, stride, input_size=256)
+    #print("kernel_size: {}, stride: {}, pool_size: {}, pool_stride: {}".format(kernel_size, stride, pool_size, pool_stride))
 
-    if n_layers != n_conv_layers:
-        print("n layers: {}, n_conv_layers: {}".format(n_layers, n_conv_layers))
+    flag, input_size = check_shapes(n_conv_layers, kernel_size, stride, pool_size, pool_stride, input_size=256)
+
+    # print("max channels ", max_channel)
+    # print("flag: {} flatten x: {}".format(flag, input_size * input_size * max_channel))
+
+    if flag == -1:
+        print("flag: {}".format(flag))
         return best_vloss
 
     # Initilize model
@@ -64,6 +69,7 @@ def objective(trial, trials_config, train_loader, validation_loader):
                     }
 
     # print("model_kwargs ", model_kwargs)
+    # print("trial trial")
     # return np.random.uniform(0, 1)
 
     model = Net(trial, **model_kwargs).to(device)
@@ -131,7 +137,7 @@ def objective(trial, trials_config, train_loader, validation_loader):
         'training_time': time.time() - start_time,
     }, model_path)
 
-    return avg_vloss
+    return best_vloss
 
 
 if __name__ == '__main__':
