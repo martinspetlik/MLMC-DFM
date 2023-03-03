@@ -74,3 +74,28 @@ def check_shapes(n_conv_layers, kernel_size, stride, pool_size, pool_stride, inp
         return -1, input_size
 
     return 0, input_size
+
+
+def get_mse_nrmse(targets, predictions):
+    targets_arr = np.array(targets)
+    predictions_arr = np.array(predictions)
+
+    print(targets_arr.shape)
+    
+    squared_err_k_xx_inv = (targets_arr[:, 0, ...] - predictions_arr[:, 0, ...]) ** 2
+    squared_err_k_xy_inv = (targets_arr[:, 1, ...] - predictions_arr[:, 1, ...]) ** 2
+    squared_err_k_yy_inv = (targets_arr[:, 2, ...] - predictions_arr[:, 2, ...]) ** 2
+
+    std_tar_k_xx_inv = np.std(targets_arr[:, 0, ...])
+    std_tar_k_xy_inv = np.std(targets_arr[:, 1, ...])
+    std_tar_k_yy_inv = np.std(targets_arr[:, 2, ...])
+
+    mse_k_xx_inv = np.mean(squared_err_k_xx_inv)
+    mse_k_xy_inv = np.mean(squared_err_k_xy_inv)
+    mse_k_yy_inv = np.mean(squared_err_k_yy_inv)
+
+    nrmse_k_xx_inv = np.sqrt(mse_k_xx_inv) / std_tar_k_xx_inv
+    nrmse_k_xy_inv = np.sqrt(mse_k_xy_inv) / std_tar_k_xy_inv
+    nrmse_k_yy_inv = np.sqrt(mse_k_yy_inv) / std_tar_k_yy_inv
+    
+    return [mse_k_xx_inv, mse_k_xy_inv, mse_k_yy_inv], [nrmse_k_xx_inv, nrmse_k_xy_inv, nrmse_k_yy_inv]

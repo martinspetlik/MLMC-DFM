@@ -207,7 +207,6 @@ class DFMSim(Simulation):
             yaml_template = os.path.join(common_files_dir, DFMSim.YAML_TEMPLATE)
             shutil.copyfile(self.base_yaml_file, yaml_template)
 
-
             yaml_file = os.path.join(common_files_dir, DFMSim.YAML_FILE)
             self._substitute_yaml(yaml_template, yaml_file)
         #
@@ -252,7 +251,10 @@ class DFMSim(Simulation):
 
     @staticmethod
     def homogenization(config):
-        print("os.getcws() ", os.getcwd())
+        #print("config ", config)
+        sample_dir = os.getcwd()
+        print("homogenization method")
+        #print("os.getcws() ", os.getcwd())
         os.mkdir("homogenization")
         os.chdir("homogenization")
 
@@ -294,15 +296,17 @@ class DFMSim(Simulation):
         subdomain_box = sim_config["geometry"]["subdomain_box"]
         lx, ly = domain_box
 
+        n_subdomains = int(np.floor(np.sqrt(n_subdomains)))
 
         cond_tensors = {}
-
         percentage_sym_tn_diff = []
+        time_measurements = []
 
         k = 0
         for i in range(n_subdomains):
             center_x = subdomain_box[0] / 2 + (lx - subdomain_box[0]) / (n_subdomains - 1) * i - lx / 2
             for j in range(n_subdomains):
+                start_time = time.time()
                 k += 1
 
                 subdir_name = "i_{}_j_{}_k_{}".format(i, j, k)
@@ -327,7 +331,6 @@ class DFMSim(Simulation):
 
                 print("center x: {}, y: {}".format(center_x, center_y))
 
-
                 outer_polygon = [copy.deepcopy(bl_corner), copy.deepcopy(br_corner), copy.deepcopy(tr_corner),
                                  copy.deepcopy(tl_corner)]
                 print("outer polygon ", outer_polygon)
@@ -335,12 +338,10 @@ class DFMSim(Simulation):
                 #plt.scatter(*zip(*outer_polygon))
 
                 sim_config["geometry"]["outer_polygon"] = outer_polygon
-
                 print("work_dir ", work_dir)
 
                 sim_config["work_dir"] = work_dir
                 #config["homogenization"] = True
-
                 fractures = DFMSim.generate_fractures(config)
 
                 # fine problem
@@ -349,13 +350,14 @@ class DFMSim(Simulation):
                 fine_flow.make_mesh()
                 fine_flow.make_fields()
                 done = []
+                #exit()
                 # fine_flow.run() # @TODO replace fine_flow.run by DFMSim._run_sample()
                 print("run samples ")
                 status, p_loads, outer_reg_names = DFMSim._run_homogenization_sample(fine_flow, config)
 
                 done.append(fine_flow)
                 cond_tn, diff = fine_flow.effective_tensor_from_bulk(p_loads, outer_reg_names, fine_flow.basename)
-                #DFMSim.make_summary(done)
+                DFMSim.make_summary(done)
                 percentage_sym_tn_diff.append(diff)
 
                 #print("cond_tn ", cond_tn)
@@ -382,14 +384,19 @@ class DFMSim(Simulation):
                     shutil.move("mesh_fine.tmp.geo", dir_name)
                     shutil.move("mesh_fine.tmp.msh", dir_name)
                     shutil.rmtree("fine")
+
                 except:
                     pass
 
                 os.chdir(h_dir)
 
-        print("np.mean(percentage_sym_tn_diff) ", np.mean(percentage_sym_tn_diff))
+                time_measurements.append(time.time() - start_time)
 
-        #os.chdir("homogenization")
+        # print("np.mean(percentage_sym_tn_diff) ", np.mean(percentage_sym_tn_diff))
+        # print("time_measurements ", time_measurements)
+
+        os.chdir(sample_dir)
+
         return cond_tensors
 
 
@@ -514,6 +521,7 @@ class DFMSim(Simulation):
             # coarse_ref.pressure_loads = p_loads
             # coarse_ref.reg_to_group = fine_flow.reg_to_group
             # coarse_ref.regions = fine_flow.regions
+            print("coarse problem ")
 
             coarse_flow = FlowProblem.make_coarse((config["coarse"]["step"], config["sim_config"]["geometry"]["fr_max_size"]), fractures, config)
             coarse_flow.fr_range = [config["coarse"]["step"], coarse_flow.fr_range[1]]
@@ -999,10 +1007,7 @@ class DFMSim(Simulation):
                            fracture.VonMisesOrientation(0, 0),
                            fracture.PowerLawSize.from_mean_area(pow_law_exp_3d - 1, fr_size_range, p_32, pow_law_exp_3d)
                            )
-
-            if pow_law_sample_range:
-                pop.set_sample_range(pow_law_sample_range)
-            elif n_frac_limit:
+            if n_frac_limit is not False:
                 # pop.set_sample_range([None, np.min([lx, ly, self.config_dict["geometry"]["fr_max_size"]])],
                 #                      sample_size=n_frac_limit)
                 # pop.set_sample_range([None, max(lx, ly)],
@@ -1010,16 +1015,19 @@ class DFMSim(Simulation):
 
                 pop.set_sample_range(fr_size_range,
                                      sample_size=n_frac_limit)
+            elif pow_law_sample_range:
+                pop.set_sample_range(pow_law_sample_range)
 
         print("total mean size: ", pop.mean_size())
         print("size range:", pop.families[0].size.sample_range)
 
+
         pos_gen = fracture.UniformBoxPosition(fracture_box)
-        fractures = pop.sample(pos_distr=pos_gen, keep_nonempty=True)
+        fractures = pop.sample(pos_distr=pos_gen, keep_nonempty=False)
 
         print("fractures len ", len(fractures))
         print("fractures ", fractures)
-
+        print("fr_size_range[0] ", fr_size_range[0])
 
         fr_set = fracture.Fractures(fractures, fr_size_range[0] / 2)
 

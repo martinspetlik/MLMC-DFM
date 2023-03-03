@@ -33,12 +33,14 @@ import copy
 #from plots_skg import matplotlib_variogram_plot
 import shutil
 #import compute_effective_cond
-
+import gstools
 
 logging.getLogger('bgem').disabled = True
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings('ignore')
+
+
 
 
 def in_file(base):
@@ -179,6 +181,74 @@ class BulkFields(BulkBase):
     #print("cov_log_conductivity ", cov_log_conductivity)
 
     def element_data(self, mesh, eid):
+
+        # Unrotated tensor (eigenvalues)
+        if self.cov_log_conductivity is None:
+            log_eigenvals = self.mean_log_conductivity
+        else:
+            log_eigenvals = np.random.multivariate_normal(
+                mean=self.mean_log_conductivity,
+                cov=self.cov_log_conductivity,
+                )
+
+        #print("log_eigenvals ", log_eigenvals)
+        unrotated_tn = np.diag(np.power(10, log_eigenvals))
+
+        #print("unrotated_tn ", unrotated_tn)
+
+        # rotation angle
+        if self.angle_concentration is None or self.angle_concentration == 0:
+            angle = np.random.uniform(0, 2*np.pi)
+        elif self.angle_concentration == np.inf:
+            angle = self.angle_mean
+        else:
+            angle = np.random.vonmises(self.angle_mean, self.angle_concentration)
+        c, s = np.cos(angle), np.sin(angle)
+        rot_mat = np.array([[c, -s], [s, c]])
+        #print("rot_mat ,", rot_mat)
+        cond_2d = rot_mat @ unrotated_tn @ rot_mat.T
+
+        # print("cond_2d ", cond_2d)
+        # exit()
+
+        #
+        # print("cond_2d ", cond_2d)
+        # exit()
+        return 1.0, cond_2d
+        #print("unrotated_tn ", unrotated_tn)
+
+        # ## gstools experiments
+        # from mlmc.random import correlated_field as cf
+        # model = cf.Field('conductivity', cf.GSToolsSpatialCorrelatedField("exp", log=True,
+        #                                                                        sigma=1e-3, mode_no=10000)),
+        #
+        #
+        #
+        # #####
+        # exit()
+
+
+@attr.s(auto_attribs=True)
+class BulkFieldGSTools(BulkBase):
+    dim: int = attr.ib(converter=int)
+    sigma: float = attr.ib(converter=float)
+    corr_length: float = attr.ib(converter=float)
+    model_name: str = "exp"
+    log: bool = True
+    mode_no: int = 10000
+    model = None
+
+    def _create_field(self):
+        from mlmc.random import correlated_field as cf
+        self.model = cf.Field('conductivity', cf.GSToolsSpatialCorrelatedField(self.model_name, log=self.log,
+                                                                               sigma=self.sigma, mode_no=self.mode_no)),
+
+    def element_data(self, mesh, eid):
+        if self.model is None:
+            self._create_field()
+
+
+
         # Unrotated tensor (eigenvalues)
         if self.cov_log_conductivity is None:
             log_eigenvals = self.mean_log_conductivity
@@ -201,6 +271,7 @@ class BulkFields(BulkBase):
         rot_mat = np.array([[c, -s], [s, c]])
         cond_2d = rot_mat @ unrotated_tn @ rot_mat.T
         return 1.0, cond_2d
+
 
 
 class BulkMicroScale(BulkBase):
@@ -426,8 +497,38 @@ class FlowProblem:
             # bulk_cond_tn_pop_file = config_dict["fine"]["cond_tn_pop_file"]
             #bulk_model = BulkChoose(finer_level_path)
         else:
+            print("**bulk_conductivity ", bulk_conductivity)
+            if "marginal_distr" in bulk_conductivity and bulk_conductivity["marginal_distr"] is not False:
+                means, cov = FlowProblem.calculate_cov(bulk_conductivity["marginal_distr"])
+
+                bulk_conductivity["mean_log_conductivity"] = means
+                bulk_conductivity["cov_log_conductivity"] = cov
+                del bulk_conductivity["marginal_distr"]
+
+            print("BULKFIelds bulk_conductivity ", bulk_conductivity)
             bulk_model = BulkFields(**bulk_conductivity)
         return FlowProblem("fine", fr_range, fractures, bulk_model, config_dict)
+
+    @staticmethod
+    def calculate_cov(marginal_distrs):
+        #@TODO: 3D case not supported yet
+        corr_coeff = marginal_distrs["corr_coeff"]
+
+        cov = np.zeros((marginal_distrs["n_marginals"], marginal_distrs["n_marginals"]))
+        means = np.zeros((marginal_distrs["n_marginals"]))
+        for i in range(marginal_distrs["n_marginals"]):
+            if "marginal_{}".format(i) in marginal_distrs:
+                cov[i,i] = marginal_distrs["marginal_{}".format(i)]["std_log_conductivity"] ** 2
+                means[i] = marginal_distrs["marginal_{}".format(i)]["mean_log_conductivity"]
+
+        cov[1, 0] = cov[0, 1] = corr_coeff * np.sqrt(cov[0,0] * cov[1,1])
+
+        return means, cov
+
+
+
+
+
 
     # @classmethod
     # def make_coarse(cls, fr_range, fractures, micro_scale_problem, config_dict):
@@ -637,6 +738,7 @@ class FlowProblem:
     #     self.mesh = g2d.modify_mesh()
 
     def make_mesh(self):
+        print("self.basename ", self.basename)
         import homogenization.geometry_2d as geom
         mesh_file = "mesh_{}.msh".format(self.basename)
 
@@ -887,21 +989,18 @@ class FlowProblem:
         :param bulk_regions: mapping reg_id -> tensor_group_id, groups of regions for which the tensor will be computed.
         :return: {group_id: conductivity_tensor} List of effective tensors.
         """
-
         sym_condition = False
         bulk_regions = self.reg_to_group
 
         if pressure_loads is None:
             pressure_loads = self.pressure_loads
 
-        print("bulk regions ", bulk_regions)
-        print("self.regions ", self.regions)
-
-        print("self.reg_to_group ", self.reg_to_group)
-        print("self.pressure_loads ", pressure_loads)
+        # print("bulk regions ", bulk_regions)
+        # print("self.regions ", self.regions)
+        # print("self.reg_to_group ", self.reg_to_group)
+        #print("self.pressure_loads ", pressure_loads)
 
         #compute_effective_cond.effective_tensor_from_bulk(self.regions, bulk_regions, self.pressure_loads, os.path.join(self.basename, "flow_fields.msh"))
-
         #print("bulk regions ", bulk_regions)
 
         out_mesh = gmsh_io.GmshIO()
@@ -917,10 +1016,10 @@ class FlowProblem:
         #print("velocity field ", velocity_field)
 
         loads = pressure_loads
-        print("loads ", loads)
+        #print("loads ", loads)
         group_idx = {group_id: i_group for i_group, group_id in enumerate(set(bulk_regions.values()))}
         n_groups = len(group_idx)
-        print("n groups ", n_groups)
+        #print("n groups ", n_groups)
         group_labels = n_groups * ['_']
         for reg_id, group_id in bulk_regions.items():
             i_group = group_idx[group_id]
@@ -936,23 +1035,23 @@ class FlowProblem:
             for eid, ele_vel in velocity.items():
                 reg_id, vol = ele_reg_vol[eid]
                 cs = field_cs[eid][0]
-                print("vol: {}, cs: {}".format(vol, cs))
+                #print("vol: {}, cs: {}".format(vol, cs))
                 volume = cs * vol
                 i_group = group_idx[bulk_regions[reg_id]]
                 flux_response[i_group, i_time, :] += -(volume * np.array(ele_vel[0:2]))
                 area[i_group, i_time] += volume
 
-        print("flux response ", flux_response)
-        print("area ", area)
+        #print("flux response ", flux_response)
+        #print("area ", area)
 
         flux_response /= area[:, :, None]
         cond_tensors = {}
         print("Fitting tensors ...")
 
-        print("groud_idx ", group_idx.items())
+        #print("groud_idx ", group_idx.items())
         for group_id, i_group in group_idx.items():
             flux = flux_response[i_group]
-            print("flux ", flux)
+            #print("flux ", flux)
             # least square fit for the symmetric conductivity tensor
             rhs = flux.flatten()
             # columns for the tensor values: C00, C01, C11
@@ -973,24 +1072,21 @@ class FlowProblem:
                 pressure_matrix[-1] = [0, 1, -1, 0]
                 rhs = np.append(rhs, [0])
 
-
-            print("pressure matrix ", pressure_matrix)
-            print("rhs ", rhs)
-            print("rhs type ", type(rhs))
-            print("rhs ", rhs)
+            #print("pressure matrix ", pressure_matrix)
+            #print("rhs ", rhs)
+            #print("rhs type ", type(rhs))
+            #print("rhs ", rhs)
 
             C, residuals, rank, sing_values = np.linalg.lstsq(pressure_matrix, rhs)
-            #
-            #
 
-            print("residuals ", residuals)
-            print("rank ", rank)
-            print("sing values ", sing_values)
+            # print("residuals ", residuals)
+            # print("rank ", rank)
+            # print("sing values ", sing_values)
             #exit()
 
             #C = np.linalg.lstsq(pressure_matrix, rhs)[0]
-            print("C ", C)
-            print("(C[1]-C[2])/(C[1]+C[2]/2) ", np.abs((C[1]-C[2])/((C[1]+C[2]/2))))
+            #print("C ", C)
+            #print("(C[1]-C[2])/(C[1]+C[2]/2) ", np.abs((C[1]-C[2])/((C[1]+C[2]/2))))
             #C[1] = C[1]
             #cond_tn = np.array([[C[0], C[1]], [C[1], C[2]]])
             cond_tn = np.array([[C[0], C[1]], [C[2], C[3]]])
@@ -1021,10 +1117,14 @@ class FlowProblem:
         self.cond_tensors = cond_tensors
         self.flux = flux
         self.pressure_matrix = pressure_matrix
+        self._bulk_regions = bulk_regions
+        self._regions = self.regions
+        self._pressure_loads = pressure_loads
 
-        print("self.cond_tensors ", self.cond_tensors)
-        print("self.flux ", self.flux)
-        print("self. pressure matrix ", self.pressure_matrix)
+
+        #print("self.cond_tensors ", self.cond_tensors)
+        #print("self.flux ", self.flux)
+        #print("self. pressure matrix ", self.pressure_matrix)
         return cond_tensors, diff
 
     def labeled_arrow(self, ax, start, end, label):
@@ -1079,14 +1179,16 @@ class FlowProblem:
         plt.show()
 
     def summary(self):
-
         return dict(
             pos=[self.group_positions[eid].tolist() for eid in self.cond_tensors.keys()],
             cond_tn=[self.cond_tensors[eid].tolist() for eid in self.cond_tensors.keys()],
             fracture_cs=self._fracture_cs,
             fracture_len=self._fracture_len,
             flux=self.flux.tolist(),
-            pressure_matrix=self.pressure_matrix.tolist()
+            pressure_matrix=self.pressure_matrix.tolist(),
+            bulk_regions=self._bulk_regions,
+            regions=self._regions,
+            pressure_loads=self._pressure_loads.tolist()
         )
 
 
@@ -1136,9 +1238,9 @@ class BothSample:
 
     @staticmethod
     def calculate_mean_excluded_volume(r_min, r_max, kappa, geom=False):
-        print("r min ", r_min)
-        print("r max ", r_max)
-        print("kappa ", kappa)
+        #print("r min ", r_min)
+        #print("r max ", r_max)
+        #print("kappa ", kappa)
         if geom:
             #return 0.5 * (kappa / (r_min**(-kappa) - r_max**(-kappa)))**2 * 2*(((r_max**(2-kappa) - r_min**(2-kappa))) * ((r_max**(1-kappa) - r_min**(1-kappa))))/(kappa**2 - 3*kappa + 2)
             return ((r_max ** (1.5 * kappa - 0.5) - r_min ** (1.5 * kappa - 0.5)) / (
@@ -1164,29 +1266,31 @@ class BothSample:
         if "rho_2D" in geom:
             rho_2D = geom["rho_2D"]  # P_30 * V_ex
         n_frac_limit = geom["n_frac_limit"]
-        print("n frac limit ", n_frac_limit)
-        print("fr size range ", fr_size_range)
+        #print("n frac limit ", n_frac_limit)
+        #print("fr size range ", fr_size_range)
         p_32 = geom["p_32"]
 
-        print("lx: {}, ly: {} ".format(lx, ly))
+        #print("lx: {}, ly: {} ".format(lx, ly))
 
         # generate fracture set
         fracture_box = [lx, ly, 0]
         area = lx * ly
 
-        print("pow_law_sample_range ", pow_law_sample_range)
+        #print("pow_law_sample_range ", pow_law_sample_range)
 
         if rho_2D is not False:
+            #print("rho 2d is not false")
+            exit()
             self.config_dict["fracture_model"]["max_fr"] = pow_law_sample_range[1]
             A_ex = BothSample.excluded_area(pow_law_sample_range[0], pow_law_sample_range[1],
                                             kappa=pow_law_exp_3d-1, coef=np.pi/2)
-            print("A_ex ", A_ex)
+            #print("A_ex ", A_ex)
 
             # rho_2D = N_f/A * A_ex, N_f/A = intensity
-            print("rho_2D ", rho_2D)
+            #print("rho_2D ", rho_2D)
 
             intensity = rho_2D / A_ex
-            print("intensity ", intensity)
+            #print("intensity ", intensity)
 
             pop = fracture.Population(area, fracture.LineShape)
             pop.add_family("all",
@@ -1211,16 +1315,16 @@ class BothSample:
                                                          kappa=pow_law_exp_3d - 1, power=2)
 
 
-            print("V_ex ", V_ex)
-            print("rho ", rho)
+            #print("V_ex ", V_ex)
+            #print("rho ", rho)
             p_30 = rho / V_ex
-            print("p_30 ", p_30)
+            #print("p_30 ", p_30)
 
-            print("v_ex ", v_ex)
-            print("R2 ", R2)
+            #print("v_ex ", v_ex)
+            #print("R2 ", R2)
 
             p_30 = rho / (v_ex*R2)
-            print("final P_30 ", p_30)
+            #print("final P_30 ", p_30)
 
             pop = fracture.Population(area, fracture.LineShape)
             pop.add_family("all",
@@ -1232,6 +1336,8 @@ class BothSample:
             pop.set_sample_range(pow_law_sample_range)
 
         else:
+            #print("rho is False")
+            exit()
             pop = fracture.Population(area, fracture.LineShape)
             pop.add_family("all",
                            fracture.FisherOrientation(0, 90, np.inf),
@@ -1250,26 +1356,24 @@ class BothSample:
                 pop.set_sample_range(fr_size_range,
                                      sample_size=n_frac_limit)
 
-        print("total mean size: ", pop.mean_size())
-        print("size range:", pop.families[0].size.sample_range)
+        #print("total mean size: ", pop.mean_size())
+        #print("size range:", pop.families[0].size.sample_range)
 
         pos_gen = fracture.UniformBoxPosition(fracture_box)
         fractures = pop.sample(pos_distr=pos_gen, keep_nonempty=True)
 
-        print("fractures len ", len(fractures))
-        print("fractures ", fractures)
-
+        # #print("fractures len ", len(fractures))
+        # print("fractures ", fractures)
+        # print("fr size range ", fr_size_range)
 
         fr_set = fracture.Fractures(fractures, fr_size_range[0] / 2)
 
-
-
+        #print("fr set ", fr_set)
         return fr_set
 
     def make_summary(self, done_list):
         results = {problem.basename: problem.summary() for problem in done_list}
-
-        print("results ", results)
+        #print("results ", results)
 
         with open("summary.yaml", "w") as f:
             yaml.dump(results, f)

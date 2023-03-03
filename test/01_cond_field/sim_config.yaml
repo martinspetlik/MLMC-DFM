@@ -86,7 +86,8 @@ bulk_conductivity:
     mean_log_conductivity: [-6, -5.8]
     #cov_log_conductivity: [[1e-16, 0], [0, 1e-16]] # [[0.2,0.07],[0.07,0.2]]
     #mean_log_conductivity: [ -2, -2 ]
-    cov_log_conductivity: [[0.2, 0.07],[0.07, 0.2]] # marginal 1: std=0.447
+    cov_log_conductivity: [[0.2, 0.07],
+                           [0.07, 0.2]] # marginal 1: std=0.447
                                                     # marginal 2: std=0.447
                                                     # corr coeff 0.2
 

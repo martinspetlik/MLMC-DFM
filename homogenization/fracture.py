@@ -900,7 +900,10 @@ class Fractures:
         # Maps line to its fracture.
 
         self.make_lines()
-        self.make_bihs()
+        print("lines made")
+        if len(self.fracture_ids) > 0:
+            self.make_bihs()
+        print("bihs made")
 
     def make_lines(self):
         # sort from large to small fractures

@@ -17,6 +17,7 @@ import yaml
 
 
 class ProcessSimple:
+    # @TODO: generate more samples, with new seed
 
     def __init__(self):
         args = ProcessBase.get_arguments(sys.argv[1:])
@@ -34,7 +35,8 @@ class ProcessSimple:
         # Number of MLMC levels
 
         # step_range = [0.055, 0.0035]
-        step_range = [25, 5]
+        #step_range = [10, 1]
+        step_range = [10, 1]
         # step_range = [0.1, 0.055]
         # step   - elements
         # 0.1    - 262
@@ -129,7 +131,7 @@ class ProcessSimple:
         if recollect:
             raise NotImplementedError("Not supported in released version")
         else:
-            self.generate_jobs(sampler, n_samples=[5, 2], renew=renew)
+            self.generate_jobs(sampler, n_samples=[2, 2], renew=renew)
             self.all_collect(sampler)  # Check if all samples are finished
 
     def setup_config(self, clean):
