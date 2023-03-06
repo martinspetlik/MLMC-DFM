@@ -229,34 +229,166 @@ class BulkFields(BulkBase):
 
 
 @attr.s(auto_attribs=True)
-class BulkFieldGSTools(BulkBase):
-    dim: int = attr.ib(converter=int)
-    sigma: float = attr.ib(converter=float)
-    corr_length: float = attr.ib(converter=float)
-    model_name: str = "exp"
-    log: bool = True
-    mode_no: int = 10000
-    model = None
+class BulkFieldsGSTools(BulkBase):
+    mean_log_conductivity: Tuple[float, float]
+    cov_log_conductivity: Optional[List[List[float]]]
+    angle_mean: float = attr.ib(converter=float)
+    angle_concentration: float = attr.ib(converter=float)
 
-    def _create_field(self):
+    # dim: int = attr.ib(converter=int)
+    # sigma: float = attr.ib(converter=float)
+    # corr_length: float = attr.ib(converter=float)
+    # model_name: str = "exp"
+    # log: bool = True
+    mode_no: int = 10000
+    corr_lengths_x = [0, 0, 20]
+    corr_lengths_y = [0, 0, 3]
+    anis_angles = [0, 0, np.pi/4]
+    model_k_xx = None
+    model_k_yy = None
+    model_angle = None
+    angle_var = 1
+    #angle_mean = 0
+    log = True
+
+    def _pca(self, mean_k_xx_yy, cov_matrix_k_xx_yy):
+        n_samples = 5000
+        samples = np.random.multivariate_normal(mean=mean_k_xx_yy, cov=cov_matrix_k_xx_yy, size=n_samples)
+
+        eigen_values, eigen_vectors = np.linalg.eig(cov_matrix_k_xx_yy)
+        projection_matrix = (eigen_vectors.T[:][:]).T
+        p_components = samples.dot(projection_matrix)
+
+        pc_means = [np.mean(p_components[:, 0]), np.mean(p_components[:, 1])]
+        pc_vars = [np.var(p_components[:, 0]), np.var(p_components[:, 1])]
+
+        print("pc means: {} vars: {}".format(pc_means, pc_vars))
+
+        if self.corr_lengths_x[0] == 0:
+            len_scale = 1e-15
+        else:
+            len_scale = [self.corr_lengths_x[0], self.corr_lengths_y[0]]
+
+        self._model_k_xx = gstools.Exponential(dim=2, var=pc_vars[0], len_scale=len_scale, angles=self.anis_angles[0])
+
+        if self.corr_lengths_x[1] == 0:
+            len_scale = 1e-15
+        else:
+            len_scale = [self.corr_lengths_x[1], self.corr_lengths_y[1]]
+
+        self._model_k_yy = gstools.Exponential(dim=2, var=pc_vars[1], len_scale=len_scale, angles=self.anis_angles[1])
+
+        if self.corr_lengths_x[2] == 0:
+            len_scale = 1e-15
+        else:
+            len_scale = [self.corr_lengths_x[2], self.corr_lengths_y[2]]
+
+        self._model_angle = gstools.Exponential(dim=2, var=self.angle_var, len_scale=len_scale, angles=self.anis_angles[2])
+
+        # print("self._model_k_xx ", self._model_k_xx)
+        # print("self._model_k_yy ", self._model_k_yy)
+        # print("self._model_angle ", self._model_angle)
+
+    def _create_field(self, mean_log_conductivity, cov_log_conductivity):
         from mlmc.random import correlated_field as cf
-        self.model = cf.Field('conductivity', cf.GSToolsSpatialCorrelatedField(self.model_name, log=self.log,
-                                                                               sigma=self.sigma, mode_no=self.mode_no)),
+        self._pca(mean_log_conductivity, cov_log_conductivity)
+
+        field_k_xx = cf.Field('k_xx', cf.GSToolsSpatialCorrelatedField(self._model_k_xx, log=self.log,
+                                                                       sigma=np.sqrt(self.cov_log_conductivity[0,0]),
+                                                                       mode_no=self.mode_no))
+
+        field_k_yy = cf.Field('k_yy', cf.GSToolsSpatialCorrelatedField(self._model_k_yy, log=self.log,
+                                                                       sigma=np.sqrt(self.cov_log_conductivity[1, 1]),
+                                                                       mode_no=self.mode_no))
+
+        field_angle = cf.Field('angle', cf.GSToolsSpatialCorrelatedField(self._model_angle,
+                                                                         sigma=np.sqrt(self.angle_var),
+                                                                         mode_no=self.mode_no))
+
+        self._fields = cf.Fields([field_k_xx, field_k_yy, field_angle])
 
     def element_data(self, mesh, eid):
-        if self.model is None:
-            self._create_field()
+        if self.model_k_xx is None:
+            self._create_field(self.mean_log_conductivity, self.cov_log_conductivity)
+
+            mesh_data = BulkFieldsGSTools.extract_mesh(mesh)
+            print("mesh data ", list(mesh_data.keys()))
+
+            self._fields.set_points(mesh_data['points'], mesh_data['point_region_ids'], mesh_data['region_map'])
+
+            print("self._field_k_xx ", self._fields)
 
 
 
-        # Unrotated tensor (eigenvalues)
-        if self.cov_log_conductivity is None:
-            log_eigenvals = self.mean_log_conductivity
-        else:
-            log_eigenvals = np.random.multivariate_normal(
-                mean=self.mean_log_conductivity,
-                cov=self.cov_log_conductivity,
-                )
+            rf_sample = self._fields.sample()
+
+            xv = mesh_data['points'][:, 0]
+            yv = mesh_data['points'][:, 1]
+
+            # print("rf sample angle ", len(rf_sample["angle"]))
+            # exit()
+            try:
+                fig, ax = plt.subplots(1, 1, figsize=(15, 10))
+                cont = ax.tricontourf(xv, yv, rf_sample["angle"], level=32)
+                fig.colorbar(cont)
+                plt.title("angle srf")
+                plt.show()
+            except Exception as e:
+                print(e)
+
+
+            fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(10, 10))
+            ax = axes  # [0]
+            #ax.set_xscale('log')
+            ax.hist(rf_sample["angle"], bins=25, density=True)
+            fig.legend()
+            fig.show()
+
+
+            rf_sample["angle"] = (rf_sample["angle"] * 100) % (2*np.pi)  # uniform distribution
+
+            fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(10, 10))
+            ax = axes  # [0]
+            # ax.set_xscale('log')
+            ax.hist(rf_sample["angle"], bins=25, density=True)
+            fig.legend()
+            fig.show()
+
+            # xv = mesh_data['points'][:, 0]
+            # yv = mesh_data['points'][:, 1]
+
+            # print("rf sample angle ", len(rf_sample["angle"]))
+            # exit()
+            try:
+                fig, ax = plt.subplots(1, 1, figsize=(15, 10))
+                cont = ax.tricontourf(xv, yv, rf_sample["angle"], level=32)
+                fig.colorbar(cont)
+                plt.title("angle srf")
+                plt.show()
+            except Exception as e:
+               print(e)
+
+        # print("mesh.elements ", mesh.elements)
+        # print("mesh.points ", mesh.points)
+        # exit()
+        #
+        # el_type, tags, node_ids = mesh.elements[eid]
+        # center = np.mean([np.array(mesh.nodes[nid]) for nid in node_ids], axis=0)
+        # exit()
+
+
+
+
+
+
+        # # Unrotated tensor (eigenvalues)
+        # if self.cov_log_conductivity is None:
+        #     log_eigenvals = self.mean_log_conductivity
+        # else:
+        #     log_eigenvals = np.random.multivariate_normal(
+        #         mean=self.mean_log_conductivity,
+        #         cov=self.cov_log_conductivity,
+        #         )
 
         unrotated_tn = np.diag(np.power(10, log_eigenvals))
 
@@ -271,6 +403,104 @@ class BulkFieldGSTools(BulkBase):
         rot_mat = np.array([[c, -s], [s, c]])
         cond_2d = rot_mat @ unrotated_tn @ rot_mat.T
         return 1.0, cond_2d
+
+    @staticmethod
+    def extract_mesh(mesh):
+        """
+        Extract mesh from file
+        :param mesh_file: Mesh file path
+        :return: Dict
+        """
+        is_bc_region = {}
+        region_map = {}
+        for name, (id, _) in mesh.physical.items():
+            unquoted_name = name.strip("\"'")
+            is_bc_region[id] = (unquoted_name[0] == '.')
+            region_map[unquoted_name] = id
+
+        triangles = {}
+
+        bulk_elements = []
+        for id, el in mesh.elements.items():
+            _, tags, i_nodes = el
+            region_id = tags[0]
+            if not is_bc_region[region_id]:
+                bulk_elements.append(id)
+
+        n_bulk = len(bulk_elements)
+        centers = np.empty((n_bulk, 3))
+        ele_ids = np.zeros(n_bulk, dtype=int)
+        point_region_ids = np.zeros(n_bulk, dtype=int)
+
+        for i, id_bulk in enumerate(bulk_elements):
+            _, tags, i_nodes = mesh.elements[id_bulk]
+            region_id = tags[0]
+
+            # print("i_nodes ", i_nodes)
+            # print("[mesh.nodes[i_node] for i_node in i_nodes] ", [mesh.nodes[i_node] for i_node in i_nodes])
+
+            centers[i] = np.average(np.array([mesh.nodes[i_node] for i_node in i_nodes]), axis=0)
+            point_region_ids[i] = region_id
+            ele_ids[i] = id_bulk
+            triangles[ele_ids[i]] = i_nodes
+
+        min_pt = np.min(centers, axis=0)
+        max_pt = np.max(centers, axis=0)
+        diff = max_pt - min_pt
+        min_axis = np.argmin(diff)
+        non_zero_axes = [0, 1, 2]
+        # TODO: be able to use this mesh_dimension in fields
+        if diff[min_axis] < 1e-10:
+            non_zero_axes.pop(min_axis)
+        points = centers[:, non_zero_axes]
+
+        return {'points': points, 'point_region_ids': point_region_ids, 'ele_ids': ele_ids, 'region_map': region_map,
+                'mesh_nodes': mesh.nodes, 'triangles': triangles}
+
+
+# @attr.s(auto_attribs=True)
+# class BulkFieldGSTools(BulkBase):
+#     dim: int = attr.ib(converter=int)
+#     sigma: float = attr.ib(converter=float)
+#     corr_length: float = attr.ib(converter=float)
+#     model_name: str = "exp"
+#     log: bool = True
+#     mode_no: int = 10000
+#     model = None
+#
+#     def _create_field(self):
+#         from mlmc.random import correlated_field as cf
+#         self.model = cf.Field('conductivity', cf.GSToolsSpatialCorrelatedField(self.model_name, log=self.log,
+#                                                                                sigma=self.sigma, mode_no=self.mode_no)),
+#
+#     def element_data(self, mesh, eid):
+#         if self.model is None:
+#             self._create_field()
+#
+#
+#
+#         # Unrotated tensor (eigenvalues)
+#         if self.cov_log_conductivity is None:
+#             log_eigenvals = self.mean_log_conductivity
+#         else:
+#             log_eigenvals = np.random.multivariate_normal(
+#                 mean=self.mean_log_conductivity,
+#                 cov=self.cov_log_conductivity,
+#                 )
+#
+#         unrotated_tn = np.diag(np.power(10, log_eigenvals))
+#
+#         # rotation angle
+#         if self.angle_concentration is None or self.angle_concentration == 0:
+#             angle = np.random.uniform(0, 2*np.pi)
+#         elif self.angle_concentration == np.inf:
+#             angle = self.angle_mean
+#         else:
+#             angle = np.random.vonmises(self.angle_mean, self.angle_concentration)
+#         c, s = np.cos(angle), np.sin(angle)
+#         rot_mat = np.array([[c, -s], [s, c]])
+#         cond_2d = rot_mat @ unrotated_tn @ rot_mat.T
+#         return 1.0, cond_2d
 
 
 
@@ -506,7 +736,8 @@ class FlowProblem:
                 del bulk_conductivity["marginal_distr"]
 
             print("BULKFIelds bulk_conductivity ", bulk_conductivity)
-            bulk_model = BulkFields(**bulk_conductivity)
+            #bulk_model = BulkFields(**bulk_conductivity)
+            bulk_model = BulkFieldsGSTools(**bulk_conductivity)
         return FlowProblem("fine", fr_range, fractures, bulk_model, config_dict)
 
     @staticmethod
@@ -2585,7 +2816,6 @@ def run_samples(work_dir, sample_dict):
     #     i += 1
     #
     # plt.show()
-
 
 if __name__ == "__main__":
     start_time = time.time()
