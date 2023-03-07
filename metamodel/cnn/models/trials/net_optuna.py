@@ -24,7 +24,10 @@ class Net(nn.Module):
         if self._pool == "None":
             self._pool = None
 
-        channels = np.linspace(start=min_channel, stop=max_channel, num=n_conv_layers+1, dtype=int)
+        if type(max_channel) == list and max_channel == len(n_conv_layers):
+            channels = max_channel
+        else:
+            channels = np.linspace(start=min_channel, stop=max_channel, num=n_conv_layers+1, dtype=int)
 
         for i in range(n_conv_layers):
             self._convs.append(nn.Conv2d(in_channels=channels[i],
@@ -39,7 +42,10 @@ class Net(nn.Module):
             if self._pool is not None:
                 input_size = int(((input_size - pool_size) / pool_stride)) + 1
 
-        hidden_neurons = np.linspace(start=max_hidden_neurons, stop=min_channel, num=n_hidden_layers, dtype=int)
+        if type(max_hidden_neurons) == list and max_hidden_neurons == len(n_hidden_layers):
+            hidden = max_hidden_neurons
+        else:
+            hidden_neurons = np.linspace(start=max_hidden_neurons, stop=min_channel, num=n_hidden_layers, dtype=int)
 
         input_size = channels[i+1] * input_size * input_size
         for i in range(n_hidden_layers):

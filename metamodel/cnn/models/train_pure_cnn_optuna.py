@@ -170,6 +170,12 @@ def prepare_dataset(study, config, data_dir, serialize_path=None):
     # ===================================
     input_transform, output_transform = None, None
     input_mean, output_mean, input_std, output_std = 0, 0, 1, 1
+
+    if "n_train_samples" in config and config["n_train_samples"] is not None:
+        n_train_samples = config["n_train_samples"]
+    else:
+        n_train_samples = int(len(dataset) * config["train_samples_ratio"])
+
     if config["log_input"]:
         input_transform = transforms.Compose([transforms.Lambda(log_data)])
     if config["log_output"]:
@@ -180,8 +186,6 @@ def prepare_dataset(study, config, data_dir, serialize_path=None):
                                           input_transform=input_transform,
                                           output_transform=output_transform,
                                           two_dim=True)
-
-        n_train_samples = int(len(dataset_for_mean_std) * config["train_samples_ratio"])
 
         train_val_set = dataset_for_mean_std[:n_train_samples]
         train_set = train_val_set[int(n_train_samples * config["val_samples_ratio"]):]
@@ -219,12 +223,16 @@ def prepare_dataset(study, config, data_dir, serialize_path=None):
     dataset = DFMDataset(data_dir=data_dir, input_transform=data_input_transform,
                          output_transform=data_output_transform)
 
-    n_train_samples = int(len(dataset) * config["train_samples_ratio"])
-
     train_val_set = dataset[:n_train_samples]
     validation_set = train_val_set[:int(n_train_samples * config["val_samples_ratio"])]
     train_set = train_val_set[int(n_train_samples * config["val_samples_ratio"]):]
-    test_set = dataset[n_train_samples:]
+
+    if "n_test_samples" in config and config["n_test_samples"] is not None:
+        n_test_samples = config["n_test_samples"]
+        test_set = dataset[-n_test_samples:]
+    else:
+        test_set = dataset[n_train_samples:]
+
     print("len(trainset): {}, len(valset): {}, len(testset): {}".format(len(train_set), len(validation_set),
                                                                         len(test_set)))
 

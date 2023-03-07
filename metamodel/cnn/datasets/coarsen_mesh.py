@@ -1,5 +1,6 @@
 import os
 import os.path
+import shutil
 import numpy as np
 import yaml
 import gmsh_io
@@ -10,6 +11,33 @@ import time
 MESH_FILE = "mesh_fine.msh"
 FIELDS_MESH_FILE = "fields_fine.msh"
 SUMMARY_FILE = "summary.yaml"
+
+
+def create_output(cond_tn, output_dir, symmetrize=True):
+    """
+    Load tensor form yaml file and save it as compressed numpy array
+    :param sample_dir: sample directory
+    :param symmetrize: bool, if True symmetrize conductivity tensor
+    :return: None
+    """
+    print("cond tn ", cond_tn)
+    if cond_tn.shape[0] == 2:
+        if symmetrize:
+            cond_tn[0,1] = (cond_tn[0,1] + cond_tn[1,0])/2
+
+        tn3d = np.eye(3)
+        tn3d[0:2, 0:2] = cond_tn
+        cond_tn = tn3d
+
+    elif symmetrize:
+        cond_tn[0, 1] = (cond_tn[0, 1] + cond_tn[1, 0]) / 2
+        cond_tn[0, 2] = (cond_tn[0, 2] + cond_tn[2, 0]) / 2
+        cond_tn[1, 2] = (cond_tn[1, 2] + cond_tn[2, 1]) / 2
+
+    up_tr = cond_tn[np.triu_indices(3)]
+    np.save(os.path.join(output_dir, "output_tensor"), up_tr)
+    # np.savez_compressed(os.path.join(sample_dir, "output_tensor_compressed"), data=cond_tn.ravel)
+
 
 
 def element_volume(mesh, nodes):
@@ -80,7 +108,7 @@ def read_flow_fields(sample_dir):
     velocities = {}
     for i_time, (time, velocity) in velocity_field.items():
         i_time = int(i_time)
-        print("i time ", i_time)
+        #print("i time ", i_time)
 
         velocities[i_time] = {}
 
@@ -93,8 +121,8 @@ def read_flow_fields(sample_dir):
             print("vol: {}, cs: {}".format(vol, cs))
             volume = cs * vol
             i_group = group_idx[bulk_regions[reg_id]]
-            print("i group ", i_group)
-            print("i time ", i_time)
+            #print("i group ", i_group)
+            #print("i time ", i_time)
             flux_response[i_group, i_time, :] += -(volume * np.array(ele_vel[0:2]))
             area[i_group, i_time] += volume
 
@@ -185,180 +213,85 @@ def read_flow_fields(sample_dir):
     # exit()
 
 def _calculate_effective_tensor(time_cond_bulk, time_velocity_bulk, time_neg_pressure_bulk, pressure_loads,
-                                flux_response_shape,
-                                upper_corner):
+                                flux_response_shape, upper_corner, size=3):
 
     sym_condition = True
-    #sample_dir = "/home/martin/Documents/MLMC-DFM/test/01_cond_field/output/L01_S0000001/homogenization/i_0_j_2_k_3"
-
-    # with open(os.path.join(sample_dir, SUMMARY_FILE), "r") as f:
-    #     summary_dict = yaml.load(f, Loader=yaml.Loader)
-    # bulk_regions = summary_dict['fine']['bulk_regions']
-    # pressure_loads = summary_dict['fine']['pressure_loads']
-    # regions = summary_dict['fine']['regions']
-
-    # flow_fields_file = os.path.join(sample_dir, "flow_fields.msh")
-    # if not os.path.exists(flow_fields_file):
-    #     raise FileNotFoundError
-    #
-    # out_mesh = gmsh_io.GmshIO()
-    # with open(flow_fields_file, "r") as f:
-    #     out_mesh.read(f)
-    # time_idx = 0
-    # time, field_cs = out_mesh.element_data['cross_section'][time_idx]
-
-    # ele_reg_vol = {eid: (tags[0] - 10000, element_volume(out_mesh, nodes))
-    #                for eid, (tele, tags, nodes) in out_mesh.elements.items()}
-    #
-    # assert len(field_cs) == len(ele_reg_vol)
-    # velocity_field = out_mesh.element_data['velocity_p0']
-
-    # print("time ", time)
-    # print("field_cs ", field_cs)
-
-    # assert len(field_cs) == len(ele_reg_vol)
-    # velocity_field = out_mesh.element_data['velocity_p0']
-    # # print("velocity field ", velocity_field)
-
     loads = pressure_loads
-
-    # print("loads ", loads)
-    # group_idx = {group_id: i_group for i_group, group_id in enumerate(set(bulk_regions.values()))}
-    # n_groups = len(group_idx)
-    # print("n groups ", n_groups)
-    # group_labels = n_groups * ['_']
-    # for reg_id, group_id in bulk_regions.items():
-    #     i_group = group_idx[group_id]
-    #     old_label = group_labels[i_group]
-    #     new_label = regions[reg_id].name
-    #     group_labels[i_group] = old_label if len(old_label) > len(new_label) else new_label
-
     n_directions = len(loads)
-    print("flux_response_shape ", flux_response_shape)
     flux_response = np.zeros(flux_response_shape)
-    #area = np.zeros((*flux_response_shape[:2]))
-    print("Averaging velocities ...")
-    #print("velocity field ", velocity_field)
+    neg_pressure_sum = np.zeros(flux_response_shape)
+    area = np.zeros(flux_response_shape[:2])
 
-    for i_time, velocity in enumerate(time_velocity_bulk):
-        for i in range(3):
-            for j in range(3):
-                print("velocity.shape ", velocity.shape)
-                pixel_vel = velocity[upper_corner[0] + i, upper_corner[1] + j]
+
+    input_cond = np.zeros((time_cond_bulk[0].shape[0], size, size))
+
+    volume = 1
+    i_region = 0
+    for i_time in range(len(time_velocity_bulk)):
+        for i in range(size):
+            for j in range(size):
+                pixel_vel = time_velocity_bulk[i_time][:, upper_corner[0] + i, upper_corner[1] + j]
+                pixel_neg_pressure = time_neg_pressure_bulk[i_time][:, upper_corner[0] + i, upper_corner[1] + j]
                 print("pixel_vel ", pixel_vel)
-                exit()
+                print("pixel neg pressure ", pixel_neg_pressure)
 
-                velocities[eid] = ele_vel
-                #reg_id, vol = ele_reg_vol[eid]
-                #cs = field_cs[eid][0]
-                # print("vol: {}, cs: {}".format(vol, cs))
-                volume = 1 #cs * vol
-                #i_group = group_idx[bulk_regions[reg_id]]
-                #print("i group ", i_group)
-                #print("i time ", i_time)
-                flux_response[i_time, :] += -(volume * np.array(ele_vel[0:2]))
-                #area[i_group, i_time] += volume
+                if i_time == 0:
+                    input_cond[:, i, j] = time_cond_bulk[i_time][:, upper_corner[0] + i, upper_corner[1] + j]
+
+                flux_response[i_region, i_time, :] += volume * np.array(pixel_vel[0:2])
+                neg_pressure_sum[i_region, i_time, :] += volume * np.array(pixel_neg_pressure[0:2])
+
+                area[i_region, i_time] += volume
+
+    flux_response /= area[:, :, None]
+    neg_pressure_sum /= area[:, :, None]
+    print("Fitting tensors ...")
+
+    i_group = 0
+    flux = flux_response[i_group]
+    print("flux ", flux)
+    rhs = flux.flatten()
+    pressure_matrix = np.zeros((len(rhs), 4))
+    if sym_condition:
+        pressure_matrix = np.zeros((len(rhs) + 1, 4))
+
+    neg_pressure_sum = np.squeeze(neg_pressure_sum)
+
+    for i_load in range(len(neg_pressure_sum)):
+        i0 = 2 * i_load
+        i1 = i0 + 1
+        pressure_matrix[i0] = [neg_pressure_sum[i_load, 0], neg_pressure_sum[i_load, 1], 0, 0]
+        pressure_matrix[i1] = [0, 0, neg_pressure_sum[i_load, 0], neg_pressure_sum[i_load, 1]]
+
+    if sym_condition:
+        pressure_matrix[-1] = [0, 1, -1, 0]
+        rhs = np.append(rhs, [0])
+
+    print("pressure matrix ", pressure_matrix)
+    print("rhs ", rhs)
+    print("rhs type ", type(rhs))
+    print("rhs ", rhs)
+
+    cond_tn, residuals, rank, sing_values = np.linalg.lstsq(pressure_matrix, rhs)
+    print("cond_tn ", cond_tn)
+    cond_tn = cond_tn.reshape(2, 2)
+    print("cond_tn ", cond_tn)
 
 
-    velocities = {}
-    for i_time, (time, velocity) in velocity_field.items():
-        i_time = int(i_time)
-        for eid, ele_vel in velocity.items():
-            print("eid: {}, ele_vel:{}".format(eid, ele_vel))
+    print("residuals ", residuals)
+    print("rank ", rank)
+    print("sing values ", sing_values)
+    # # exit()
+    #
+    # # C = np.linalg.lstsq(pressure_matrix, rhs)[0]
+    # print("C ", C)
+    # print("(C[1]-C[2])/(C[1]+C[2]/2) ", np.abs((C[1] - C[2]) / ((C[1] + C[2] / 2))))
+    # # C[1] = C[1]
+    # # cond_tn = np.array([[C[0], C[1]], [C[1], C[2]]])
+    # cond_tn = np.array([[C[0], C[1]], [C[2], C[3]]])
+    # diff = np.abs((C[1] - C[2]) / ((C[1] + C[2] / 2)))
 
-            velocities[eid] = ele_vel
-            reg_id, vol = ele_reg_vol[eid]
-            cs = field_cs[eid][0]
-            #print("vol: {}, cs: {}".format(vol, cs))
-            volume = cs * vol
-            i_group = group_idx[bulk_regions[reg_id]]
-            print("i group ", i_group)
-            print("i time ", i_time)
-            flux_response[i_group, i_time, :] += -(volume * np.array(ele_vel[0:2]))
-            area[i_group, i_time] += volume
-
-    # print("flux response ", flux_response)
-    # print("area ", area)
-    #
-    # flux_response /= area[:, :, None]
-    # cond_tensors = {}
-    # print("Fitting tensors ...")
-    #
-    # print("groud_idx ", group_idx.items())
-    # for group_id, i_group in group_idx.items():
-    #     flux = flux_response[i_group]
-    #     print("flux ", flux)
-    #     # least square fit for the symmetric conductivity tensor
-    #     rhs = flux.flatten()
-    #     # columns for the tensor values: C00, C01, C11
-    #     pressure_matrix = np.zeros((len(rhs), 4))
-    #     if sym_condition:
-    #         pressure_matrix = np.zeros((len(rhs) + 1, 4))
-    #
-    #     for i_load, (p0, p1) in enumerate(loads):
-    #         i0 = 2 * i_load
-    #         i1 = i0 + 1
-    #         # @TODO: skalarni soucin rychlosti s (p0, p1)
-    #         # pressure_matrix[i0] = [p0, p1, 0]
-    #         # pressure_matrix[i1] = [0, p0, p1]
-    #         pressure_matrix[i0] = [p0, p1, 0, 0]
-    #         pressure_matrix[i1] = [0, 0, p0, p1]
-    #
-    #     if sym_condition:
-    #         pressure_matrix[-1] = [0, 1, -1, 0]
-    #         rhs = np.append(rhs, [0])
-    #
-    #     print("pressure matrix ", pressure_matrix)
-    #     print("rhs ", rhs)
-    #     print("rhs type ", type(rhs))
-    #     print("rhs ", rhs)
-    #
-    #     C, residuals, rank, sing_values = np.linalg.lstsq(pressure_matrix, rhs)
-    #     #
-    #     #
-    #
-    #     print("residuals ", residuals)
-    #     print("rank ", rank)
-    #     print("sing values ", sing_values)
-    #     # exit()
-    #
-    #     # C = np.linalg.lstsq(pressure_matrix, rhs)[0]
-    #     print("C ", C)
-    #     print("(C[1]-C[2])/(C[1]+C[2]/2) ", np.abs((C[1] - C[2]) / ((C[1] + C[2] / 2))))
-    #     # C[1] = C[1]
-    #     # cond_tn = np.array([[C[0], C[1]], [C[1], C[2]]])
-    #     cond_tn = np.array([[C[0], C[1]], [C[2], C[3]]])
-    #     diff = np.abs((C[1] - C[2]) / ((C[1] + C[2] / 2)))
-    #
-    #     # exit()
-    #
-    #     e_val = None
-    #     if residuals > 10 ** (-8):
-    #         exit()
-    #         e_val = FlowProblem.line_fit(flux)
-    #
-    #     if i_group < 10:
-    #         # if flux.shape[0] < 5:
-    #         print("Plot tensor for eid: ", group_id)
-    #         print("Fluxes: \n", flux)
-    #         print("pressures: \n", loads)
-    #         print("cond: \n", cond_tn)
-    #         # if e_val is None:
-    #         e_val, e_vec = np.linalg.eigh(cond_tn)
-    #         print("e val ", e_val)
-    #
-    #         # print("log mean eval cond", np.log10(np.mean(e_val)))
-    #         #self.plot_effective_tensor(flux, cond_tn, self.basename + "_" + group_labels[i_group])
-    #         # exit()
-    #         # print(cond_tn)
-    #     cond_tensors[group_id] = cond_tn
-    #
-    # print("self.cond_tensors ", cond_tensors)
-    # print("self.flux ", flux)
-    # print("self. pressure matrix ", pressure_matrix)
-    #
-    #
-    # exit()
+    return cond_tn, input_cond
 
 
 def create_input(sample_dir, n_pixels_x=256, feature_names=[['conductivity_tensor'], ['cross_section']], velocities=None):
@@ -409,8 +342,8 @@ def create_input(sample_dir, n_pixels_x=256, feature_names=[['conductivity_tenso
 
                     if e_id in velocities:
                         velocity = velocities[e_id]
-                        neg_pressure = np.matmul(cond_tn, velocities[e_id])
-                    
+                        neg_pressure = np.matmul(np.linalg.inv(cond_tn), velocities[e_id])
+
                     if e_id in triangles:
                         for idx, v in enumerate(neg_pressure):
                             neg_pressure_elements_triangles[idx][e_id] = v
@@ -469,8 +402,8 @@ def create_input(sample_dir, n_pixels_x=256, feature_names=[['conductivity_tenso
                                            lines, neg_pressure_elements_lines[k], cs_lines, n_pixels_x, save_image=True)
 
 
-            velocity_bulk_data_array[k] = np.flip(trimesh, axis=0)
-            velocity_fractures_data_array[k] = np.flip(cvs_lines, axis=0)
+            neg_pressure_bulk_data_array[k] = np.flip(trimesh, axis=0)
+            neg_pressure_fractures_data_array[k] = np.flip(cvs_lines, axis=0)
 
 
 
@@ -583,7 +516,7 @@ def extract_mesh_gmsh_io(mesh_file, get_points=False, image=False):
     return ele_nodes
 
 
-def _prepare_input(sample_dir, n_pixels_x):
+def _prepare_input(sample_dir, output_dir, index, n_pixels_x):
     velocities_dict, pressure_loads, flux_response_shape = read_flow_fields(sample_dir)
     time_cond = []
     time_velocity = []
@@ -591,23 +524,37 @@ def _prepare_input(sample_dir, n_pixels_x):
 
     for i_time, velocities in velocities_dict.items():
         print("veloctities ", velocities)
-
         cond_bulk_data_array, velocity_bulk_data_array, neg_pressure_bulk_data_array = create_input(sample_dir,
                                                                                                     n_pixels_x=n_pixels_x,
                                                                                                     velocities=velocities)
-
         time_cond.append(cond_bulk_data_array)
         time_velocity.append(velocity_bulk_data_array)
         time_neg_pressure.append(neg_pressure_bulk_data_array)
 
+    size = 3
+    for i in range(0, n_pixels_x, size):
+        for j in range(0, n_pixels_x, size):
+            if i + size < n_pixels_x and j + size < n_pixels_x:
+                print("i: {} j: {}".format(i, j))
 
-    for i in range(0, n_pixels_x, 3):
-        for j in range(0, n_pixels_x, 3):
-            print("i: {} j: {}".format(i, j))
+                out_sample_dir_name = "sample_{}_i_{}_j_{}".format(index, i, j)
+
+                output_sample_dir = os.path.join(output_dir, out_sample_dir_name)
+                if os.path.exists(output_sample_dir):
+                    shutil.rmtree(output_sample_dir)
+                os.mkdir(output_sample_dir)
+
+                cond_tn, input_cond = _calculate_effective_tensor(time_cond, time_velocity, time_neg_pressure, pressure_loads,
+                                            flux_response_shape, upper_corner=[i, j], size=size)
+
+                np.savez_compressed(os.path.join(output_sample_dir, "bulk_{}".format(n_pixels_x)), data=input_cond)
+                create_output(cond_tn, output_sample_dir, symmetrize = True)
 
 
+    if index == 2:
+        exit()
 
-            _calculate_effective_tensor(time_cond, time_velocity, time_neg_pressure, pressure_loads, flux_response_shape, upper_corner=[i, j])
+
     print("velocities ", velocities)
 
 
@@ -621,6 +568,9 @@ if __name__ == "__main__":
 
     start_time = time.time()
 
+
+    output_dir = "/home/martin/Documents/MLMC-DFM/test/nn_data/samples_3_3"
+
     i = 0
     while True:
         sample_dir = os.path.join(data_dir, "sample_{}".format(i))
@@ -630,8 +580,8 @@ if __name__ == "__main__":
                 i += 1
                 continue
 
-            _prepare_input(sample_dir, n_pixels_x=256)
-            create_output(sample_dir, symmetrize=True)
+            _prepare_input(sample_dir, output_dir, index=i, n_pixels_x=256)
+
             i += 1
 
         else:

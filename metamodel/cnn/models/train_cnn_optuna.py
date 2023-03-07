@@ -40,6 +40,20 @@ def objective(trial, trials_config, train_loader, validation_loader):
     max_hidden_neurons = trial.suggest_categorical("max_hidden_neurons", trials_config["max_hidden_neurons"])
     n_hidden_layers = trial.suggest_categorical("n_hidden_layers", trials_config["n_hidden_layers"])
 
+    if "n_train_samples" in trials_config and trials_config["n_train_samples"] is not None:
+        n_train_samples = trial.suggest_categorical("n_train_samples", trials_config["n_train_samples"])
+        config["n_train_samples"] = n_train_samples
+
+        if "n_test_samples" in trials_config and trials_config["n_test_samples"] is not None:
+            config["n_test_samples"] = trials_config["n_test_samples"]
+
+        train_set, validation_set, test_set = prepare_dataset(study, config, data_dir=data_dir,
+                                                              serialize_path=output_dir)
+        train_loader = torch.utils.data.DataLoader(train_set, batch_size=config["batch_size_train"], shuffle=True)
+        validation_loader = torch.utils.data.DataLoader(validation_set, batch_size=config["batch_size_test"],
+                                                        shuffle=False)
+        test_loader = torch.utils.data.DataLoader(test_set, batch_size=config["batch_size_test"], shuffle=False)
+
     optimizer_name = "Adam"  # trial.suggest_categorical("optimizer", ["Adam"])
     hidden_activation = F.relu
 
@@ -157,10 +171,12 @@ if __name__ == '__main__':
     use_cuda = args.cuda
 
     config = {"num_epochs": trials_config["num_epochs"],
-              "batch_size_train": 25,
+              "batch_size_train": trials_config["batch_size_train"],
               "batch_size_test": 250,
-              "train_samples_ratio": 0.8,
-              "val_samples_ratio": 0.2,
+              "n_train_samples": trials_config["n_train_samples"] if "n_train_samples" in trials_config else None,
+              "n_test_samples": trials_config["n_test_samples"] if "n_test_samples" in trials_config else None,
+              "train_samples_ratio": trials_config["train_samples_ratio"] if "train_samples_ratio" in trials_config else 0.8,
+              "val_samples_ratio": trials_config["val_samples_ratio"] if "val_samples_ratio" in trials_config else 0.2,
               "print_batches": 10,
               "log_input": True,
               "normalize_input": True,
@@ -190,14 +206,15 @@ if __name__ == '__main__':
     # ================================
     # Datasets and data loaders
     # ================================
-    train_set, validation_set, test_set = prepare_dataset(study, config, data_dir=data_dir, serialize_path=output_dir)
-    train_loader = torch.utils.data.DataLoader(train_set, batch_size=config["batch_size_train"], shuffle=True)
-    validation_loader = torch.utils.data.DataLoader(validation_set, batch_size=config["batch_size_test"], shuffle=False)
-    test_loader = torch.utils.data.DataLoader(test_set, batch_size=config["batch_size_test"], shuffle=False)
+    train_loader, validation_loader = None, None
+    if "n_train_samples" not in config or not isinstance(config["n_train_samples"], (list, np.ndarray)):
+        train_set, validation_set, test_set = prepare_dataset(study, config, data_dir=data_dir, serialize_path=output_dir)
+        train_loader = torch.utils.data.DataLoader(train_set, batch_size=config["batch_size_train"], shuffle=True)
+        validation_loader = torch.utils.data.DataLoader(validation_set, batch_size=config["batch_size_test"], shuffle=False)
+        test_loader = torch.utils.data.DataLoader(test_set, batch_size=config["batch_size_test"], shuffle=False)
 
     def obj_func(trial):
         return objective(trial, trials_config, train_loader, validation_loader)
-
 
 
     study.optimize(obj_func, n_trials=num_trials)
