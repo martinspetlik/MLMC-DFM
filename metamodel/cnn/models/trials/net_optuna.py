@@ -43,11 +43,12 @@ class Net(nn.Module):
                 input_size = int(((input_size - pool_size) / pool_stride)) + 1
 
         if type(max_hidden_neurons) == list and max_hidden_neurons == len(n_hidden_layers):
-            hidden = max_hidden_neurons
+            hidden_neurons = max_hidden_neurons
         else:
             hidden_neurons = np.linspace(start=max_hidden_neurons, stop=min_channel, num=n_hidden_layers, dtype=int)
 
         input_size = channels[i+1] * input_size * input_size
+
         for i in range(n_hidden_layers):
             self._hidden_layers.append(nn.Linear(input_size, hidden_neurons[i]))
             input_size = hidden_neurons[i]

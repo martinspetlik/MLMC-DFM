@@ -59,7 +59,8 @@ def objective(trial, trials_config, train_loader, validation_loader):
 
     #print("kernel_size: {}, stride: {}, pool_size: {}, pool_stride: {}".format(kernel_size, stride, pool_size, pool_stride))
 
-    flag, input_size = check_shapes(n_conv_layers, kernel_size, stride, pool_size, pool_stride, input_size=256)
+    flag, input_size = check_shapes(n_conv_layers, kernel_size, stride, pool_size, pool_stride,
+                                    input_size=trials_config["input_size"])
 
     # print("max channels ", max_channel)
     # print("flag: {} flatten x: {}".format(flag, input_size * input_size * max_channel))
@@ -79,7 +80,8 @@ def objective(trial, trials_config, train_loader, validation_loader):
                     "use_batch_norm": use_batch_norm,
                     "n_hidden_layers": n_hidden_layers,
                     "max_hidden_neurons": max_hidden_neurons,
-                    "hidden_activation": hidden_activation
+                    "hidden_activation": hidden_activation,
+                    "input_size": trials_config["input_size"]
                     }
 
     # print("model_kwargs ", model_kwargs)
@@ -121,6 +123,8 @@ def objective(trial, trials_config, train_loader, validation_loader):
 
             avg_loss_list.append(avg_loss)
             avg_vloss_list.append(avg_vloss)
+
+            print("epoch: {}, loss train: {}, val: {}".format(epoch, avg_loss, avg_vloss))
 
             if avg_vloss < best_vloss:
                 best_vloss = avg_vloss
@@ -210,7 +214,7 @@ if __name__ == '__main__':
     if "n_train_samples" not in config or not isinstance(config["n_train_samples"], (list, np.ndarray)):
         train_set, validation_set, test_set = prepare_dataset(study, config, data_dir=data_dir, serialize_path=output_dir)
         train_loader = torch.utils.data.DataLoader(train_set, batch_size=config["batch_size_train"], shuffle=True)
-        validation_loader = torch.utils.data.DataLoader(validation_set, batch_size=config["batch_size_test"], shuffle=False)
+        validation_loader = torch.utils.data.DataLoader(validation_set, batch_size=config["batch_size_train"], shuffle=False)
         test_loader = torch.utils.data.DataLoader(test_set, batch_size=config["batch_size_test"], shuffle=False)
 
     def obj_func(trial):

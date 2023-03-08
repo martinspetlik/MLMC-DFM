@@ -66,12 +66,12 @@ def get_eigendecomp(flatten_values, dim=2):
 def check_shapes(n_conv_layers, kernel_size, stride, pool_size, pool_stride, input_size=256):
     #n_layers = 0
     for i in range(n_conv_layers):
+        if input_size < kernel_size:
+            return -1, input_size
+
         input_size = int(((input_size - kernel_size) / stride)) + 1
         if pool_size > 0 and pool_stride > 0:
             input_size = int(((input_size - pool_size) / pool_stride)) + 1
-
-    if input_size < kernel_size:
-        return -1, input_size
 
     return 0, input_size
 
