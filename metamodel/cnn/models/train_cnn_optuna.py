@@ -10,12 +10,13 @@ import torch.nn.functional as F
 import torch.optim as optim
 import optuna
 from optuna.trial import TrialState
-from optuna.samplers import TPESampler
+from optuna.samplers import TPESampler, BruteForceSampler
 import time
 import numpy as np
 import torch.nn.functional as F
 import torchvision.transforms as transforms
 import torch.optim as optim
+from torch.optim import lr_scheduler
 from metamodel.cnn.models.trials.net_optuna import Net
 from metamodel.cnn.datasets.dfm_dataset import DFMDataset
 from torch.utils.tensorboard import SummaryWriter
@@ -114,10 +115,15 @@ def objective(trial, trials_config, train_loader, validation_loader):
     if os.path.exists(model_path):
         return avg_vloss
 
+    scheduler = None
+    if "scheduler" in config:
+        scheduler = lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.9)
     for epoch in range(config["num_epochs"]):
         try:
             model.train(True)
             avg_loss = train_one_epoch(model, optimizer, train_loader, config, loss_fn=loss_fn_name(), use_cuda=use_cuda)  # Train the model
+            if scheduler is not None:
+                scheduler.step()
             model.train(False)
             avg_vloss = validate(model, validation_loader, loss_fn=loss_fn_name(), use_cuda=use_cuda)   # Evaluate the model
 
@@ -205,7 +211,12 @@ if __name__ == '__main__':
     elif not os.path.exists(output_dir):
         raise NotADirectoryError("output dir {} not exists".format(output_dir))
 
-    study = optuna.create_study(sampler=TPESampler(seed=random_seed), direction="minimize")
+    sampler = TPESampler(seed=random_seed)
+    if "sampler_class" in trials_config:
+        if trials_config["sampler_class"] == "BruteForceSampler":
+            sampler = BruteForceSampler(seed=random_seed)
+
+    study = optuna.create_study(sampler=sampler, direction="minimize")
 
     # ================================
     # Datasets and data loaders
@@ -220,9 +231,7 @@ if __name__ == '__main__':
     def obj_func(trial):
         return objective(trial, trials_config, train_loader, validation_loader)
 
-
     study.optimize(obj_func, n_trials=num_trials)
-
 
     # ================================
     # Results

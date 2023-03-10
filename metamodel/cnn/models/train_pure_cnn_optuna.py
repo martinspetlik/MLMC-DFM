@@ -185,6 +185,9 @@ def prepare_dataset(study, config, data_dir, serialize_path=None):
                                           output_transform=output_transform,
                                           two_dim=True)
 
+        if n_train_samples is None:
+            n_train_samples = int(len(dataset_for_mean_std) * config["train_samples_ratio"])
+
         train_val_set = dataset_for_mean_std[:n_train_samples]
         train_set = train_val_set[int(n_train_samples * config["val_samples_ratio"]):]
 
@@ -234,8 +237,24 @@ def prepare_dataset(study, config, data_dir, serialize_path=None):
     else:
         test_set = dataset[n_train_samples:]
 
+
     print("len(trainset): {}, len(valset): {}, len(testset): {}".format(len(train_set), len(validation_set),
                                                                         len(test_set)))
+
+    # Save data to numpy array
+    # train_loader = torch.utils.data.DataLoader(train_set, batch_size=1, shuffle=True)
+    # from npy_append_array import NpyAppendArray
+    # filename_input = 'input.npy'
+    # filename_output = 'output.npy'
+    # for input, output in train_loader:
+    #     input = input.numpy()
+    #     output = output.numpy()
+    #
+    #     with NpyAppendArray(filename_input) as npaa_in:
+    #         npaa_in.append(input)
+    #
+    #     with NpyAppendArray(filename_output) as npaa_out:
+    #         npaa_out.append(output)
 
     study.set_user_attr("n_train_samples", len(train_set))
     study.set_user_attr("n_val_samples", len(validation_set))
@@ -301,6 +320,7 @@ if __name__ == '__main__':
     # ================================
     train_set, validation_set, test_set = prepare_dataset(study, config, data_dir=data_dir, serialize_path=output_dir)
     train_loader = torch.utils.data.DataLoader(train_set, batch_size=config["batch_size_train"], shuffle=True)
+
     validation_loader = torch.utils.data.DataLoader(validation_set, batch_size=config["batch_size_test"], shuffle=False)
     test_loader = torch.utils.data.DataLoader(test_set, batch_size=config["batch_size_test"], shuffle=False)
 
@@ -308,10 +328,7 @@ if __name__ == '__main__':
     def obj_func(trial):
         return objective(trial, train_loader, validation_loader)
 
-
-
     study.optimize(obj_func, n_trials=num_trials)
-
 
     # ================================
     # Results
