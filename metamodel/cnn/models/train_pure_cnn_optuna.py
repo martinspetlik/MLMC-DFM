@@ -324,7 +324,6 @@ if __name__ == '__main__':
     validation_loader = torch.utils.data.DataLoader(validation_set, batch_size=config["batch_size_test"], shuffle=False)
     test_loader = torch.utils.data.DataLoader(test_set, batch_size=config["batch_size_test"], shuffle=False)
 
-
     def obj_func(trial):
         return objective(trial, train_loader, validation_loader)
 

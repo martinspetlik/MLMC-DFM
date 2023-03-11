@@ -130,7 +130,7 @@ def objective(trial, trials_config, train_loader, validation_loader):
             avg_loss_list.append(avg_loss)
             avg_vloss_list.append(avg_vloss)
 
-            print("epoch: {}, loss train: {}, val: {}".format(epoch, avg_loss, avg_vloss))
+            #print("epoch: {}, loss train: {}, val: {}".format(epoch, avg_loss, avg_vloss))
 
             if avg_vloss < best_vloss:
                 best_vloss = avg_vloss
@@ -141,9 +141,9 @@ def objective(trial, trials_config, train_loader, validation_loader):
 
             # For pruning (stops trial early if not promising)
             trial.report(avg_vloss, epoch)
-            # Handle pruning based on the intermediate value.
-            if trial.should_prune():
-                raise optuna.exceptions.TrialPruned()
+            # # Handle pruning based on the intermediate value.
+            # if trial.should_prune():
+            #     raise optuna.exceptions.TrialPruned()
         except Exception as e:
             print(str(e))
             return avg_vloss
