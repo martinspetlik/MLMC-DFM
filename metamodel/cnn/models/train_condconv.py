@@ -1,5 +1,6 @@
 import os
 import sys
+import shutil
 import argparse
 import logging
 import joblib
@@ -23,7 +24,8 @@ from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
 from metamodel.cnn.models.auxiliary_functions import get_mean_std, log_data, check_shapes
 from metamodel.cnn.models.train_pure_cnn_optuna import train_one_epoch, prepare_dataset, validate, load_trials_config
-
+from metamodel.cnn.models.cond_conv2d import CondConv2d
+from metamodel.cnn.models.cond_net import CondNet
 
 def objective(trial, trials_config, train_loader, validation_loader):
     best_vloss = 1_000_000.
@@ -108,14 +110,20 @@ def objective(trial, trials_config, train_loader, validation_loader):
     #     model.eval()
     #
     #     model_kwargs["conv_layer_obj"] = [model, model] #trials_config["conv_layer_obj"]
-    #
-    #
+
+
 
     print("model_kwargs ", model_kwargs)
     # print("trial trial")
     # return np.random.uniform(0, 1)
 
-    model = Net(trial, **model_kwargs).to(device)
+    #model = CondConv2d(**model_kwargs).to(device)
+
+    #model = CondConv2d(use_cuda=use_cuda).to(device)
+    model = CondNet(**model_kwargs).to(device)
+
+    print("model ", model)
+
 
     # Initialize optimizer
     optimizer_kwargs = {"lr": lr}
@@ -146,35 +154,35 @@ def objective(trial, trials_config, train_loader, validation_loader):
     if "scheduler" in config:
         scheduler = lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.9)
     for epoch in range(config["num_epochs"]):
-        try:
-            if train:
-                model.train(True)
-                avg_loss = train_one_epoch(model, optimizer, train_loader, config, loss_fn=loss_fn_name(), use_cuda=use_cuda)  # Train the model
-                if scheduler is not None:
-                    scheduler.step()
-            model.train(False)
-            avg_vloss = validate(model, validation_loader, loss_fn=loss_fn_name(), use_cuda=use_cuda)   # Evaluate the model
+        #try:
+        if train:
+            model.train(True)
+            avg_loss = train_one_epoch(model, optimizer, train_loader, config, loss_fn=loss_fn_name(), use_cuda=use_cuda)  # Train the model
+            if scheduler is not None:
+                scheduler.step()
+        model.train(False)
+        avg_vloss = validate(model, validation_loader, loss_fn=loss_fn_name(), use_cuda=use_cuda)   # Evaluate the model
 
-            avg_loss_list.append(avg_loss)
-            avg_vloss_list.append(avg_vloss)
+        avg_loss_list.append(avg_loss)
+        avg_vloss_list.append(avg_vloss)
 
-            #print("epoch: {}, loss train: {}, val: {}".format(epoch, avg_loss, avg_vloss))
+        print("epoch: {}, loss train: {}, val: {}".format(epoch, avg_loss, avg_vloss))
 
-            if avg_vloss < best_vloss:
-                best_vloss = avg_vloss
-                best_epoch = epoch
+        if avg_vloss < best_vloss:
+            best_vloss = avg_vloss
+            best_epoch = epoch
 
-                model_state_dict = model.state_dict()
-                optimizer_state_dict = optimizer.state_dict()
+            model_state_dict = model.state_dict()
+            optimizer_state_dict = optimizer.state_dict()
 
-            # For pruning (stops trial early if not promising)
-            trial.report(avg_vloss, epoch)
-            # # Handle pruning based on the intermediate value.
-            # if trial.should_prune():
-            #     raise optuna.exceptions.TrialPruned()
-        except Exception as e:
-            print(str(e))
-            return avg_vloss
+        # For pruning (stops trial early if not promising)
+        trial.report(avg_vloss, epoch)
+        # # Handle pruning based on the intermediate value.
+        # if trial.should_prune():
+        #     raise optuna.exceptions.TrialPruned()
+        # except Exception as e:
+        #     print(str(e))
+        #     return avg_vloss
 
     for key, value in trial.params.items():
         model_path += "_{}_{}".format(key, value)
@@ -233,7 +241,8 @@ if __name__ == '__main__':
     torch.manual_seed(random_seed)
     output_dir = os.path.join(output_dir, "seed_{}".format(random_seed))
     if os.path.exists(output_dir) and not args.append:
-        raise IsADirectoryError("Results output dir {} already exists".format(output_dir))
+        shutil.rmtree(output_dir)
+        #raise IsADirectoryError("Results output dir {} already exists".format(output_dir))
     if not args.append:
         os.mkdir(output_dir)
     elif not os.path.exists(output_dir):
