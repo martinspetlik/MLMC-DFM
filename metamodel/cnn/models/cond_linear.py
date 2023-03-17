@@ -13,11 +13,25 @@ class CondLinear(nn.Module):
         self._output_layer = None
         self._hidden_activation = hidden_activation
         self._create_fcl_layers()
+        self._weights = None
 
     def _create_fcl_layers(self):
         for h_neurons in self._hidden_neurons:
             self._hidden_layers.append(nn.Linear(self._in_neurons, h_neurons))
-        self._output_layer = nn.Linear(h_neurons, self._out_neurons)
+        self._output_layer = nn.Linear(h_neurons, self._out_neurons, bias=False)
+
+    @property
+    def weight(self):
+        if self._weights is None:
+            self.get_weights()
+        return self._weights
+
+    def get_weight(self):
+        self._weights = []
+        for hidden_layer in self._hidden_layers:
+            self._weights.append(hidden_layer.weight)
+        self._weights.append(self._output_layer.weight)
+
 
     def forward(self, x):
         for hidden_layer in self._hidden_layers:

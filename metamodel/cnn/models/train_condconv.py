@@ -26,6 +26,7 @@ from metamodel.cnn.models.auxiliary_functions import get_mean_std, log_data, che
 from metamodel.cnn.models.train_pure_cnn_optuna import train_one_epoch, prepare_dataset, validate, load_trials_config
 from metamodel.cnn.models.cond_conv2d import CondConv2d
 from metamodel.cnn.models.cond_net import CondNet
+from metamodel.cnn.models.auxiliary_functions import plot_samples
 
 def objective(trial, trials_config, train_loader, validation_loader):
     best_vloss = 1_000_000.
@@ -57,6 +58,10 @@ def objective(trial, trials_config, train_loader, validation_loader):
                                                         shuffle=False)
         test_loader = torch.utils.data.DataLoader(test_set, batch_size=config["batch_size_test"], shuffle=False)
 
+    #plot_samples(train_loader, n_samples=25)
+
+
+
     optimizer_name = "Adam"  # trial.suggest_categorical("optimizer", ["Adam"])
     hidden_activation = F.relu
 
@@ -87,13 +92,29 @@ def objective(trial, trials_config, train_loader, validation_loader):
                     "input_size": trials_config["input_size"]
                     }
 
-    # print("config ", trials_config)
-    # if "conv_layer_obj" in trials_config:
+    # # print("config ", trials_config)
+    # if "results_dir" in trials_config:
     #     #@TODO: refactor ASAP
-    #     layer_kwargs = {'n_conv_layers': 1, 'max_channel': 72, 'pool': 'None', 'pool_size': 0, 'kernel_size': 3,
-    #                     'stride': 1, 'pool_stride': 0, 'use_batch_norm': True, 'n_hidden_layers': 1,
-    #                     'max_hidden_neurons': 48, 'input_size': 3}
-    #     model = Net(**layer_kwargs)
+    #
+    #     executed_study = joblib.load(os.path.join(trials_config["results_dir"], "study.pkl"))
+    #     model_path = os.path.join(trials_config["results_dir"], "best_trial")
+    #
+    #     executed_model_kwargs = executed_study.best_trial.user_attrs["model_kwargs"]
+    #     model = executed_study.best_trial.user_attrs["model_class"](**executed_model_kwargs)
+    #
+    #     # Initialize optimizer
+    #     optimizer = executed_study.best_trial.user_attrs["optimizer_class"](model.parameters(),
+    #                                                                         **executed_study.best_trial.user_attrs["optimizer_kwargs"])
+    #
+    #
+    #     checkpoint = torch.load(model_path)
+    #     train_loss = checkpoint['train_loss']
+    #     valid_loss = checkpoint['valid_loss']
+    #
+    #     # layer_kwargs = {'n_conv_layers': 1, 'max_channel': 72, 'pool': 'None', 'pool_size': 0, 'kernel_size': 3,
+    #     #                 'stride': 1, 'pool_stride': 0, 'use_batch_norm': True, 'n_hidden_layers': 1,
+    #     #                 'max_hidden_neurons': 48, 'input_size': 3}
+    #     # model = CondNet(**layer_kwargs)
     #
     #     #print("model ", model)
     #
@@ -101,33 +122,120 @@ def objective(trial, trials_config, train_loader, validation_loader):
     #     #optimizer = study.best_trial.user_attrs["optimizer_class"](model.parameters(),
     #     #                                                           **study.best_trial.user_attrs["optimizer_kwargs"])
     #
-    #     checkpoint = torch.load(trials_config["conv_layer_obj"])
+    #     #checkpoint = torch.load(trials_config["conv_layer_obj"])
     #     #train_loss = checkpoint['train_loss']
     #     #valid_loss = checkpoint['valid_loss']
     #
     #     model.load_state_dict(checkpoint['best_model_state_dict'])
-    #     model.out_channels = 3
+    #     #model.out_channels = 3
     #     model.eval()
     #
-    #     model_kwargs["conv_layer_obj"] = [model, model] #trials_config["conv_layer_obj"]
+    #     model._convs.stride = model_kwargs["stride"]
+    #
+    #     #print("model.parameters() ", model.parameters)
+    #     # for param in model.parameters():
+    #     #     print(param.data)
+    #
+    #     #print("model._convs.weights ", model._convs.weight)
+    #     #print("model._fcls.weights ", model._fcls.weight)
+    #
+    #     # for hidden_layer in model._fcls._hidden_layers:
+    #     #     print("hidden layer weight ", hidden_layer.weight)
+    #     model_kwargs["convs"] = model._convs
+    #     model_kwargs["fcls"] = model._fcls
 
+    n_pretrained_layers = 0
+    if "trained_layers_dir" in trials_config:
+        trained_layers_dir = trials_config["trained_layers_dir"]
 
+        for layer_dir in trained_layers_dir:
+            executed_study = joblib.load(os.path.join(layer_dir, "study.pkl"))
+            model_path = os.path.join(layer_dir, "best_trial")
+
+            executed_model_kwargs = executed_study.best_trial.user_attrs["model_kwargs"]
+            model = executed_study.best_trial.user_attrs["model_class"](**executed_model_kwargs)
+
+            print("executed model kwargs ", executed_model_kwargs)
+
+            checkpoint = torch.load(model_path)
+            model.load_state_dict(checkpoint['best_model_state_dict'])
+            # model.out_channels = 3
+            model.eval()
+
+            model._convs.stride = model_kwargs["stride"]
+
+            # print("model.parameters() ", model.parameters)
+            # for param in model.parameters():
+            #     print(param.data)
+
+            # for param in model.parameters():
+            #     param.requires_grad = False
+
+            for cnv in model._convs:
+                cnv.requires_grad_(False)
+                for param in cnv.parameters():
+                    param.requires_grad = False
+
+            for bnorm in model._batch_norms:
+                bnorm.requires_grad_(False)
+                for param in bnorm.parameters():
+                    param.requires_grad = False
+
+            for fcl in model._fcls:
+                fcl.requires_grad_(False)
+                for param in fcl.parameters():
+                    param.requires_grad = False
+
+            model_kwargs["convs"] = model._convs
+            model_kwargs["batch_norms"] = model._batch_norms
+            #model_kwargs["batch_norms"] = model._batch_norms
+            model_kwargs["fcls"] = model._fcls
+            #print("model_kwargs ", model_kwargs)
+
+            n_pretrained_layers = len(model._convs)
+
+            #layer_models.append(model)
+        #model_kwargs["layer_models"] = layer_models
+        #exit()
+        #model_kwargs["conv_layer_obj"] = [model, model] #trials_config["conv_layer_obj"]
 
     print("model_kwargs ", model_kwargs)
+
     # print("trial trial")
     # return np.random.uniform(0, 1)
-
     #model = CondConv2d(**model_kwargs).to(device)
-
     #model = CondConv2d(use_cuda=use_cuda).to(device)
+
     model = CondNet(**model_kwargs).to(device)
 
-    print("model ", model)
+    # for name, para in model.named_parameters():
+    #     print("-" * 20)
+    #     print(f"name: {name}")
+    #     print("values: ")
+    #     print(para)
 
+    for index, (cvs, lin) in enumerate(zip(model._convs, model._fcls)):
+        if index > n_pretrained_layers - 1:
+            break
+        for param in cvs.parameters():
+            param.requires_grad = False
+        for param in lin.parameters():
+            param.requires_grad = False
 
     # Initialize optimizer
     optimizer_kwargs = {"lr": lr}
-    optimizer = getattr(optim, optimizer_name)(params=model.parameters(), **optimizer_kwargs)
+    non_frozen_parameters = [p for p in model.parameters() if p.requires_grad]
+    # print("non frozen parameters ", non_frozen_parameters)
+    #
+    # for name, para in model.named_parameters():
+    #     if para.requires_grad:
+    #         print("-" * 20)
+    #         print(f"name: {name}")
+    #         print("values: ")
+    #         print(para)
+    #
+    # exit()
+    optimizer = getattr(optim, optimizer_name)(params=non_frozen_parameters, **optimizer_kwargs)
 
     trial.set_user_attr("model_class", model.__class__)
     trial.set_user_attr("optimizer_class", optimizer.__class__)
@@ -150,6 +258,7 @@ def objective(trial, trials_config, train_loader, validation_loader):
         return avg_vloss
 
     scheduler = None
+    avg_loss = best_vloss
     train = trials_config["train"] if "train" in trials_config else True
     if "scheduler" in config:
         scheduler = lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.9)
@@ -160,13 +269,16 @@ def objective(trial, trials_config, train_loader, validation_loader):
             avg_loss = train_one_epoch(model, optimizer, train_loader, config, loss_fn=loss_fn_name(), use_cuda=use_cuda)  # Train the model
             if scheduler is not None:
                 scheduler.step()
+        else:
+            if trial.number > 0:
+                return avg_vloss
         model.train(False)
         avg_vloss = validate(model, validation_loader, loss_fn=loss_fn_name(), use_cuda=use_cuda)   # Evaluate the model
 
         avg_loss_list.append(avg_loss)
         avg_vloss_list.append(avg_vloss)
 
-        print("epoch: {}, loss train: {}, val: {}".format(epoch, avg_loss, avg_vloss))
+        #print("epoch: {}, loss train: {}, val: {}".format(epoch, avg_loss, avg_vloss))
 
         if avg_vloss < best_vloss:
             best_vloss = avg_vloss
@@ -187,6 +299,8 @@ def objective(trial, trials_config, train_loader, validation_loader):
     for key, value in trial.params.items():
         model_path += "_{}_{}".format(key, value)
     model_path = os.path.join(output_dir, model_path)
+
+    #print("model_path save ", model_path)
 
     torch.save({
         'best_epoch': best_epoch,
@@ -264,6 +378,7 @@ if __name__ == '__main__':
         train_loader = torch.utils.data.DataLoader(train_set, batch_size=config["batch_size_train"], shuffle=True)
         validation_loader = torch.utils.data.DataLoader(validation_set, batch_size=config["batch_size_train"], shuffle=False)
         test_loader = torch.utils.data.DataLoader(test_set, batch_size=config["batch_size_test"], shuffle=False)
+
 
     def obj_func(trial):
         return objective(trial, trials_config, train_loader, validation_loader)
