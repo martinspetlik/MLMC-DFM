@@ -28,8 +28,8 @@ class Net(nn.Module):
         if self._pool == "None":
             self._pool = None
 
-        if type(max_channel) == list and max_channel == len(n_conv_layers):
-            channels = max_channel
+        if type(max_channel) == list and len(max_channel) == n_conv_layers:
+            channels = [min_channel, *max_channel]
         else:
             channels = np.linspace(start=min_channel, stop=max_channel, num=n_conv_layers+1, dtype=int)
 
@@ -53,6 +53,8 @@ class Net(nn.Module):
 
             if self._pool is not None:
                 input_size = int(((input_size - pool_size) / pool_stride)) + 1
+
+            #print("input_size ", input_size)
 
         #print("input size ", input_size)
 
@@ -103,7 +105,10 @@ class Net(nn.Module):
                 else:
                     x = F.relu(conv_i(x))
 
+            #print("x.shape ", x.shape)
+
         x = torch.flatten(x, 1)
+        #print("x.flatten shape ", x.shape)
 
         for i, hidden_i in enumerate(self._hidden_layers):
             x = self._hidden_activation(hidden_i(x))
