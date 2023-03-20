@@ -9,7 +9,7 @@ class Net(nn.Module):
     def __init__(self, trial=None, n_conv_layers=3, max_channel=3, pool=None, kernel_size=3, stride=1, pool_size=2,
                  pool_stride=2, use_batch_norm=True, n_hidden_layers=1, max_hidden_neurons=520,
                  hidden_activation=F.relu, input_size=256, min_channel=3, use_dropout=False, conv_layer_obj=[],
-                 output_layer=True):
+                 output_layer=True, output_bias=False):
         super(Net, self).__init__()
         self._name = "cnn_net"
         self._use_dropout = use_dropout
@@ -74,7 +74,7 @@ class Net(nn.Module):
             input_size = hidden_neurons[i]
 
         if output_layer:
-            self._output_layer = nn.Linear(input_size, min_channel, bias=False)
+            self._output_layer = nn.Linear(input_size, min_channel, bias=output_bias)
 
         self.out_channels = min_channel
 

@@ -86,7 +86,8 @@ def objective(trial, trials_config, train_loader, validation_loader):
                     "n_hidden_layers": n_hidden_layers,
                     "max_hidden_neurons": max_hidden_neurons,
                     "hidden_activation": hidden_activation,
-                    "input_size": trials_config["input_size"]
+                    "input_size": trials_config["input_size"],
+                    "output_bias": trials_config["output_bias"] if "output_bias" in trials_config else False
                     }
 
     # print("config ", trials_config)
@@ -115,14 +116,18 @@ def objective(trial, trials_config, train_loader, validation_loader):
     #
     #
 
-    print("model_kwargs ", model_kwargs)
+    #print("model_kwargs ", model_kwargs)
     # print("trial trial")
     # return np.random.uniform(0, 1)
 
+    if "channels" in trials_config:
+        model_kwargs["min_channel"] = len(trials_config["channels"])
+
     model = Net(trial, **model_kwargs).to(device)
 
-    print("model._convs ", model._convs)
-    print("moodel._hidden_layers ", model._hidden_layers)
+    # print("model._convs ", model._convs)
+    # print("moodel._hidden_layers ", model._hidden_layers)
+    # print("moodel._output_layer ", model._output_layer)
 
     # Initialize optimizer
     optimizer_kwargs = {"lr": lr}
@@ -145,13 +150,16 @@ def objective(trial, trials_config, train_loader, validation_loader):
     optimizer_state_dict = []
 
     model_path = 'trial_{}_losses_model_{}'.format(trial.number, model._name)
-    if os.path.exists(model_path):
-        return avg_vloss
+    # print("model path ", model_path)
+    # if os.path.exists(model_path):
+    #     print("model pat hexists")
+    #     return avg_vloss
 
     scheduler = None
     train = trials_config["train"] if "train" in trials_config else True
     if "scheduler" in config:
         scheduler = lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.9)
+
     for epoch in range(config["num_epochs"]):
         try:
             if train:
@@ -185,7 +193,8 @@ def objective(trial, trials_config, train_loader, validation_loader):
 
     #for key, value in trial.params.items():
     #    model_path += "_{}_{}".format(key, value)
-    #model_path = os.path.join(output_dir, model_path)
+
+    model_path = os.path.join(output_dir, model_path)
 
     torch.save({
         'best_epoch': best_epoch,
@@ -223,10 +232,12 @@ if __name__ == '__main__':
               "train_samples_ratio": trials_config["train_samples_ratio"] if "train_samples_ratio" in trials_config else 0.8,
               "val_samples_ratio": trials_config["val_samples_ratio"] if "val_samples_ratio" in trials_config else 0.2,
               "print_batches": 10,
-              "log_input": True,
-              "normalize_input": True,
-              "log_output": False,
-              "normalize_output": True}
+              "log_input": trials_config["log_input"] if "log_input" in trials_config else True,
+              "normalize_input": trials_config["normalize_input"] if "normalize_input" in trials_config else True,
+              "log_output": trials_config["log_output"] if "log_output" in trials_config else False,
+              "normalize_output": trials_config["normalize_output"] if "normalize_output" in trials_config else True,
+              "channels": trials_config["channels"] if "channels" in trials_config else None
+              }
 
     # Optuna params
     num_trials = trials_config["num_trials"]

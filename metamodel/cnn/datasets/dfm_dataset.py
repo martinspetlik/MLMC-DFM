@@ -13,7 +13,8 @@ class DFMDataset(Dataset):
     """DFM models dataset"""
 
     def __init__(self, data_dir, bulk_file_name="bulk_256.npz", fracture_file_name="fractures_256.npz",
-                 output_file_name="output_tensor.npy", input_transform=None, output_transform=None, two_dim=True):
+                 output_file_name="output_tensor.npy", input_transform=None, output_transform=None, two_dim=True,
+                 channels=None):
 
         self._data_dir = data_dir
         self._bulk_file_name = bulk_file_name
@@ -22,6 +23,7 @@ class DFMDataset(Dataset):
         self.input_transform = input_transform
         self.output_transform = output_transform
         self._two_dim = two_dim
+        self._channels = channels
 
         self._bulk_file_paths = []
         self._fracture_file_paths = []
@@ -97,6 +99,10 @@ class DFMDataset(Dataset):
         final_features = flatten_bulk_features.reshape(bulk_features_shape)
         final_features = torch.from_numpy(final_features)
         output_features = torch.from_numpy(output_features)
+
+        if self._channels is not None:
+            final_features = final_features[self._channels]
+            output_features = output_features[self._channels]
 
         if self.input_transform is not None:
             final_features = self.input_transform(final_features)

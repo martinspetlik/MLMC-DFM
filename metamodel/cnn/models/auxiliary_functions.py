@@ -4,18 +4,29 @@ import numpy as np
 
 def log_data(data):
     output_data = torch.empty((data.shape))
-    output_data[0][...] = torch.log(data[0])
-    output_data[1][...] = data[1]
-    output_data[2][...] = torch.log(data[2])
+    if data.shape[0] == 3:
+        output_data[0][...] = torch.log(data[0])
+        output_data[1][...] = data[1]
+        output_data[2][...] = torch.log(data[2])
+    elif data.shape[0] < 3:
+        for i in range(data.shape[0]):
+            output_data[i][...] = torch.log(data[i])
+    else:
+        raise NotImplementedError("Log transformation implemented for 2D case only")
 
     return output_data
 
 def exp_data(data):
     output_data = torch.empty((data.shape))
-    output_data[0][...] = torch.exp(data[0])
-    output_data[1][...] = data[1]
-    output_data[2][...] = torch.exp(data[2])
-
+    if data.shape[0] == 3:
+        output_data[0][...] = torch.exp(data[0])
+        output_data[1][...] = data[1]
+        output_data[2][...] = torch.exp(data[2])
+    elif data.shape[0] < 3:
+        for i in range(data.shape[0]):
+            output_data[i][...] = torch.exp(data[i])
+    else:
+        raise NotImplementedError("Log transformation implemented for 2D case only")
     return output_data
 
 
@@ -94,11 +105,16 @@ def get_mse_nrmse(targets, predictions):
     mse_k_xy_inv = np.mean(squared_err_k_xy_inv)
     mse_k_yy_inv = np.mean(squared_err_k_yy_inv)
 
-    nrmse_k_xx_inv = np.sqrt(mse_k_xx_inv) / std_tar_k_xx_inv
-    nrmse_k_xy_inv = np.sqrt(mse_k_xy_inv) / std_tar_k_xy_inv
-    nrmse_k_yy_inv = np.sqrt(mse_k_yy_inv) / std_tar_k_yy_inv
+    rmse_k_xx_inv = np.sqrt(mse_k_xx_inv)
+    rmse_k_xy_inv = np.sqrt(mse_k_xy_inv)
+    rmse_k_yy_inv = np.sqrt(mse_k_yy_inv)
+
+    nrmse_k_xx_inv = rmse_k_xx_inv / std_tar_k_xx_inv
+    nrmse_k_xy_inv = rmse_k_xy_inv / std_tar_k_xy_inv
+    nrmse_k_yy_inv = rmse_k_yy_inv / std_tar_k_yy_inv
     
-    return [mse_k_xx_inv, mse_k_xy_inv, mse_k_yy_inv], [nrmse_k_xx_inv, nrmse_k_xy_inv, nrmse_k_yy_inv]
+    return [mse_k_xx_inv, mse_k_xy_inv, mse_k_yy_inv], [rmse_k_xx_inv, rmse_k_xy_inv, rmse_k_yy_inv],\
+           [nrmse_k_xx_inv, nrmse_k_xy_inv, nrmse_k_yy_inv]
 
 
 def plot_samples(data_loader, n_samples=10):

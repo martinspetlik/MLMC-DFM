@@ -21,7 +21,7 @@ from metamodel.cnn.models.trials.net_optuna_2 import Net
 from metamodel.cnn.datasets.dfm_dataset import DFMDataset
 from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
-from metamodel.cnn.models.auxiliary_functions import get_mean_std, log_data
+from metamodel.cnn.models.auxiliary_functions import get_mean_std, log_data, plot_samples
 
 
 def load_trials_config(path_to_config):
@@ -84,6 +84,8 @@ def validate(model, validation_loader, loss_fn=nn.MSELoss(), use_cuda=False):
             vtargets = vtargets.float()
 
             voutputs = torch.squeeze(model(vinputs))
+            #print("voutputs.shape ", voutputs.shape)
+            #print("vtargets.shape ", vtargets.shape)
             vloss = loss_fn(voutputs, vtargets)
             running_vloss += vloss.item()
 
@@ -183,7 +185,8 @@ def prepare_dataset(study, config, data_dir, serialize_path=None):
         dataset_for_mean_std = DFMDataset(data_dir=data_dir,
                                           input_transform=input_transform,
                                           output_transform=output_transform,
-                                          two_dim=True)
+                                          two_dim=True,
+                                          channels=config["channels"])
 
         if n_train_samples is None:
             n_train_samples = int(len(dataset_for_mean_std) * config["train_samples_ratio"])
@@ -222,7 +225,7 @@ def prepare_dataset(study, config, data_dir, serialize_path=None):
     # Datasets and data loaders
     # ============================
     dataset = DFMDataset(data_dir=data_dir, input_transform=data_input_transform,
-                         output_transform=data_output_transform)
+                         output_transform=data_output_transform, channels=config["channels"])
 
     if n_train_samples is None:
         n_train_samples = int(len(dataset) * config["train_samples_ratio"])
@@ -240,6 +243,7 @@ def prepare_dataset(study, config, data_dir, serialize_path=None):
 
     print("len(trainset): {}, len(valset): {}, len(testset): {}".format(len(train_set), len(validation_set),
                                                                         len(test_set)))
+
 
     # Save data to numpy array
     # train_loader = torch.utils.data.DataLoader(train_set, batch_size=1, shuffle=True)
@@ -323,6 +327,7 @@ if __name__ == '__main__':
 
     validation_loader = torch.utils.data.DataLoader(validation_set, batch_size=config["batch_size_test"], shuffle=False)
     test_loader = torch.utils.data.DataLoader(test_set, batch_size=config["batch_size_test"], shuffle=False)
+
 
     def obj_func(trial):
         return objective(trial, train_loader, validation_loader)
