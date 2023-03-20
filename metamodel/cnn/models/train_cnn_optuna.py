@@ -41,6 +41,10 @@ def objective(trial, trials_config, train_loader, validation_loader):
     max_hidden_neurons = trial.suggest_categorical("max_hidden_neurons", trials_config["max_hidden_neurons"])
     n_hidden_layers = trial.suggest_categorical("n_hidden_layers", trials_config["n_hidden_layers"])
 
+    #if "batch_size_train" in trials_config and isinstance(config["batch_size_train"], (list, np.ndarray)):
+    batch_size_train = trial.suggest_categorical("batch_size_train", trials_config["batch_size_train"])
+    config["batch_size_train"] = batch_size_train
+
     if "n_train_samples" in trials_config and trials_config["n_train_samples"] is not None:
         n_train_samples = trial.suggest_categorical("n_train_samples", trials_config["n_train_samples"])
         config["n_train_samples"] = n_train_samples
@@ -117,6 +121,9 @@ def objective(trial, trials_config, train_loader, validation_loader):
 
     model = Net(trial, **model_kwargs).to(device)
 
+    print("model._convs ", model._convs)
+    print("moodel._hidden_layers ", model._hidden_layers)
+
     # Initialize optimizer
     optimizer_kwargs = {"lr": lr}
     optimizer = getattr(optim, optimizer_name)(params=model.parameters(), **optimizer_kwargs)
@@ -176,8 +183,10 @@ def objective(trial, trials_config, train_loader, validation_loader):
             print(str(e))
             return avg_vloss
 
-    for key, value in trial.params.items():
-        model_path += "_{}_{}".format(key, value)
+    # for key, value in trial.params.items():
+    #     if len(model_path) < 255:
+    #         model_path += "_{}_{}".format(key, value)
+
     model_path = os.path.join(output_dir, model_path)
 
     torch.save({
