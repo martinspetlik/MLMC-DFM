@@ -183,11 +183,9 @@ def objective(trial, trials_config, train_loader, validation_loader):
             print(str(e))
             return avg_vloss
 
-    # for key, value in trial.params.items():
-    #     if len(model_path) < 255:
-    #         model_path += "_{}_{}".format(key, value)
-
-    model_path = os.path.join(output_dir, model_path)
+    #for key, value in trial.params.items():
+    #    model_path += "_{}_{}".format(key, value)
+    #model_path = os.path.join(output_dir, model_path)
 
     torch.save({
         'best_epoch': best_epoch,

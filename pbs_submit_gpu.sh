@@ -4,11 +4,31 @@ set -x
 
 py_script=`pwd`/$1
 pbs_script=`pwd`/$1.pbs
-script_path=${py_script%/*}
+
 
 trials_config_path=$2
 data_dir=$3
 output_dir=$4
+name=$5
+
+
+cp ${py_script} ${output_dir}
+cp ${pbs_script} ${output_dir}
+
+
+py_script_name=`basename ${py_script}`
+pbs_script_name=`basename ${pbs_script}`
+
+
+py_script=${output_dir}/${py_script_name}
+pbs_script=${output_dir}/${pbs_script_name}
+script_path=${py_script%/*}
+
+
+echo ${py_script}
+echo ${pbs_script}
+echo ${script_path}
+
 
 
 cat >$pbs_script <<EOF
@@ -18,7 +38,7 @@ cat >$pbs_script <<EOF
 #PBS -l select=1:ngpus=1
 #PBS -l walltime=48:00:00
 #PBS -q qgpu
-#PBS -N cnn_optuna
+#PBS -N ${name}
 #PBS -j oe
 
 
@@ -26,6 +46,7 @@ cat >$pbs_script <<EOF
 ml PyTorch
 #pip3 install typing_extensions==4.3.0
 
+cd ${output_dir}
 python3 -m venv venv --clear
 source venv/bin/activate
 #which python3
@@ -41,7 +62,7 @@ python3 -m pip install -r /home/martin_spetlik/MLMC-DFM/requirements.txt
 
 #which python3
 
-cd ${script_path}
+#cd ${script_path}
 python3 ${py_script} ${trials_config_path} ${data_dir} ${output_dir} -c
 
 deactivate
