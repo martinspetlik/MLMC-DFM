@@ -87,34 +87,26 @@ def check_shapes(n_conv_layers, kernel_size, stride, pool_size, pool_stride, inp
     return 0, input_size
 
 
-def get_mse_nrmse(targets, predictions):
+def get_mse_nrmse_r2(targets, predictions):
     targets_arr = np.array(targets)
     predictions_arr = np.array(predictions)
 
-    print(targets_arr.shape)
-    
-    squared_err_k_xx_inv = (targets_arr[:, 0, ...] - predictions_arr[:, 0, ...]) ** 2
-    squared_err_k_xy_inv = (targets_arr[:, 1, ...] - predictions_arr[:, 1, ...]) ** 2
-    squared_err_k_yy_inv = (targets_arr[:, 2, ...] - predictions_arr[:, 2, ...]) ** 2
+    squared_err_k = []
+    std_tar_k = []
+    r2_k = []
+    mse_k = []
+    rmse_k = []
+    nrmse_k = []
+    for i in range(targets_arr.shape[1]):
+        squared_err_k.append((targets_arr[:, i, ...] - predictions_arr[:, i, ...]) ** 2)
+        std_tar_k.append(np.std(targets_arr[:, i, ...]))
+        r2_k.append(1 - (np.sum(squared_err_k[i]) /
+                         np.sum((targets_arr[:, i, ...] - np.mean(targets_arr[:, i, ...])) ** 2)))
+        mse_k.append(np.mean(squared_err_k[i]))
+        rmse_k.append(np.sqrt(mse_k[i]))
+        nrmse_k.append(rmse_k[i] / std_tar_k[i])
 
-    std_tar_k_xx_inv = np.std(targets_arr[:, 0, ...])
-    std_tar_k_xy_inv = np.std(targets_arr[:, 1, ...])
-    std_tar_k_yy_inv = np.std(targets_arr[:, 2, ...])
-
-    mse_k_xx_inv = np.mean(squared_err_k_xx_inv)
-    mse_k_xy_inv = np.mean(squared_err_k_xy_inv)
-    mse_k_yy_inv = np.mean(squared_err_k_yy_inv)
-
-    rmse_k_xx_inv = np.sqrt(mse_k_xx_inv)
-    rmse_k_xy_inv = np.sqrt(mse_k_xy_inv)
-    rmse_k_yy_inv = np.sqrt(mse_k_yy_inv)
-
-    nrmse_k_xx_inv = rmse_k_xx_inv / std_tar_k_xx_inv
-    nrmse_k_xy_inv = rmse_k_xy_inv / std_tar_k_xy_inv
-    nrmse_k_yy_inv = rmse_k_yy_inv / std_tar_k_yy_inv
-    
-    return [mse_k_xx_inv, mse_k_xy_inv, mse_k_yy_inv], [rmse_k_xx_inv, rmse_k_xy_inv, rmse_k_yy_inv],\
-           [nrmse_k_xx_inv, nrmse_k_xy_inv, nrmse_k_yy_inv]
+    return mse_k, rmse_k, nrmse_k, r2_k
 
 
 def plot_samples(data_loader, n_samples=10):
@@ -142,3 +134,5 @@ def plot_samples(data_loader, n_samples=10):
         # plt.show()
 
     exit()
+
+
