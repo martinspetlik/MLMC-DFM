@@ -108,31 +108,3 @@ def get_mse_nrmse_r2(targets, predictions):
 
     return mse_k, rmse_k, nrmse_k, r2_k
 
-
-def plot_samples(data_loader, n_samples=10):
-    import matplotlib.pyplot as plt
-    for idx, data in enumerate(data_loader):
-        if idx > n_samples:
-            break
-        input, output = data
-        #img = img / 2 + 0.5  # unnormalize
-        #npimg = img.numpy()
-        plt_input = input[0]
-        print("plt_input ", plt_input)
-
-        fig, axes = plt.subplots(nrows=1, ncols=3, figsize=(10, 10))
-        axes[0].matshow(plt_input[0])
-        axes[1].matshow(plt_input[1])
-        axes[2].matshow(plt_input[2])
-        #fig.colorbar(caxes)
-        plt.savefig("input_{}.pdf".format(idx))
-        plt.show()
-
-        # plt.matshow(plt_input[0])
-        # plt.matshow(plt_input[1])
-        # plt.matshow(plt_input[2])
-        # plt.show()
-
-    exit()
-
-

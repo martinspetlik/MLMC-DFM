@@ -1,38 +1,28 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from metamodel.cnn.models.auxiliary_functions import reshape_to_tensors
 
 
-def reshape_to_tensors(tn_array):
-    tn3d = np.eye(3)
-    tn3d[np.triu_indices(3)] = tn_array
-
-    diagonal_values = np.diag(tn3d)
-    symmetric_tn = tn3d + tn3d.T
-    np.fill_diagonal(symmetric_tn, diagonal_values)
-    return symmetric_tn
-
-
-def plot_tensors(cond_tn_prediction, cond_tn_target, label="tensors", plot_separate_images=False):
+def plot_tensors(cond_tn_prediction, cond_tn_target, label="tensors", plot_separate_images=False, dim=2):
     """
     Plot principal components of tensors
     """
-    if cond_tn_target.shape[0] < 3:
-        cond_tn_prediction = reshape_to_tensors(cond_tn_prediction)
-        cond_tn_target = reshape_to_tensors(cond_tn_target)
+    cond_tn_prediction = np.squeeze(cond_tn_prediction)
+    cond_tn_target = np.squeeze(cond_tn_target)
 
-    cond_tn_prediction_2d = cond_tn_prediction[0:2, 0:2]
-    cond_tn_target_2d = cond_tn_target[0:2, 0:2]
+    cond_tn_prediction = reshape_to_tensors(cond_tn_prediction, dim=dim)[0:dim, 0:dim]
+    cond_tn_target = reshape_to_tensors(cond_tn_target, dim=dim)[0:dim, 0:dim]
 
     if plot_separate_images:
-        plot_cond_tn(cond_tn_target_2d, label="target_tn_"+label, color="red")
-        plot_cond_tn(cond_tn_prediction_2d, label="prediction_tn_"+label, color="blue")
+        plot_cond_tn(cond_tn_target, label="target_tn_"+label, color="red")
+        plot_cond_tn(cond_tn_prediction, label="prediction_tn_"+label, color="blue")
     else:
         fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(10, 10))
         ax = axes
         ax.set_aspect('equal')
 
-        plot_evecs(ax, cond_tn_target_2d, label="target", color="red")
-        plot_evecs(ax, cond_tn_prediction_2d, label="prediction", color="blue")
+        plot_evecs(ax, cond_tn_target, label="target", color="red")
+        plot_evecs(ax, cond_tn_prediction, label="prediction", color="blue")
         fig.suptitle(label)
 
         # ax_polar.grid(True)
@@ -40,7 +30,6 @@ def plot_tensors(cond_tn_prediction, cond_tn_target, label="tensors", plot_separ
         # plt.close(fig)
         plt.legend()
         plt.show()
-
 
 
 def plot_cond_tn(cond_tn, label, color):
