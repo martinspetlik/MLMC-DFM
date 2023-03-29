@@ -23,7 +23,7 @@ from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
 from metamodel.cnn.models.auxiliary_functions import get_mean_std, log_data, check_shapes
 from metamodel.cnn.models.train_pure_cnn_optuna import train_one_epoch, prepare_dataset, validate, load_trials_config
-from metamodel.cnn.visualization.visualize_data import plot_samples
+#from metamodel.cnn.visualization.visualize_data import plot_samples
 
 
 def objective(trial, trials_config, train_loader, validation_loader):
