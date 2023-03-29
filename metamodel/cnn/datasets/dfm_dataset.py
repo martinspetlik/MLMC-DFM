@@ -2,6 +2,7 @@ import os
 import re
 import copy
 import torch
+import sklearn
 import pandas as pd
 #from skimage import io, transform
 import numpy as np
@@ -31,6 +32,13 @@ class DFMDataset(Dataset):
         self._output_file_paths = []
 
         self._set_paths_to_samples()
+
+    def shuffle(self, seed):
+        np.random.seed(seed)
+        perm = np.random.permutation(len(self._bulk_file_paths))
+        self._bulk_file_paths = list(np.array(self._bulk_file_paths)[perm])
+        self._fracture_file_paths = list(np.array(self._fracture_file_paths)[perm])
+        self._output_file_paths = list(np.array(self._output_file_paths)[perm])
 
     def _set_paths_to_samples(self):
         if self._data_dir is None:

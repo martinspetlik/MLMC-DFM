@@ -18,11 +18,13 @@ import torchvision.transforms as transforms
 import torch.optim as optim
 from torch.optim import lr_scheduler
 from metamodel.cnn.models.trials.net_optuna import Net
+from metamodel.cnn.models.cond_net import CondNet
 from metamodel.cnn.datasets.dfm_dataset import DFMDataset
 from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
 from metamodel.cnn.models.auxiliary_functions import get_mean_std, log_data, check_shapes
-from metamodel.cnn.models.train_pure_cnn_optuna import train_one_epoch, prepare_dataset, validate, load_trials_config
+from metamodel.cnn.models.train_pure_cnn_optuna import train_one_epoch, prepare_dataset, validate, load_trials_config,\
+    get_trained_layers
 #from metamodel.cnn.visualization.visualize_data import plot_samples
 
 
@@ -42,7 +44,6 @@ def objective(trial, trials_config, train_loader, validation_loader):
     max_hidden_neurons = trial.suggest_categorical("max_hidden_neurons", trials_config["max_hidden_neurons"])
     n_hidden_layers = trial.suggest_categorical("n_hidden_layers", trials_config["n_hidden_layers"])
 
-    #if "batch_size_train" in trials_config and isinstance(config["batch_size_train"], (list, np.ndarray)):
     batch_size_train = trial.suggest_categorical("batch_size_train", trials_config["batch_size_train"])
     config["batch_size_train"] = batch_size_train
 
@@ -60,15 +61,12 @@ def objective(trial, trials_config, train_loader, validation_loader):
 
     if "fc_dropout_indices" in trials_config:
         fc_dropout_indices = trial.suggest_categorical("fc_dropout_indices", trials_config["fc_dropout_indices"])
-        #config["fc_dropout_indices"] = trials_config["fc_dropout_indices"]
 
     if "cnn_dropout_ratios" in trials_config:
         cnn_dropout_ratios = trial.suggest_categorical("cnn_dropout_ratios", trials_config["cnn_dropout_ratios"])
-        #config["cnn_dropout_ratios"] = trials_config["cnn_dropout_ratios"]
 
     if "fc_dropout_ratios" in trials_config:
         fc_dropout_ratios = trial.suggest_categorical("fc_dropout_ratios", trials_config["fc_dropout_ratios"])
-        #config["fc_dropout_ratios"] = trials_config["fc_dropout_ratios"]
 
     if "n_train_samples" in trials_config and trials_config["n_train_samples"] is not None:
         n_train_samples = trial.suggest_categorical("n_train_samples", trials_config["n_train_samples"])
@@ -84,9 +82,6 @@ def objective(trial, trials_config, train_loader, validation_loader):
                                                         shuffle=False)
         test_loader = torch.utils.data.DataLoader(test_set, batch_size=config["batch_size_test"], shuffle=False)
 
-    # plot_samples(train_loader, n_samples=25)
-    # exit()
-
     optimizer_name = "Adam"
     if "optimizer_name" in trials_config:
         optimizer_name = trial.suggest_categorical("optimizer_name", trials_config["optimizer_name"])
@@ -99,15 +94,7 @@ def objective(trial, trials_config, train_loader, validation_loader):
     if "hidden_activation_name" in trials_config:
         hidden_activation_name = trial.suggest_categorical("hidden_activation_name",
                                                            trials_config["hidden_activation_name"])
-
     hidden_activation = getattr(F, hidden_activation_name)
-
-    # print("hidden activation ", hidden_activation)
-    # exit()
-
-    #hidden_activation = F.relu
-
-    #print("kernel_size: {}, stride: {}, pool_size: {}, pool_stride: {}".format(kernel_size, stride, pool_size, pool_stride))
 
     flag, input_size = check_shapes(n_conv_layers, kernel_size, stride, pool_size, pool_stride,
                                     input_size=trials_config["input_size"])
@@ -138,41 +125,39 @@ def objective(trial, trials_config, train_loader, validation_loader):
                     "use_fc_dropout": use_fc_dropout if "use_fc_dropout" in trials_config else False,
                     "cnn_dropout_indices": cnn_dropout_indices if "cnn_dropout_indices" in trials_config else [],
                     "fc_dropout_indices": fc_dropout_indices if "fc_dropout_indices" in trials_config else [],
-                    "cnn_dropout_ratios": cnn_dropout_indices if "cnn_dropout_ratios" in trials_config else [],
-                    "fc_dropout_ratios": fc_dropout_indices if "fc_dropout_ratios" in trials_config else []
-                    }
-
-    # print("config ", trials_config)
-    # if "conv_layer_obj" in trials_config:
-    #     #@TODO: refactor ASAP
-    #     layer_kwargs = {'n_conv_layers': 1, 'max_channel': 72, 'pool': 'None', 'pool_size': 0, 'kernel_size': 3,
-    #                     'stride': 1, 'pool_stride': 0, 'use_batch_norm': True, 'n_hidden_layers': 1,
-    #                     'max_hidden_neurons': 48, 'input_size': 3}
-    #     model = Net(**layer_kwargs)
-    #
-    #     #print("model ", model)
-    #
-    #     # Initialize optimizer
-    #     #optimizer = study.best_trial.user_attrs["optimizer_class"](model.parameters(),
-    #     #                                                           **study.best_trial.user_attrs["optimizer_kwargs"])
-    #
-    #     checkpoint = torch.load(trials_config["conv_layer_obj"])
-    #     #train_loss = checkpoint['train_loss']
-    #     #valid_loss = checkpoint['valid_loss']
-    #
-    #     model.load_state_dict(checkpoint['best_model_state_dict'])
-    #     model.out_channels = 3
-    #     model.eval()
-    #
-    #     model_kwargs["conv_layer_obj"] = [model, model] #trials_config["conv_layer_obj"]
-    #print("model_kwargs ", model_kwargs)
-    # print("trial trial")
-    # return np.random.uniform(0, 1)
+                    "cnn_dropout_ratios": cnn_dropout_ratios if "cnn_dropout_ratios" in trials_config else [],
+                    "fc_dropout_ratios": fc_dropout_ratios if "fc_dropout_ratios" in trials_config else []}
 
     if "input_channels" in trials_config:
         model_kwargs["input_channel"] = len(trials_config["input_channels"])
     if "output_channels" in trials_config:
         model_kwargs["n_output_neurons"] = len(trials_config["output_channels"])
+
+    model_class_name = "Net"
+    if "model_class_name" in trials_config:
+        model_class_name = trials_config["model_class_name"]
+
+    if model_class_name == "Net":
+        model_class = Net
+    elif model_class_name == "CondNet":
+        model_class = CondNet
+    else:
+        raise NotImplementedError("model class name {} not supported ".format(model_class_name))
+
+    n_pretrained_layers = 0
+    if "trained_layers_dir" in trials_config:
+        model_kwargs, n_pretrained_layers = get_trained_layers(trials_config, model_kwargs)
+
+    model = model_class(**model_kwargs).to(device)
+
+    if n_pretrained_layers > 0:
+        for index, (cvs, lin) in enumerate(zip(model._convs, model._fcls)):
+            if index > n_pretrained_layers - 1:
+                break
+            for param in cvs.parameters():
+                param.requires_grad = False
+            for param in lin.parameters():
+                param.requires_grad = False
 
     model = Net(trial, **model_kwargs).to(device)
 
@@ -182,7 +167,10 @@ def objective(trial, trials_config, train_loader, validation_loader):
 
     # Initialize optimizer
     optimizer_kwargs = {"lr": lr, "weight_decay": L2_penalty}
-    optimizer = getattr(optim, optimizer_name)(params=model.parameters(), **optimizer_kwargs)
+    non_frozen_parameters = [p for p in model.parameters() if p.requires_grad]
+    optimizer = None
+    if len(non_frozen_parameters) > 0:
+        optimizer = getattr(optim, optimizer_name)(params=non_frozen_parameters, **optimizer_kwargs)
 
     trial.set_user_attr("model_class", model.__class__)
     trial.set_user_attr("optimizer_class", optimizer.__class__)
@@ -210,7 +198,7 @@ def objective(trial, trials_config, train_loader, validation_loader):
     train = trials_config["train"] if "train" in trials_config else True
 
     if "scheduler" in trials_config:
-        print("scheduler in config ")
+        #print("scheduler in config ")
         if "class" in trials_config["scheduler"]:
             if trials_config["scheduler"]["class"] == "ReduceLROnPlateau":
                 scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, mode="min",
@@ -221,38 +209,38 @@ def objective(trial, trials_config, train_loader, validation_loader):
                                             gamma=trials_config["scheduler"]["gamma"])
 
     for epoch in range(config["num_epochs"]):
-        #try:
-        if train:
-            model.train(True)
-            avg_loss = train_one_epoch(model, optimizer, train_loader, config, loss_fn=loss_fn_name(), use_cuda=use_cuda)  # Train the model
+        try:
+            if train:
+                model.train(True)
+                avg_loss = train_one_epoch(model, optimizer, train_loader, config, loss_fn=loss_fn_name(), use_cuda=use_cuda)  # Train the model
 
-        model.train(False)
-        avg_vloss = validate(model, validation_loader, loss_fn=loss_fn_name(), use_cuda=use_cuda)   # Evaluate the model
+            model.train(False)
+            avg_vloss = validate(model, validation_loader, loss_fn=loss_fn_name(), use_cuda=use_cuda)   # Evaluate the model
 
-        if scheduler is not None:
-            scheduler.step(avg_vloss)
-            print("scheduler lr: {}".format(scheduler._last_lr))
+            if scheduler is not None:
+                scheduler.step(avg_vloss)
+                print("scheduler lr: {}".format(scheduler._last_lr))
 
-        avg_loss_list.append(avg_loss)
-        avg_vloss_list.append(avg_vloss)
+            avg_loss_list.append(avg_loss)
+            avg_vloss_list.append(avg_vloss)
 
-        print("epoch: {}, loss train: {}, val: {}".format(epoch, avg_loss, avg_vloss))
+            #print("epoch: {}, loss train: {}, val: {}".format(epoch, avg_loss, avg_vloss))
 
-        if avg_vloss < best_vloss:
-            best_vloss = avg_vloss
-            best_epoch = epoch
+            if avg_vloss < best_vloss:
+                best_vloss = avg_vloss
+                best_epoch = epoch
 
-            model_state_dict = model.state_dict()
-            optimizer_state_dict = optimizer.state_dict()
+                model_state_dict = model.state_dict()
+                optimizer_state_dict = optimizer.state_dict()
 
-        # For pruning (stops trial early if not promising)
-        trial.report(avg_vloss, epoch)
-        # # Handle pruning based on the intermediate value.
-        # if trial.should_prune():
-        #     raise optuna.exceptions.TrialPruned()
-        # except Exception as e:
-        #     print(str(e))
-        #     return avg_vloss
+            # For pruning (stops trial early if not promising)
+            trial.report(avg_vloss, epoch)
+            # Handle pruning based on the intermediate value.
+            # if trial.should_prune():
+            #     raise optuna.exceptions.TrialPruned()
+        except Exception as e:
+            print(str(e))
+            return avg_vloss
 
     #for key, value in trial.params.items():
     #    model_path += "_{}_{}".format(key, value)
@@ -300,7 +288,8 @@ if __name__ == '__main__':
               "log_output": trials_config["log_output"] if "log_output" in trials_config else False,
               "normalize_output": trials_config["normalize_output"] if "normalize_output" in trials_config else True,
               "input_channels": trials_config["input_channels"] if "input_channels" in trials_config else None,
-              "output_channels": trials_config["output_channels"] if "output_channels" in trials_config else None
+              "output_channels": trials_config["output_channels"] if "output_channels" in trials_config else None,
+              "seed": trials_config["seed"] if "seed" in trials_config else 12345
               }
 
     # Optuna params

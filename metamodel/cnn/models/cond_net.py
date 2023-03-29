@@ -21,7 +21,7 @@ class CondNet(nn.Module):
         self._fcls=nn.ModuleList()
 
         self._batch_norms = nn.ModuleList()
-        self._batch_norms_after = nn.ModuleList()
+        #self._batch_norms_after = nn.ModuleList()
 
         if convs is not None:
             self._convs = convs
@@ -43,9 +43,9 @@ class CondNet(nn.Module):
         self.kernel_size = (kernel_size, kernel_size)
         self.stride = (stride, stride)
 
-        #print("initial convs: {}, fcls: {}".format(convs, fcls))
+        print("initial convs: {}, fcls: {}".format(convs, fcls))
 
-        self._use_single_nn = True
+        self._use_single_nn = False
 
         for cnv in self._convs:
             cnv.stride = stride
@@ -107,7 +107,7 @@ class CondNet(nn.Module):
                                              stride=stride))
                 if self._use_batch_norm:
                     self._batch_norms.append(nn.BatchNorm2d(max_channel))
-                    self._batch_norms_after.append(nn.BatchNorm2d(min_channel))
+                    #self._batch_norms_after.append(nn.BatchNorm2d(min_channel))
 
                 self._fcls.append(CondLinear(in_neurons=max_channel, out_neurons=min_channel,
                                              hidden_neurons=[max_hidden_neurons]))
@@ -140,6 +140,12 @@ class CondNet(nn.Module):
         #print("x.shape ",x.shape)
         #print("self._convs ", self._convs)
 
+        # for idx, channel in enumerate(x):
+        #     if idx > 25:
+        #         break
+        #     self._plot_data(channel, idx)
+        # exit()
+
         for i in range(self._n_layers):
             #print("layer: {}".format(i))
             #print("x.shape ", x.shape)
@@ -169,6 +175,7 @@ class CondNet(nn.Module):
 
 
             #self._process_data(x)
+
 
             # for idx, channel in enumerate(x):
             #     if idx > 25:

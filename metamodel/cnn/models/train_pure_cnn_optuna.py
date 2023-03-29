@@ -25,6 +25,68 @@ from metamodel.cnn.models.auxiliary_functions import get_mean_std, log_data
 #from metamodel.cnn.visualization.visualize_data import plot_samples
 
 
+def get_trained_layers(trials_config, model_kwargs):
+    trained_layers_dir = trials_config["trained_layers_dir"]
+
+    all_convs = nn.ModuleList()
+    all_fcls = nn.ModuleList()
+    all_batch_norms = nn.ModuleList()
+    for layer_dir in trained_layers_dir:
+        executed_study = joblib.load(os.path.join(layer_dir, "study.pkl"))
+        model_path = os.path.join(layer_dir, "best_trial")
+
+        executed_model_kwargs = executed_study.best_trial.user_attrs["model_kwargs"]
+        model = executed_study.best_trial.user_attrs["model_class"](**executed_model_kwargs)
+
+        print("executed model kwargs ", executed_model_kwargs)
+
+        checkpoint = torch.load(model_path)
+        model.load_state_dict(checkpoint['best_model_state_dict'])
+        # model.out_channels = 3
+        model.eval()
+
+        model._convs.stride = model_kwargs["stride"]
+
+        # print("model.parameters() ", model.parameters)
+        # for param in model.parameters():
+        #     print(param.data)
+
+        # for param in model.parameters():
+        #     param.requires_grad = False
+
+        for cnv in model._convs:
+            cnv.requires_grad_(False)
+            for param in cnv.parameters():
+                param.requires_grad = False
+
+            all_convs.append(cnv)
+
+        for bnorm in model._batch_norms:
+            bnorm.requires_grad_(False)
+            for param in bnorm.parameters():
+                param.requires_grad = False
+
+            all_batch_norms.append(bnorm)
+
+        for fcl in model._fcls:
+            fcl.requires_grad_(False)
+            for param in fcl.parameters():
+                param.requires_grad = False
+
+            all_fcls.append(fcl)
+
+            # all_convs.append(model._convs)
+            # all_batch_norms.append(model._batch_norms)
+            # all_fcls.append(model._fcls)
+
+    model_kwargs["convs"] = all_convs
+    model_kwargs["batch_norms"] = all_batch_norms
+    model_kwargs["fcls"] = all_fcls
+
+    n_pretrained_layers = len(all_convs)
+    return model_kwargs, n_pretrained_layers
+
+
 def load_trials_config(path_to_config):
     with open(path_to_config, "r") as f:
         trials_config = yaml.load(f, Loader=yaml.FullLoader)
@@ -190,6 +252,7 @@ def prepare_dataset(study, config, data_dir, serialize_path=None):
                                           input_channels=config["input_channels"] if "input_channels" in config else None,
                                           output_channels=config["output_channels"] if "output_channels" in config else None
                                           )
+        dataset_for_mean_std.shuffle(seed=config["seed"])
 
         if n_train_samples is None:
             n_train_samples = int(len(dataset_for_mean_std) * config["train_samples_ratio"])
@@ -232,6 +295,7 @@ def prepare_dataset(study, config, data_dir, serialize_path=None):
                          input_channels=config["input_channels"] if "input_channels" in config else None,
                          output_channels=config["output_channels"] if "output_channels" in config else None
                          )
+    dataset.shuffle(config["seed"])
 
     if n_train_samples is None:
         n_train_samples = int(len(dataset) * config["train_samples_ratio"])
