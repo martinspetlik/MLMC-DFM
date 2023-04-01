@@ -10,13 +10,16 @@ class CondNet(nn.Module):
     def __init__(self, trial=None, n_conv_layers=3, max_channel=3, pool=None, kernel_size=3, stride=1, pool_size=2,
                  pool_stride=2, use_batch_norm=True, n_hidden_layers=1, max_hidden_neurons=520,
                  hidden_activation=F.relu, input_size=256, min_channel=3, use_dropout=False, convs=None, fcls=None, batch_norms=None,
-                 output_layer=True, layer_models=[]):
+                 output_layer=True, layer_models=[], conv_layer_obj=[], pool_indices=[],
+                 use_cnn_dropout=False, use_fc_dropout=False, cnn_dropout_indices=[], fc_dropout_indices=[],
+                 cnn_dropout_ratios=[], fc_dropout_ratios=[], n_output_neurons=3, output_bias=True):
         super().__init__()
         self._name = "cond_net"
         self._use_dropout = use_dropout
         self._pool = pool
         self._pool_size = pool_size
         self._pool_stride = pool_stride
+        self._output_bias = output_bias
         self._convs=nn.ModuleList()
         self._fcls=nn.ModuleList()
 
@@ -86,7 +89,7 @@ class CondNet(nn.Module):
             # else:
             fcls = CondLinear(in_neurons=max_channel,
                              out_neurons=min_channel,
-                            hidden_neurons=[max_hidden_neurons])
+                            hidden_neurons=[max_hidden_neurons], output_bias=self._output_bias)
 
         n_layers = self._n_layers - self._n_pretrained_layers
 

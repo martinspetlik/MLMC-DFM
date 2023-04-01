@@ -10,6 +10,7 @@ import numpy as np
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms, utils
 
+
 class DFMDataset(Dataset):
     """DFM models dataset"""
 
@@ -37,8 +38,9 @@ class DFMDataset(Dataset):
         np.random.seed(seed)
         perm = np.random.permutation(len(self._bulk_file_paths))
         self._bulk_file_paths = list(np.array(self._bulk_file_paths)[perm])
-        self._fracture_file_paths = list(np.array(self._fracture_file_paths)[perm])
         self._output_file_paths = list(np.array(self._output_file_paths)[perm])
+        if len(self._fracture_file_paths) == len(self._bulk_file_paths):
+            self._fracture_file_paths = list(np.array(self._fracture_file_paths)[perm])
 
     def _set_paths_to_samples(self):
         if self._data_dir is None:

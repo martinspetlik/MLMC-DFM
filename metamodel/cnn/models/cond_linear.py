@@ -3,11 +3,12 @@ import torch.nn.functional as F
 
 
 class CondLinear(nn.Module):
-    def __init__(self, in_neurons, out_neurons=3, hidden_neurons=[], hidden_activation=F.relu):
+    def __init__(self, in_neurons, out_neurons=3, hidden_neurons=[], hidden_activation=F.relu, output_bias=True):
         super().__init__()
         self._hidden_neurons = hidden_neurons
         self._in_neurons = in_neurons
         self._out_neurons = out_neurons
+        self._output_bias = output_bias
 
         self._hidden_layers = nn.ModuleList()
         self._output_layer = None
@@ -18,7 +19,7 @@ class CondLinear(nn.Module):
     def _create_fcl_layers(self):
         for h_neurons in self._hidden_neurons:
             self._hidden_layers.append(nn.Linear(self._in_neurons, h_neurons))
-        self._output_layer = nn.Linear(h_neurons, self._out_neurons, bias=False)
+        self._output_layer = nn.Linear(h_neurons, self._out_neurons, bias=self._output_bias)
 
     @property
     def weight(self):
