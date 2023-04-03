@@ -159,7 +159,7 @@ def objective(trial, trials_config, train_loader, validation_loader):
             for param in lin.parameters():
                 param.requires_grad = False
 
-    model = Net(trial, **model_kwargs).to(device)
+    #model = Net(trial, **model_kwargs).to(device)
 
     # print("model._convs ", model._convs)
     # print("moodel._hidden_layers ", model._hidden_layers)
