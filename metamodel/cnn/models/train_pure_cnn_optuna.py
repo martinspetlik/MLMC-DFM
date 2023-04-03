@@ -238,7 +238,6 @@ def prepare_dataset(study, config, data_dir, serialize_path=None):
     n_train_samples = None
     if "n_train_samples" in config and config["n_train_samples"] is not None:
         n_train_samples = config["n_train_samples"]
-
     if config["log_input"]:
         input_transform = transforms.Compose([transforms.Lambda(log_data)])
     if config["log_output"]:
@@ -258,7 +257,7 @@ def prepare_dataset(study, config, data_dir, serialize_path=None):
             n_train_samples = int(len(dataset_for_mean_std) * config["train_samples_ratio"])
 
         train_val_set = dataset_for_mean_std[:n_train_samples]
-        train_set = train_val_set[int(n_train_samples * config["val_samples_ratio"]):]
+        train_set = train_val_set[:-int(n_train_samples * config["val_samples_ratio"])]
 
         train_loader_mean_std = torch.utils.data.DataLoader(train_set, batch_size=config["batch_size_train"], shuffle=False)
         input_mean, input_std, output_mean, output_std = get_mean_std(train_loader_mean_std)
