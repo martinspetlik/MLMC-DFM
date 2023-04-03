@@ -269,10 +269,10 @@ if __name__ == '__main__':
 
     args = parser.parse_args(sys.argv[1:])
 
+
     data_dir = args.data_dir
     output_dir = args.output_dir
     trials_config = load_trials_config(args.trials_config_path)
-
     use_cuda = args.cuda
 
     config = {"num_epochs": trials_config["num_epochs"],
@@ -289,7 +289,7 @@ if __name__ == '__main__':
               "normalize_output": trials_config["normalize_output"] if "normalize_output" in trials_config else True,
               "input_channels": trials_config["input_channels"] if "input_channels" in trials_config else None,
               "output_channels": trials_config["output_channels"] if "output_channels" in trials_config else None,
-              "seed": trials_config["seed"] if "seed" in trials_config else 12345
+              "seed": trials_config["random_seed"] if "random_seed" in trials_config else 12345
               }
 
     # Optuna params
@@ -297,6 +297,7 @@ if __name__ == '__main__':
 
     device = torch.device("cuda" if torch.cuda.is_available() and use_cuda else "cpu")
     print("device ", device)
+    print("config seed ", config["seed"])
 
     # Make runs repeatable
     random_seed = trials_config["random_seed"]
@@ -326,9 +327,6 @@ if __name__ == '__main__':
         train_loader = torch.utils.data.DataLoader(train_set, batch_size=config["batch_size_train"], shuffle=True)
         validation_loader = torch.utils.data.DataLoader(validation_set, batch_size=config["batch_size_train"], shuffle=False)
         test_loader = torch.utils.data.DataLoader(test_set, batch_size=config["batch_size_test"], shuffle=False)
-
-
-
 
     def obj_func(trial):
         return objective(trial, trials_config, train_loader, validation_loader)

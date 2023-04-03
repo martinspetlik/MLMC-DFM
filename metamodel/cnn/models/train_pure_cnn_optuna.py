@@ -351,96 +351,96 @@ def prepare_dataset(study, config, data_dir, serialize_path=None):
     return train_set, validation_set, test_set
 
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('data_dir', help='Data directory')
-    parser.add_argument('output_dir', help='Output directory')
-    parser.add_argument("-c", "--cuda", default=False, action='store_true', help="use cuda")
-    args = parser.parse_args(sys.argv[1:])
-
-    data_dir = args.data_dir
-    output_dir = args.output_dir
-    use_cuda = args.cuda
-    config = {"num_epochs": 10,
-              "batch_size_train": 25,
-              "batch_size_test": 250,
-              "train_samples_ratio": 0.8,
-              "val_samples_ratio": 0.2,
-              "print_batches": 10,
-              "log_input": True,
-              "normalize_input": True,
-              "log_output": False,
-              "normalize_output": True}
-
-    # Ooptuna params
-    num_trials = 2#100
-
-    device = torch.device("cuda" if torch.cuda.is_available() and use_cuda else "cpu")
-    print("device ", device)
-
-    # Make runs repeatable
-    random_seed = 12345
-    torch.backends.cudnn.enabled = False  # Disable cuDNN use of nondeterministic algorithms
-    torch.manual_seed(random_seed)
-    output_dir = os.path.join(output_dir, "seed_{}".format(random_seed))
-    if os.path.exists(output_dir):
-        raise IsADirectoryError("Results output dir {} already exists".format(output_dir))
-    os.mkdir(output_dir)
-
-    study = optuna.create_study(sampler=TPESampler(seed=random_seed), direction="minimize")
-
-    # ================================
-    # Datasets and data loaders
-    # ================================
-    train_set, validation_set, test_set = prepare_dataset(study, config, data_dir=data_dir, serialize_path=output_dir)
-    train_loader = torch.utils.data.DataLoader(train_set, batch_size=config["batch_size_train"], shuffle=True)
-
-    validation_loader = torch.utils.data.DataLoader(validation_set, batch_size=config["batch_size_test"], shuffle=False)
-    test_loader = torch.utils.data.DataLoader(test_set, batch_size=config["batch_size_test"], shuffle=False)
-
-
-    def obj_func(trial):
-        return objective(trial, train_loader, validation_loader)
-
-    study.optimize(obj_func, n_trials=num_trials)
-
-    # ================================
-    # Results
-    # ================================
-    # Find number of pruned and completed trials
-    pruned_trials = study.get_trials(deepcopy=False, states=[TrialState.PRUNED])
-    complete_trials = study.get_trials(deepcopy=False, states=[TrialState.COMPLETE])
-
-    # Display the study statistics
-    print("\nStudy statistics: ")
-    print("  Number of finished trials: ", len(study.trials))
-    print("  Number of pruned trials: ", len(pruned_trials))
-    print("  Number of complete trials: ", len(complete_trials))
-
-    trial = study.best_trial
-    print("Best trial:")
-    print("  Value: ", trial.value)
-    print("  Params: ")
-    for key, value in trial.params.items():
-        print("    {}: {}".format(key, value))
-
-    # Save results to csv file
-    df = study.trials_dataframe().drop(['datetime_start', 'datetime_complete', 'duration'], axis=1)  # Exclude columns
-    df = df.loc[df['state'] == 'COMPLETE']        # Keep only results that did not prune
-    df = df.drop('state', axis=1)                 # Exclude state column
-    df = df.sort_values('value')                  # Sort based on accuracy
-    df.to_csv('optuna_results.csv', index=False)  # Save to csv file
-
-    # Display results in a dataframe
-    print("\nOverall Results (ordered by accuracy):\n {}".format(df))
-
-    # Find the most important hyperparameters
-    most_important_parameters = optuna.importance.get_param_importances(study, target=None)
-
-    # Display the most important hyperparameters
-    print('\nMost important hyperparameters:')
-    for key, value in most_important_parameters.items():
-        print('  {}:{}{:.2f}%'.format(key, (15-len(key))*' ', value*100))
-
-    # serialize optuna study object
-    joblib.dump(study, os.path.join(output_dir, "study.pkl"))
+# if __name__ == '__main__':
+#     parser = argparse.ArgumentParser()
+#     parser.add_argument('data_dir', help='Data directory')
+#     parser.add_argument('output_dir', help='Output directory')
+#     parser.add_argument("-c", "--cuda", default=False, action='store_true', help="use cuda")
+#     args = parser.parse_args(sys.argv[1:])
+#
+#     data_dir = args.data_dir
+#     output_dir = args.output_dir
+#     use_cuda = args.cuda
+#     config = {"num_epochs": 10,
+#               "batch_size_train": 25,
+#               "batch_size_test": 250,
+#               "train_samples_ratio": 0.8,
+#               "val_samples_ratio": 0.2,
+#               "print_batches": 10,
+#               "log_input": True,
+#               "normalize_input": True,
+#               "log_output": False,
+#               "normalize_output": True}
+#
+#     # Ooptuna params
+#     num_trials = 2#100
+#
+#     device = torch.device("cuda" if torch.cuda.is_available() and use_cuda else "cpu")
+#     print("device ", device)
+#
+#     # Make runs repeatable
+#     random_seed = 12345
+#     torch.backends.cudnn.enabled = False  # Disable cuDNN use of nondeterministic algorithms
+#     torch.manual_seed(random_seed)
+#     output_dir = os.path.join(output_dir, "seed_{}".format(random_seed))
+#     if os.path.exists(output_dir):
+#         raise IsADirectoryError("Results output dir {} already exists".format(output_dir))
+#     os.mkdir(output_dir)
+#
+#     study = optuna.create_study(sampler=TPESampler(seed=random_seed), direction="minimize")
+#
+#     # ================================
+#     # Datasets and data loaders
+#     # ================================
+#     train_set, validation_set, test_set = prepare_dataset(study, config, data_dir=data_dir, serialize_path=output_dir)
+#     train_loader = torch.utils.data.DataLoader(train_set, batch_size=config["batch_size_train"], shuffle=True)
+#
+#     validation_loader = torch.utils.data.DataLoader(validation_set, batch_size=config["batch_size_test"], shuffle=False)
+#     test_loader = torch.utils.data.DataLoader(test_set, batch_size=config["batch_size_test"], shuffle=False)
+#
+#
+#     def obj_func(trial):
+#         return objective(trial, train_loader, validation_loader)
+#
+#     study.optimize(obj_func, n_trials=num_trials)
+#
+#     # ================================
+#     # Results
+#     # ================================
+#     # Find number of pruned and completed trials
+#     pruned_trials = study.get_trials(deepcopy=False, states=[TrialState.PRUNED])
+#     complete_trials = study.get_trials(deepcopy=False, states=[TrialState.COMPLETE])
+#
+#     # Display the study statistics
+#     print("\nStudy statistics: ")
+#     print("  Number of finished trials: ", len(study.trials))
+#     print("  Number of pruned trials: ", len(pruned_trials))
+#     print("  Number of complete trials: ", len(complete_trials))
+#
+#     trial = study.best_trial
+#     print("Best trial:")
+#     print("  Value: ", trial.value)
+#     print("  Params: ")
+#     for key, value in trial.params.items():
+#         print("    {}: {}".format(key, value))
+#
+#     # Save results to csv file
+#     df = study.trials_dataframe().drop(['datetime_start', 'datetime_complete', 'duration'], axis=1)  # Exclude columns
+#     df = df.loc[df['state'] == 'COMPLETE']        # Keep only results that did not prune
+#     df = df.drop('state', axis=1)                 # Exclude state column
+#     df = df.sort_values('value')                  # Sort based on accuracy
+#     df.to_csv('optuna_results.csv', index=False)  # Save to csv file
+#
+#     # Display results in a dataframe
+#     print("\nOverall Results (ordered by accuracy):\n {}".format(df))
+#
+#     # Find the most important hyperparameters
+#     most_important_parameters = optuna.importance.get_param_importances(study, target=None)
+#
+#     # Display the most important hyperparameters
+#     print('\nMost important hyperparameters:')
+#     for key, value in most_important_parameters.items():
+#         print('  {}:{}{:.2f}%'.format(key, (15-len(key))*' ', value*100))
+#
+#     # serialize optuna study object
+#     joblib.dump(study, os.path.join(output_dir, "study.pkl"))
