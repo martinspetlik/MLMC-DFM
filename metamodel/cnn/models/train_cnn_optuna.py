@@ -159,8 +159,7 @@ def objective(trial, trials_config, train_loader, validation_loader):
             for param in lin.parameters():
                 param.requires_grad = False
 
-    model = Net(trial, **model_kwargs).to(device)
-
+    #model = Net(trial, **model_kwargs).to(device)
     # print("model._convs ", model._convs)
     # print("moodel._hidden_layers ", model._hidden_layers)
     # print("moodel._output_layer ", model._output_layer)
@@ -183,10 +182,10 @@ def objective(trial, trials_config, train_loader, validation_loader):
     start_time = time.time()
     avg_loss_list = []
     avg_vloss_list = []
-    avg_vloss = best_vloss
+    avg_vloss, avg_loss = best_vloss, best_vloss
     best_epoch = 0
-    model_state_dict = []
-    optimizer_state_dict = []
+    model_state_dict = {}
+    optimizer_state_dict = {}
 
     model_path = 'trial_{}_losses_model_{}'.format(trial.number, model._name)
     # print("model path ", model_path)
@@ -197,7 +196,7 @@ def objective(trial, trials_config, train_loader, validation_loader):
     scheduler = None
     train = trials_config["train"] if "train" in trials_config else True
 
-    if "scheduler" in trials_config:
+    if "scheduler" in trials_config and optimizer is not None:
         #print("scheduler in config ")
         if "class" in trials_config["scheduler"]:
             if trials_config["scheduler"]["class"] == "ReduceLROnPlateau":
@@ -224,14 +223,15 @@ def objective(trial, trials_config, train_loader, validation_loader):
             avg_loss_list.append(avg_loss)
             avg_vloss_list.append(avg_vloss)
 
-            #print("epoch: {}, loss train: {}, val: {}".format(epoch, avg_loss, avg_vloss))
+            print("epoch: {}, loss train: {}, val: {}".format(epoch, avg_loss, avg_vloss))
 
             if avg_vloss < best_vloss:
                 best_vloss = avg_vloss
                 best_epoch = epoch
 
                 model_state_dict = model.state_dict()
-                optimizer_state_dict = optimizer.state_dict()
+                if train:
+                    optimizer_state_dict = optimizer.state_dict()
 
             # For pruning (stops trial early if not promising)
             trial.report(avg_vloss, epoch)
@@ -364,12 +364,15 @@ if __name__ == '__main__':
     print("\nOverall Results (ordered by accuracy):\n {}".format(df))
 
     # Find the most important hyperparameters
-    most_important_parameters = optuna.importance.get_param_importances(study, target=None)
+    try:
+        most_important_parameters = optuna.importance.get_param_importances(study, target=None)
 
-    # Display the most important hyperparameters
-    print('\nMost important hyperparameters:')
-    for key, value in most_important_parameters.items():
-        print('  {}:{}{:.2f}%'.format(key, (15-len(key))*' ', value*100))
+        # Display the most important hyperparameters
+        print('\nMost important hyperparameters:')
+        for key, value in most_important_parameters.items():
+            print('  {}:{}{:.2f}%'.format(key, (15-len(key))*' ', value*100))
+    except Exception as e:
+        print(str(e))
 
     # serialize optuna study object
     joblib.dump(study, os.path.join(output_dir, "study.pkl"))
