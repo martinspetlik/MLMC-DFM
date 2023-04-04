@@ -253,7 +253,7 @@ class DFMSim(Simulation):
     def homogenization(config):
         #print("config ", config)
         sample_dir = os.getcwd()
-        print("homogenization method")
+        #print("homogenization method")
         #print("os.getcws() ", os.getcwd())
         os.mkdir("homogenization")
         os.chdir("homogenization")
@@ -261,7 +261,7 @@ class DFMSim(Simulation):
         h_dir = os.getcwd()
 
         sim_config = config["sim_config"]
-        print("sim config ", sim_config)
+        #print("sim config ", sim_config)
 
         domain_box = sim_config["geometry"]["domain_box"]
         subdomain_box = sim_config["geometry"]["subdomain_box"]
@@ -308,7 +308,7 @@ class DFMSim(Simulation):
         #     DFMSim.run_single_subdomain()
 
         for i in range(n_subdomains):
-            print("subdomain box ", subdomain_box)
+            #print("subdomain box ", subdomain_box)
             if "outer_polygon" not in sim_config["geometry"]:
                 center_x = subdomain_box[0] / 2 + (lx - subdomain_box[0]) / (n_subdomains - 1) * i - lx / 2
             for j in range(n_subdomains):
@@ -335,13 +335,13 @@ class DFMSim(Simulation):
                     tl_corner = [center_x - subdomain_box[0] / 2, center_y + subdomain_box[1] / 2]
                     tr_corner = [center_x + subdomain_box[0] / 2, center_y + subdomain_box[1] / 2]
 
-                    print("center x: {}, y: {}".format(center_x, center_y))
+                    #print("center x: {}, y: {}".format(center_x, center_y))
 
                     outer_polygon = [copy.deepcopy(bl_corner), copy.deepcopy(br_corner), copy.deepcopy(tr_corner),
                                      copy.deepcopy(tl_corner)]
 
                     sim_config["geometry"]["outer_polygon"] = outer_polygon
-                print("work_dir ", work_dir)
+                #print("work_dir ", work_dir)
 
                 sim_config["work_dir"] = work_dir
                 #config["homogenization"] = True
@@ -364,13 +364,13 @@ class DFMSim(Simulation):
                     done = []
                     #exit()
                     # fine_flow.run() # @TODO replace fine_flow.run by DFMSim._run_sample()
-                    print("run samples ")
+                    #print("run samples ")
                     status, p_loads, outer_reg_names = DFMSim._run_homogenization_sample(fine_flow, config)
 
                     done.append(fine_flow)
                     cond_tn, diff = fine_flow.effective_tensor_from_bulk(p_loads, outer_reg_names, fine_flow.basename, elids_same_value)
-                    print("cond_tn ", cond_tn)
-                    exit()
+                    #print("cond_tn ", cond_tn)
+                    #exit()
                     DFMSim.make_summary(done)
                     percentage_sym_tn_diff.append(diff)
 
@@ -380,7 +380,7 @@ class DFMSim(Simulation):
                     done = []
                     # exit()
                     # fine_flow.run() # @TODO replace fine_flow.run by DFMSim._run_sample()
-                    print("run samples ")
+                    #print("run samples ")
                     status, p_loads, outer_reg_names = DFMSim._run_homogenization_sample(fine_flow, config)
 
                     done.append(fine_flow)
@@ -400,7 +400,7 @@ class DFMSim(Simulation):
                 dir_name = os.path.join(work_dir, subdir_name)
                 config["dir_name"] = dir_name
 
-                print("dir name ", dir_name)
+                #print("dir name ", dir_name)
 
                 try:
                     shutil.move("fine", dir_name)
@@ -444,8 +444,8 @@ class DFMSim(Simulation):
         coarse_step = config["coarse"]["step"]
         fine_step = config["fine"]["step"]
 
-        print("fine_step", config["fine"]["step"])
-        print("coarse_step", config["coarse"]["step"])
+        #print("fine_step", config["fine"]["step"])
+        #print("coarse_step", config["coarse"]["step"])
 
         times = {}
         fine_res = 0
@@ -496,7 +496,7 @@ class DFMSim(Simulation):
         fine_flow.fr_range = [config["fine"]["step"], fine_flow.fr_range[1]]
         #fine_flow.fr_range = [25, fine_flow.fr_range[1]]
 
-        print("fine_flow.fr_range ", fine_flow.fr_range)
+        #print("fine_flow.fr_range ", fine_flow.fr_range)
 
         make_mesh_start = time.time()
 
@@ -517,14 +517,14 @@ class DFMSim(Simulation):
             times['make_fields'] = time.time() - make_fields_start
 
         #fine_flow.run() # @TODO replace fine_flow.run by DFMSim._run_sample()
-        print("run samples ")
+        #print("run samples ")
         fine_res, status = DFMSim._run_sample(fine_flow, config)
         #done = []
         #done.append(fine_flow)
         #fine_flow.effective_tensor_from_bulk(p_loads, outer_reg_names, fine_flow.basename)
         #print("done ", done)
         #DFMSim.make_summary(done)
-        print("fine res ", fine_res)
+        #print("fine res ", fine_res)
 
         coarse_res = 0
 
@@ -569,7 +569,7 @@ class DFMSim(Simulation):
             coarse_flow.make_fields()
             done = []
             # fine_flow.run() # @TODO replace fine_flow.run by DFMSim._run_sample()
-            print("run samples ")
+            #print("run samples ")
             coarse_res, status = DFMSim._run_sample(coarse_flow, config)
 
             # done.append(coarse_flow)
@@ -661,7 +661,7 @@ class DFMSim(Simulation):
 
         common_files_dir = config["fine"]["common_files_dir"]
         substitute_placeholders(os.path.join(common_files_dir, DFMSim.YAML_TEMPLATE_H), in_f, params)
-        flow_args = ["docker", "run", "-v", "{}:{}".format(os.getcwd(), os.getcwd()), *config["flow123d"]]
+        flow_args = ["singularity", "exec", "/storage/liberec3-tul/home/martin_spetlik/flow_3_1_0.sif", "flow123d"]
 
         flow_args.extend(['--output_dir', out_dir, os.path.join(out_dir, in_f)])
 
@@ -714,7 +714,7 @@ class DFMSim(Simulation):
 
         common_files_dir = config["fine"]["common_files_dir"]
         substitute_placeholders(os.path.join(common_files_dir, DFMSim.YAML_TEMPLATE), in_f, params)
-        flow_args = ["docker", "run", "-v", "{}:{}".format(os.getcwd(), os.getcwd()), *config["flow123d"]]
+        flow_args = ["singularity", "exec", "/storage/liberec3-tul/home/martin_spetlik/flow_3_1_0.sif", "flow123d"]
 
         flow_args.extend(['--output_dir', out_dir, os.path.join(out_dir, in_f)])
 
@@ -942,9 +942,9 @@ class DFMSim(Simulation):
 
     @staticmethod
     def calculate_mean_excluded_volume(r_min, r_max, kappa, geom=False):
-        print("r min ", r_min)
-        print("r max ", r_max)
-        print("kappa ", kappa)
+        #print("r min ", r_min)
+        #print("r max ", r_max)
+        #print("kappa ", kappa)
         if geom:
             # return 0.5 * (kappa / (r_min**(-kappa) - r_max**(-kappa)))**2 * 2*(((r_max**(2-kappa) - r_min**(2-kappa))) * ((r_max**(1-kappa) - r_min**(1-kappa))))/(kappa**2 - 3*kappa + 2)
             return ((r_max ** (1.5 * kappa - 0.5) - r_min ** (1.5 * kappa - 0.5)) / (
@@ -961,7 +961,7 @@ class DFMSim(Simulation):
 
     @staticmethod
     def generate_fractures(config):
-        print("config ", config)
+        #print("config ", config)
         sim_config = config["sim_config"]
         geom = sim_config["geometry"]
         lx, ly = geom["fractures_box"]
@@ -975,28 +975,28 @@ class DFMSim(Simulation):
         if "rho_2D" in geom:
             rho_2D = geom["rho_2D"]  # P_30 * V_ex
         n_frac_limit = geom["n_frac_limit"]
-        print("n frac limit ", n_frac_limit)
-        print("fr size range ", fr_size_range)
+        #print("n frac limit ", n_frac_limit)
+        #print("fr size range ", fr_size_range)
         p_32 = geom["p_32"]
 
-        print("lx: {}, ly: {} ".format(lx, ly))
+        #print("lx: {}, ly: {} ".format(lx, ly))
 
         # generate fracture set
         fracture_box = [lx, ly, 0]
         area = lx * ly
 
-        print("pow_law_sample_range ", pow_law_sample_range)
+        #print("pow_law_sample_range ", pow_law_sample_range)
 
         if rho_2D is not False:
             sim_config["fracture_model"]["max_fr"] = pow_law_sample_range[1]
             A_ex = BothSample.excluded_area(pow_law_sample_range[0], pow_law_sample_range[1],
                                             kappa=pow_law_exp_3d - 1, coef=np.pi / 2)
-            print("A_ex ", A_ex)
+            #print("A_ex ", A_ex)
             # rho_2D = N_f/A * A_ex, N_f/A = intensity
-            print("rho_2D ", rho_2D)
+            #print("rho_2D ", rho_2D)
 
             intensity = rho_2D / A_ex
-            print("intensity ", intensity)
+            #print("intensity ", intensity)
 
             pop = fracture.Population(area, fracture.LineShape)
             pop.add_family("all",
@@ -1020,16 +1020,16 @@ class DFMSim(Simulation):
                                                          r_max=fr_size_range[1],
                                                          kappa=pow_law_exp_3d - 1, power=2)
 
-            print("V_ex ", V_ex)
-            print("rho ", rho)
+            #print("V_ex ", V_ex)
+            #print("rho ", rho)
             p_30 = rho / V_ex
-            print("p_30 ", p_30)
+            #print("p_30 ", p_30)
 
-            print("v_ex ", v_ex)
-            print("R2 ", R2)
+            #print("v_ex ", v_ex)
+            #print("R2 ", R2)
 
             p_30 = rho / (v_ex * R2)
-            print("final P_30 ", p_30)
+            #print("final P_30 ", p_30)
 
             pop = fracture.Population(area, fracture.LineShape)
             pop.add_family("all",
@@ -1058,16 +1058,16 @@ class DFMSim(Simulation):
             elif pow_law_sample_range:
                 pop.set_sample_range(pow_law_sample_range)
 
-        print("total mean size: ", pop.mean_size())
-        print("size range:", pop.families[0].size.sample_range)
+        #print("total mean size: ", pop.mean_size())
+        #print("size range:", pop.families[0].size.sample_range)
 
 
         pos_gen = fracture.UniformBoxPosition(fracture_box)
         fractures = pop.sample(pos_distr=pos_gen, keep_nonempty=False)
 
-        print("fractures len ", len(fractures))
-        print("fractures ", fractures)
-        print("fr_size_range[0] ", fr_size_range[0])
+        #print("fractures len ", len(fractures))
+        #print("fractures ", fractures)
+        #print("fr_size_range[0] ", fr_size_range[0])
 
         fr_set = fracture.Fractures(fractures, fr_size_range[0] / 2)
 

@@ -1,7 +1,7 @@
 import os
 import sys
 import numpy as np
-import mlmc.tool.simple_distribution
+#import mlmc.tool.simple_distribution
 from mlmc.sampler import Sampler
 from mlmc.sample_storage_hdf import SampleStorageHDF
 from mlmc.sample_storage import Memory

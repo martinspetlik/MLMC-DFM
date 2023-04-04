@@ -313,11 +313,11 @@ class BulkFieldsGSTools(BulkBase):
             self._create_field(self.mean_log_conductivity, self.cov_log_conductivity)
 
             mesh_data = BulkFieldsGSTools.extract_mesh(mesh)
-            print("mesh data ", list(mesh_data.keys()))
+            #print("mesh data ", list(mesh_data.keys()))
 
             self._fields.set_points(mesh_data['points'], mesh_data['point_region_ids'], mesh_data['region_map'])
 
-            print("self._field_k_xx ", self._fields)
+            #print("self._field_k_xx ", self._fields)
 
             rf_sample = self._fields.sample()
 
@@ -572,7 +572,7 @@ class BulkHomogenization(BulkBase):
         dist_2 = np.sum((self._center_points - center) ** 2, axis=1)
         cond_tn = self._cond_tns[tuple(self._center_points[np.argmin(dist_2)])]
 
-        print("cond tn ", cond_tn)
+        #print("cond tn ", cond_tn)
 
         return 1.0, cond_tn[0].reshape(2, 2)
 
@@ -757,7 +757,7 @@ class FlowProblem:
             # bulk_cond_tn_pop_file = config_dict["fine"]["cond_tn_pop_file"]
             #bulk_model = BulkChoose(finer_level_path)
         else:
-            print("**bulk_conductivity ", bulk_conductivity)
+            #print("**bulk_conductivity ", bulk_conductivity)
             if "marginal_distr" in bulk_conductivity and bulk_conductivity["marginal_distr"] is not False:
                 means, cov = FlowProblem.calculate_cov(bulk_conductivity["marginal_distr"])
 
@@ -765,7 +765,7 @@ class FlowProblem:
                 bulk_conductivity["cov_log_conductivity"] = cov
                 del bulk_conductivity["marginal_distr"]
 
-            print("BULKFIelds bulk_conductivity ", bulk_conductivity)
+            #print("BULKFIelds bulk_conductivity ", bulk_conductivity)
             bulk_model = BulkFields(**bulk_conductivity)
             #bulk_model = BulkFieldsGSTools(**bulk_conductivity)
         return FlowProblem("fine", fr_range, fractures, bulk_model, config_dict)
@@ -800,7 +800,7 @@ class FlowProblem:
     @classmethod
     def make_coarse(cls, fr_range, fractures, config_dict):
         #bulk_model = BulkMicroScale(micro_scale_problem)
-        print("coarse fr range ", fr_range)
+        #print("coarse fr range ", fr_range)
         bulk_model = BulkHomogenization(config_dict)
         bulk_model.mean_log_conductivity = 10**-6
 
@@ -863,7 +863,7 @@ class FlowProblem:
         outer_wire = pd.outer_polygon.outer_wire.childs
         # print("outer wire ", outer_wire)
 
-        print("len fracture lines ", len(fracture_lines))
+        #print("len fracture lines ", len(fracture_lines))
 
         assert len(outer_wire) == 1
         outer_wire = next(iter(outer_wire))
@@ -952,7 +952,7 @@ class FlowProblem:
         #self.outer_polygon = [[-10, -10], [10, -10], [10, 10], [-10, 10]]
         #self.outer_polygon = [[-500, 0], [0, 0], [0, 500], [-500, 500]]
 
-        print("outer polygon ", self.outer_polygon)
+        #print("outer polygon ", self.outer_polygon)
 
         pd, self.side_regions = self.init_decomposition(self.outer_polygon, bulk_reg, tol=self.mesh_step)
         self.group_positions[0] = np.mean(self.outer_polygon, axis=0)
@@ -965,7 +965,7 @@ class FlowProblem:
         #     coarse_step = self.config_dict["coarse"]["step"] * 2
         #     square_fr_range[0] = coarse_step
 
-        print("square_fr_range ", square_fr_range)
+        #print("square_fr_range ", square_fr_range)
         #exit()
 
 
@@ -1003,11 +1003,11 @@ class FlowProblem:
         if mesh_file is None:
             mesh_file = "mesh_{}.msh".format(self.basename)
 
-        print("os.getcwd() ", os.getcwd())
-        print("mesh file ", mesh_file)
+        #print("os.getcwd() ", os.getcwd())
+        #print("mesh file ", mesh_file)
         self.skip_decomposition = os.path.exists(mesh_file)
 
-        print("self. skip decomposition ", self.skip_decomposition)
+        #print("self. skip decomposition ", self.skip_decomposition)
 
         #print("self regions ", self.regions)
         if not self.skip_decomposition:
@@ -1018,9 +1018,9 @@ class FlowProblem:
             g2d.make_brep_geometry()
             step_range = (self.mesh_step * 0.9, self.mesh_step * 1.1)
             g2d.call_gmsh(gmsh_executable, step_range)
-            print("self.reg_to_fr ", self.reg_to_fr)
+            #print("self.reg_to_fr ", self.reg_to_fr)
             self.mesh, self.elid_to_fr = g2d.modify_mesh(self.reg_to_fr)
-            print("self.elid_to_fr ", self.elid_to_fr)
+            #print("self.elid_to_fr ", self.elid_to_fr)
 
         elif self.skip_decomposition and self.config_dict["sim_config"]["mesh_window"]:
             self._make_mesh_window()
@@ -1241,7 +1241,7 @@ class FlowProblem:
 
 
         e_val = [c_x, c_y]
-        print("eval c_x, c_y", e_val)
+        #print("eval c_x, c_y", e_val)
 
         return e_val
 
@@ -2039,7 +2039,7 @@ def results_for_seed(seed):
 
 
 def loads_fields_file(file):
-    print("file ", file)
+    #print("file ", file)
 
     fractures_cond = []
     bulk_cond = []
@@ -2145,10 +2145,10 @@ def process_mult_samples(sample_dict, work_dir=None):
                 if np.min(e_val) <= 0:
                     e_val = [FlowProblem.line_fit(np.array(summary_dict["fine"]["flux"]))]
 
-                print("eval ", np.squeeze(e_val))
+                #print("eval ", np.squeeze(e_val))
 
                 all_eigen_values.extend(list(np.squeeze(e_val)))
-                print("all eigen values ", all_eigen_values)
+                #print("all eigen values ", all_eigen_values)
 
                 # cond_field_xy.append(np.array(summary_dict['fine']['pos']))
 
@@ -2184,7 +2184,7 @@ def process_mult_samples(sample_dict, work_dir=None):
                 #if fr_rho_area == False:
                     # print("calculated rho ", rho)
                 fracture_area_ratio = fracture_area / area
-                print("fracture are ratio ", fracture_area_ratio)
+                #print("fracture are ratio ", fracture_area_ratio)
 
                 fr_rho_area = True
                 #fracture_area_ratio = 1

@@ -312,8 +312,7 @@ class Geometry2d:
         char_length = np.max(self.aabb[1] - self.aabb[0])
         mesh_step = char_length / 20
         print("Char length: {} mesh step: {}".format(char_length, mesh_step))
-
-        print("mesh step estimated ", mesh_step)
+        #print("mesh step estimated ", mesh_step)
 
         return mesh_step
 
