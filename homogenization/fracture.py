@@ -900,10 +900,10 @@ class Fractures:
         # Maps line to its fracture.
 
         self.make_lines()
-        print("lines made")
+        #print("lines made")
         if len(self.fracture_ids) > 0:
             self.make_bihs()
-        print("bihs made")
+        #print("bihs made")
 
     def make_lines(self):
         # sort from large to small fractures
@@ -923,13 +923,13 @@ class Fractures:
         fr_min, fr_max = fr_range
         #fr_max = 20
         #fr_min = 20
-        print("len self fractures ", len(self.fractures))
-        print("fr range ", fr_range)
+        #print("len self fractures ", len(self.fractures))
+        #print("fr range ", fr_range)
         for i, (line, fr) in enumerate(zip(self.lines, self.fractures)):
-            print("fr.rx ", fr.rx)
+            #print("fr.rx ", fr.rx)
             if fr_min <= fr.rx < fr_max:
                 lines[i] = [self.points[p][:2] for p in line]
-        print("len lines ", len(lines))
+        #print("len lines ", len(lines))
         return lines
 
     def make_bihs(self):

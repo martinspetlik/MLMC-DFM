@@ -139,14 +139,20 @@ n_pressure_loads: 2
 
 
 geometry:
-  # square side (meters)
-#  fractures_box: [400, 400]
-#  domain_box: [400, 400]
-#  subdomain_box: [400, 400]
+  #  side (meters)
+  #  fractures_box: [400, 400]
+  #  domain_box: [400, 400]
+  #  subdomain_box: [400, 400]
   fractures_box: [ 100, 100 ]
   domain_box: [ 100, 100 ]
-  subdomain_box: [ 20, 20 ]
-  n_subdomains: 25
+  subdomain_box: [ 25, 25]
+  n_subdomains: 16
+  # 3x3 mesh
+  #fractures_box: [ 75, 75 ]
+  #domain_box: [ 75, 75 ]
+  #outer_polygon: [[0,0], [75,0], [75, 75], [0, 75]]
+  #subdomain_box: [ 75, 75 ]
+  #n_subdomains: 2 #25
   fr_max_size: 100
   #fractures_box: [140, 140]
   #domain_box: [140, 140]

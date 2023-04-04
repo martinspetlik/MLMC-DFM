@@ -311,7 +311,7 @@ class Geometry2d:
     def mesh_step_estimate(self):
         char_length = np.max(self.aabb[1] - self.aabb[0])
         mesh_step = char_length / 20
-        print("Char length: {} mesh step: {}", char_length, mesh_step)
+        print("Char length: {} mesh step: {}".format(char_length, mesh_step))
 
         print("mesh step estimated ", mesh_step)
 
@@ -326,7 +326,7 @@ class Geometry2d:
         """
         self.distribute_mesh_step()
         self.geo_file = self.basename + ".tmp.geo"
-        print("geo file ", self.geo_file)
+        #print("geo file ", self.geo_file)
         with open(self.geo_file, "w") as f:
             print(r'SetFactory("OpenCASCADE");', file=f)
             # print(r'Mesh.Algorithm = 2;', file=f)
@@ -361,13 +361,14 @@ class Geometry2d:
         #call([gmsh_path, "-2", "-format", "msh2", self.geo_file])
         #try:
         mesh_file = "mesh.msh"
-        print("self.geo_file ", self.geo_file)
+        #print("self.geo_file ", self.geo_file)
         process = subprocess.run([gmsh_path, "-2", "-format", "msh2", "-algo", "meshadapt", self.geo_file], stderr=subprocess.PIPE, stdout=subprocess.PIPE)
 
         if process.returncode != 0:
             raise Exception(process.stderr.decode('ascii'))
         else:
-            print(process.stdout.decode("ascii"))
+            print("mesh created")
+            #print(process.stdout.decode("ascii"))
 
         #except subprocess.CalledProcessError as e:
         #    traceback.print_exc()
@@ -422,7 +423,7 @@ class Geometry2d:
         with open(self.msh_file, "w") as f:
             self.mesh.write_ascii(f)
 
-        print("elid to fr ", elid_to_fr)
+        #print("elid to fr ", elid_to_fr)
         return self.mesh, elid_to_fr
 
 # def make_geometry(**kwargs):

@@ -16,7 +16,7 @@ import attr
 import collections
 import traceback
 import time
-import pandas
+#import pandas
 import scipy.spatial as sc_spatial
 import scipy.interpolate as sc_interpolate
 import atexit
@@ -206,6 +206,7 @@ class BulkFields(BulkBase):
         c, s = np.cos(angle), np.sin(angle)
         rot_mat = np.array([[c, -s], [s, c]])
         #print("rot_mat ,", rot_mat)
+        #print("unrotated ", unrotated_tn)
         cond_2d = rot_mat @ unrotated_tn @ rot_mat.T
 
         # print("cond_2d ", cond_2d)
@@ -318,8 +319,6 @@ class BulkFieldsGSTools(BulkBase):
 
             print("self._field_k_xx ", self._fields)
 
-
-
             rf_sample = self._fields.sample()
 
             xv = mesh_data['points'][:, 0]
@@ -335,7 +334,6 @@ class BulkFieldsGSTools(BulkBase):
                 plt.show()
             except Exception as e:
                 print(e)
-
 
             fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(10, 10))
             ax = axes  # [0]
@@ -623,19 +621,15 @@ def tensor_3d_flatten(tn_2d):
     return tn3d.ravel()
 
 
-def write_fields(mesh, basename, bulk_model, fracture_model, elid_to_fr):
+def write_fields(mesh, basename, bulk_model, fracture_model, elid_to_fr, elids_same_value=None):
     elem_ids = []
     cond_tn_field = []
     cs_field = []
     fracture_cs = []
     fracture_len = []
-
-    print("write fields")
+    el_cond = {}
 
     for el_id, ele in gmsh_mesh_bulk_elements(mesh):
-        # print("ele id ", el_id)
-        # print("ele ", ele)
-
         elem_ids.append(el_id)
         el_type, tags, node_ids = ele
         n_nodes = len(node_ids)
@@ -650,11 +644,47 @@ def write_fields(mesh, basename, bulk_model, fracture_model, elid_to_fr):
         else:
             # n_nodes == 3
             cs, cond_tn = bulk_model.element_data(mesh, el_id)
-            #print("bulk cs: {}, cond_tn: {}".format(cs, cond_tn))
+
+            #cs = 1.0
+            #cond_tn = all_cond_tn[rot[all_ell_ids[el_id]]]
+            # i += 1
+            # print("bulk cs: {}, cond_tn: {}".format(cs, cond_tn))
+            if elids_same_value is not None and el_id in elids_same_value:
+                if elids_same_value[el_id] in elem_ids:
+                    cond_tn = el_cond[elids_same_value[el_id]]
+                    #all_ele_ids[el_id] = all_ele_ids[elids_same_value[el_id]]
+            # else:
+            #     all_cond_tn[i] = cond_tn
+            #     all_ele_ids[el_id] = i
+            #     i += 1
+
+
+                # print("cond tn ", cond_tn.shape)
+            # exit()
+            #
+            # print("np.reshape(cond_tn, (3,3)) ", np.reshape(np.array(cond_tn), (3,3)))
+            # exit()
+            #cond_tn = rotation_matrix.dot(cond_tn) #@ rotation_matrix
+            #cond_tn = rotation_matrix.T @ cond_tn @ rotation_matrix
+
+            #print("cond tn ", cond_tn)
+            #print("cond tn 2 ", cond_tn_2)
+            #cond_tn = cond_tn.flatten()
+
+            el_cond[el_id] = cond_tn
 
         cs_field.append(np.array(cs))
-
         cond_tn_field.append(tensor_3d_flatten(cond_tn))
+
+    # print("all_cond_tn ", all_cond_tn)
+    # print("all_ell_ids ", all_ele_ids)
+    # exit()
+
+    # print("cond_tn_field ", cond_tn_field)
+    # cond_tn_field_arr = np.array(cond_tn_field)
+    # print("cond_tn_field_arr ", cond_tn_field_arr.shape)
+    # np.reshape(cond_tn_field_arr, ())
+    # exit()
 
     fname = fields_file(basename)
     with open(fname, "w") as fout:
@@ -736,8 +766,8 @@ class FlowProblem:
                 del bulk_conductivity["marginal_distr"]
 
             print("BULKFIelds bulk_conductivity ", bulk_conductivity)
-            #bulk_model = BulkFields(**bulk_conductivity)
-            bulk_model = BulkFieldsGSTools(**bulk_conductivity)
+            bulk_model = BulkFields(**bulk_conductivity)
+            #bulk_model = BulkFieldsGSTools(**bulk_conductivity)
         return FlowProblem("fine", fr_range, fractures, bulk_model, config_dict)
 
     @staticmethod
@@ -968,10 +998,10 @@ class FlowProblem:
     #     g2d.call_gmsh(gmsh_executable, step_range)
     #     self.mesh = g2d.modify_mesh()
 
-    def make_mesh(self):
-        print("self.basename ", self.basename)
+    def make_mesh(self, mesh_file=None):
         import homogenization.geometry_2d as geom
-        mesh_file = "mesh_{}.msh".format(self.basename)
+        if mesh_file is None:
+            mesh_file = "mesh_{}.msh".format(self.basename)
 
         print("os.getcwd() ", os.getcwd())
         print("mesh file ", mesh_file)
@@ -982,7 +1012,6 @@ class FlowProblem:
         #print("self regions ", self.regions)
         if not self.skip_decomposition:
             self.make_fracture_network()
-
             gmsh_executable = self.config_dict["sim_config"]["gmsh_executable"]
             g2d = geom.Geometry2d("mesh_" + self.basename, self.regions)
             g2d.add_compoud(self.decomp)
@@ -996,12 +1025,13 @@ class FlowProblem:
         elif self.skip_decomposition and self.config_dict["sim_config"]["mesh_window"]:
             self._make_mesh_window()
         else:
+            self.elid_to_fr = {}
             self.make_fracture_network()
             self.mesh = gmsh_io.GmshIO()
             with open(mesh_file, "r") as f:
                 self.mesh.read(f)
 
-    def make_fields(self):
+    def make_fields(self, elids_same_value=None):
         """
         Calculate the conductivity and the cross-section fields, write into a GMSH file.
 
@@ -1014,7 +1044,7 @@ class FlowProblem:
                                        bulk_model=self.bulk_model)
         elem_ids, cs_field, cond_tn_field, fracture_cs, fracture_len = write_fields(self.mesh, self.basename,
                                                                                     self.bulk_model, fracture_model,
-                                                                                    self.elid_to_fr)
+                                                                                    self.elid_to_fr, elids_same_value)
 
         self._elem_ids = elem_ids
         self._cond_tn_field = cond_tn_field
@@ -1215,7 +1245,7 @@ class FlowProblem:
 
         return e_val
 
-    def effective_tensor_from_bulk(self, pressure_loads=None, reg_to_group_1=None, basename=None):
+    def effective_tensor_from_bulk(self, pressure_loads=None, reg_to_group_1=None, basename=None, elids_same_value=None):
         """
         :param bulk_regions: mapping reg_id -> tensor_group_id, groups of regions for which the tensor will be computed.
         :return: {group_id: conductivity_tensor} List of effective tensors.
@@ -1263,7 +1293,33 @@ class FlowProblem:
         area = np.zeros((n_groups, n_directions))
         print("Averaging velocities ...")
         for i_time, (time, velocity) in velocity_field.items():
+            # for eid, ele_vel in velocity.items():
+            #     print("eid : {}, ele_vel: {}".format(eid, ele_vel))
+            #     reg_id, vol = ele_reg_vol[eid]
+            #     cs = field_cs[eid][0]
+            #     #print("vol: {}, cs: {}".format(vol, cs))
+            #     volume = cs * vol
+            #     i_group = group_idx[bulk_regions[reg_id]]
+            #     flux_response[i_group, i_time, :] += -(volume * np.array(ele_vel[0:2]))
+            #     area[i_group, i_time] += volume
+
+            # print("elids ", elids_same_value)
+            # if elids_same_value is not None:
+            #     new_velocities = {}
+            #     for e_id, e_id_2 in elids_same_value.items():
+            #         vel_1 = velocity[e_id]
+            #         vel_2 = velocity[e_id_2]
+            #
+            #         print("vel1 : {}, vel2: {}, mean vel: {}".format(vel_1, vel_2, np.mean([vel_1, vel_2], axis=0)))
+            #
+            #         new_velocities[e_id] = new_velocities[e_id_2] = np.mean([vel_1, vel_2], axis=0)
+            #
+            #     velocity = new_velocities
+
+            #print("velocity ", velocity)
+
             for eid, ele_vel in velocity.items():
+                #print("eid : {}, ele_vel: {}".format(eid, ele_vel))
                 reg_id, vol = ele_reg_vol[eid]
                 cs = field_cs[eid][0]
                 #print("vol: {}, cs: {}".format(vol, cs))
@@ -1330,20 +1386,20 @@ class FlowProblem:
                 exit()
                 e_val = FlowProblem.line_fit(flux)
 
-            if i_group < 10:
-                 # if flux.shape[0] < 5:
-                 print("Plot tensor for eid: ", group_id)
-                 print("Fluxes: \n", flux)
-                 print("pressures: \n", loads)
-                 print("cond: \n", cond_tn)
-                 #if e_val is None:
-                 e_val, e_vec = np.linalg.eigh(cond_tn)
-                 print("e val ", e_val)
-
-                 #print("log mean eval cond", np.log10(np.mean(e_val)))
-                 self.plot_effective_tensor(flux, cond_tn, self.basename + "_" + group_labels[i_group])
-                 #exit()
-                 #print(cond_tn)
+            # if i_group < 10:
+            #      # if flux.shape[0] < 5:
+            #      print("Plot tensor for eid: ", group_id)
+            #      print("Fluxes: \n", flux)
+            #      print("pressures: \n", loads)
+            #      print("cond: \n", cond_tn)
+            #      #if e_val is None:
+            #      e_val, e_vec = np.linalg.eigh(cond_tn)
+            #      print("e val ", e_val)
+            #
+            #      #print("log mean eval cond", np.log10(np.mean(e_val)))
+            #      self.plot_effective_tensor(flux, cond_tn, self.basename + "_" + group_labels[i_group])
+            #      #exit()
+            #      #print(cond_tn)
             cond_tensors[group_id] = cond_tn
         self.cond_tensors = cond_tensors
         self.flux = flux
@@ -1351,11 +1407,6 @@ class FlowProblem:
         self._bulk_regions = bulk_regions
         self._regions = self.regions
         self._pressure_loads = pressure_loads
-
-
-        #print("self.cond_tensors ", self.cond_tensors)
-        #print("self.flux ", self.flux)
-        #print("self. pressure matrix ", self.pressure_matrix)
         return cond_tensors, diff
 
     def labeled_arrow(self, ax, start, end, label):
@@ -1615,6 +1666,7 @@ class BothSample:
         # fine problem
         fine_flow = FlowProblem.make_fine(self.i_level, (self.h_fine_step, self.config_dict["geometry"]["fr_max_size"]), fractures, self.finer_level_path,
                                           self.config_dict)
+        mesh_file = "/home/"
         fine_flow.make_mesh()
         fine_flow.make_fields()
         fine_flow.run()
@@ -1733,17 +1785,12 @@ def compute_semivariance(cond_field_xy, scalar_cond_log, dir):
 
         print("key: {}, pearsonr: {}".format(key, pearsonr(x_values, y_values)))
 
-
-
         # corr_matrix = df.corr("kendall")
         # sn.heatmap(corr_matrix, annot=True)
         # plt.show()
-        #
-        #
         # corr_matrix = df.corr("spearman")
         # sn.heatmap(corr_matrix, annot=True)
         # plt.show()
-
         # corr_coef = np.corrcoef([x_values, y_values])
         # plt.matshow(corr_coef)
         # plt.show()

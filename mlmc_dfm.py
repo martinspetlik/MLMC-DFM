@@ -35,8 +35,8 @@ class ProcessSimple:
         # Number of MLMC levels
 
         # step_range = [0.055, 0.0035]
-        #step_range = [10, 1]
-        step_range = [10, 1]
+        step_range = [10, 4.325] # Used for tested data of CNNs
+        #step_range = [100, 25]
         # step_range = [0.1, 0.055]
         # step   - elements
         # 0.1    - 262
@@ -55,6 +55,8 @@ class ProcessSimple:
         self.level_parameters = estimator.determine_level_parameters(self.n_levels, step_range)
         #self.level_parameters = [self.level_parameters[4]]
         #self.n_levels = 1
+        print("self.level_parameters ", self.level_parameters)
+        #exit()
 
         # Determine number of samples at each level
         self.n_samples = estimator.determine_n_samples(self.n_levels)
