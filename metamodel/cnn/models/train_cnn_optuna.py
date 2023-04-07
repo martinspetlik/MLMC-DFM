@@ -1,4 +1,5 @@
 import os
+import shutil
 import sys
 import argparse
 import logging
@@ -19,10 +20,11 @@ import torch.optim as optim
 from torch.optim import lr_scheduler
 from metamodel.cnn.models.trials.net_optuna import Net
 from metamodel.cnn.models.cond_net import CondNet
+from metamodel.vit.model.vit_model import ViTRegressor
 from metamodel.cnn.datasets.dfm_dataset import DFMDataset
 from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
-from metamodel.cnn.models.auxiliary_functions import get_mean_std, log_data, check_shapes
+from metamodel.cnn.models.auxiliary_functions import get_mean_std, log_data, check_shapes, get_loss_fn
 from metamodel.cnn.models.train_pure_cnn_optuna import train_one_epoch, prepare_dataset, validate, load_trials_config,\
     get_trained_layers
 #from metamodel.cnn.visualization.visualize_data import plot_samples
@@ -31,7 +33,9 @@ from metamodel.cnn.models.train_pure_cnn_optuna import train_one_epoch, prepare_
 def objective(trial, trials_config, train_loader, validation_loader):
     best_vloss = 1_000_000.
 
-    loss_fn_name = nn.MSELoss
+
+
+
     max_channel = trial.suggest_categorical("max_channel", trials_config["max_channel"])
     n_conv_layers = trial.suggest_categorical("n_conv_layers", trials_config["n_conv_layers"])
     kernel_size = trial.suggest_categorical("kernel_size", trials_config["kernel_size"])
@@ -46,6 +50,12 @@ def objective(trial, trials_config, train_loader, validation_loader):
 
     batch_size_train = trial.suggest_categorical("batch_size_train", trials_config["batch_size_train"])
     config["batch_size_train"] = batch_size_train
+
+    loss_function = ["MSE", []]
+    if "loss_function" in trials_config:
+        loss_function = trial.suggest_categorical("loss_function", trials_config["loss_function"])
+
+    loss_fn = get_loss_fn(loss_function)
 
     if "pool_indices" in trials_config:
         pool_indices = trial.suggest_categorical("pool_indices", trials_config["pool_indices"])
@@ -81,6 +91,8 @@ def objective(trial, trials_config, train_loader, validation_loader):
         validation_loader = torch.utils.data.DataLoader(validation_set, batch_size=config["batch_size_test"],
                                                         shuffle=False)
         test_loader = torch.utils.data.DataLoader(test_set, batch_size=config["batch_size_test"], shuffle=False)
+
+    #plot_samples(train_loader, n_samples=25)
 
     optimizer_name = "Adam"
     if "optimizer_name" in trials_config:
@@ -132,7 +144,6 @@ def objective(trial, trials_config, train_loader, validation_loader):
         model_kwargs["input_channel"] = len(trials_config["input_channels"])
     if "output_channels" in trials_config:
         model_kwargs["n_output_neurons"] = len(trials_config["output_channels"])
-
     model_class_name = "Net"
     if "model_class_name" in trials_config:
         model_class_name = trials_config["model_class_name"]
@@ -141,6 +152,8 @@ def objective(trial, trials_config, train_loader, validation_loader):
         model_class = Net
     elif model_class_name == "CondNet":
         model_class = CondNet
+    elif model_class_name == "ViTRegressor":
+        model_class = ViTRegressor
     else:
         raise NotImplementedError("model class name {} not supported ".format(model_class_name))
 
@@ -176,7 +189,7 @@ def objective(trial, trials_config, train_loader, validation_loader):
     trial.set_user_attr("model_name", model._name)
     trial.set_user_attr("model_kwargs", model_kwargs)
     trial.set_user_attr("optimizer_kwargs", optimizer_kwargs)
-    trial.set_user_attr("loss_fn_name", loss_fn_name)
+    trial.set_user_attr("loss_fn", loss_fn)
 
     # Training of the model
     start_time = time.time()
@@ -197,7 +210,6 @@ def objective(trial, trials_config, train_loader, validation_loader):
     train = trials_config["train"] if "train" in trials_config else True
 
     if "scheduler" in trials_config and optimizer is not None:
-        #print("scheduler in config ")
         if "class" in trials_config["scheduler"]:
             if trials_config["scheduler"]["class"] == "ReduceLROnPlateau":
                 scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, mode="min",
@@ -209,12 +221,13 @@ def objective(trial, trials_config, train_loader, validation_loader):
 
     for epoch in range(config["num_epochs"]):
         try:
+
             if train:
                 model.train(True)
-                avg_loss = train_one_epoch(model, optimizer, train_loader, config, loss_fn=loss_fn_name(), use_cuda=use_cuda)  # Train the model
+                avg_loss = train_one_epoch(model, optimizer, train_loader, config, loss_fn=loss_fn, use_cuda=use_cuda)  # Train the model
 
             model.train(False)
-            avg_vloss = validate(model, validation_loader, loss_fn=loss_fn_name(), use_cuda=use_cuda)   # Evaluate the model
+            avg_vloss = validate(model, validation_loader, loss_fn=loss_fn, use_cuda=use_cuda)   # Evaluate the model
 
             if scheduler is not None:
                 scheduler.step(avg_vloss)
@@ -223,7 +236,7 @@ def objective(trial, trials_config, train_loader, validation_loader):
             avg_loss_list.append(avg_loss)
             avg_vloss_list.append(avg_vloss)
 
-            print("epoch: {}, loss train: {}, val: {}".format(epoch, avg_loss, avg_vloss))
+            #print("epoch: {}, loss train: {}, val: {}".format(epoch, avg_loss, avg_vloss))
 
             if avg_vloss < best_vloss:
                 best_vloss = avg_vloss
@@ -305,7 +318,9 @@ if __name__ == '__main__':
     torch.manual_seed(random_seed)
     output_dir = os.path.join(output_dir, "seed_{}".format(random_seed))
     if os.path.exists(output_dir) and not args.append:
-        raise IsADirectoryError("Results output dir {} already exists".format(output_dir))
+        shutil.rmtree(output_dir)
+        #@TODO: remove ASAP
+        #raise IsADirectoryError("Results output dir {} already exists".format(output_dir))
     if not args.append:
         os.mkdir(output_dir)
     elif not os.path.exists(output_dir):

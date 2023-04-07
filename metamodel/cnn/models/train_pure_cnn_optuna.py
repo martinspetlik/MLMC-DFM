@@ -32,15 +32,36 @@ def get_trained_layers(trials_config, model_kwargs):
     all_fcls = nn.ModuleList()
     all_batch_norms = nn.ModuleList()
     for layer_dir in trained_layers_dir:
-        executed_study = joblib.load(os.path.join(layer_dir, "study.pkl"))
-        model_path = os.path.join(layer_dir, "best_trial")
+        if not os.path.exists(os.path.join(layer_dir, "study.pkl")):
+            from metamodel.cnn.models.cond_net import CondNet
+            #model_path = "/home/martin/Documents/MLMC-DFM/optuna_runs/karolina/cond_conv/exp_3/seed_12345/trial_1_losses_model_cnn_net"
+            model_kwargs = {'n_conv_layers': 1, 'max_channel': 156, 'pool': 'None', 'pool_size': 0, 'kernel_size': 3,
+                            'stride': 1, 'pool_stride': 0, 'use_batch_norm': True, 'n_hidden_layers': 1,
+                            'max_hidden_neurons': 194, 'input_size': 3, 'output_bias': True, 'pool_indices': [],
+                            'use_cnn_dropout': False, 'use_fc_dropout': False, 'cnn_dropout_indices': [], 'fc_dropout_indices': [],
+                            'cnn_dropout_ratios': [], 'fc_dropout_ratios': []}
+            model = CondNet(**model_kwargs)
+        else:
+            executed_study = joblib.load(os.path.join(layer_dir, "study.pkl"))
+            model_path = os.path.join(layer_dir, "best_trial")
 
-        executed_model_kwargs = executed_study.best_trial.user_attrs["model_kwargs"]
-        model = executed_study.best_trial.user_attrs["model_class"](**executed_model_kwargs)
+            executed_model_kwargs = executed_study.best_trial.user_attrs["model_kwargs"]
+            model = executed_study.best_trial.user_attrs["model_class"](**executed_model_kwargs)
 
-        print("executed model kwargs ", executed_model_kwargs)
-
+        #print("executed model kwargs ", executed_model_kwargs)
         checkpoint = torch.load(model_path)
+        #print("checkpoint['best_model_state_dict'] ", checkpoint['best_model_state_dict'])
+
+        # checkpoint['best_model_state_dict']["_fcls.0._hidden_layers.0.weight"]  = checkpoint['best_model_state_dict']["_hidden_layers.0.weight"]
+        # checkpoint['best_model_state_dict']["_fcls.0._hidden_layers.0.bias"] = checkpoint['best_model_state_dict']["_hidden_layers.0.bias"]
+        # checkpoint['best_model_state_dict']["_fcls.0._output_layer.weight"] = checkpoint['best_model_state_dict']["_output_layer.weight"]
+        # checkpoint['best_model_state_dict']["_fcls.0._output_layer.bias"] = checkpoint['best_model_state_dict']["_output_layer.bias"]
+        # del checkpoint['best_model_state_dict']["_hidden_layers.0.weight"]
+        # del checkpoint['best_model_state_dict']["_hidden_layers.0.bias"]
+        # del checkpoint['best_model_state_dict']["_output_layer.weight"]
+        # del checkpoint['best_model_state_dict']["_output_layer.bias"]
+
+
         model.load_state_dict(checkpoint['best_model_state_dict'])
         # model.out_channels = 3
         model.eval()
@@ -78,7 +99,6 @@ def get_trained_layers(trials_config, model_kwargs):
             # all_convs.append(model._convs)
             # all_batch_norms.append(model._batch_norms)
             # all_fcls.append(model._fcls)
-
     model_kwargs["convs"] = all_convs
     model_kwargs["batch_norms"] = all_batch_norms
     model_kwargs["fcls"] = all_fcls
@@ -218,7 +238,6 @@ def objective(trial, train_loader, validation_loader):
                 'valid_loss': avg_vloss,
                 'training_time': time.time() - start_time,
             }, model_path)
-
         # For pruning (stops trial early if not promising)
         trial.report(avg_vloss, epoch)
         # Handle pruning based on the intermediate value.
@@ -255,6 +274,8 @@ def prepare_dataset(study, config, data_dir, serialize_path=None):
 
         if n_train_samples is None:
             n_train_samples = int(len(dataset_for_mean_std) * config["train_samples_ratio"])
+
+        n_train_samples = np.min([n_train_samples, int(len(dataset_for_mean_std) * config["train_samples_ratio"])])
 
         train_val_set = dataset_for_mean_std[:n_train_samples]
         train_set = train_val_set[:-int(n_train_samples * config["val_samples_ratio"])]
@@ -298,6 +319,8 @@ def prepare_dataset(study, config, data_dir, serialize_path=None):
 
     if n_train_samples is None:
         n_train_samples = int(len(dataset) * config["train_samples_ratio"])
+
+    n_train_samples = np.min([n_train_samples, int(len(dataset) * config["train_samples_ratio"])])
 
     train_val_set = dataset[:n_train_samples]
     train_set = train_val_set[:-int(n_train_samples * config["val_samples_ratio"])]

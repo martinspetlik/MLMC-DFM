@@ -1,5 +1,7 @@
 import torch
 import numpy as np
+import torch.nn as nn
+import torch.nn.functional as F
 
 
 def log_data(data):
@@ -97,14 +99,64 @@ def get_mse_nrmse_r2(targets, predictions):
     mse_k = []
     rmse_k = []
     nrmse_k = []
+
     for i in range(targets_arr.shape[1]):
-        squared_err_k.append((targets_arr[:, i, ...] - predictions_arr[:, i, ...]) ** 2)
-        std_tar_k.append(np.std(targets_arr[:, i, ...]))
+        targets = np.squeeze(targets_arr[:, i, ...])
+        predictions = np.squeeze(predictions_arr[:, i, ...])
+        squared_err_k.append((targets - predictions) ** 2)
+        std_tar_k.append(np.std(targets))
         r2_k.append(1 - (np.sum(squared_err_k[i]) /
-                         np.sum((targets_arr[:, i, ...] - np.mean(targets_arr[:, i, ...])) ** 2)))
+                         np.sum((targets - np.mean(targets)) ** 2)))
         mse_k.append(np.mean(squared_err_k[i]))
         rmse_k.append(np.sqrt(mse_k[i]))
         nrmse_k.append(rmse_k[i] / std_tar_k[i])
 
     return mse_k, rmse_k, nrmse_k, r2_k
+
+
+class FrobeniusNorm(nn.Module):
+    def __init__(self):
+        super(FrobeniusNorm, self).__init__()
+
+    def forward(self, y_pred, y_true):
+        k_xx = y_pred[:, 0, ...] - y_true[:, 0, ...]
+        k_xy = y_pred[:, 1, ...] - y_true[:, 1, ...]
+        k_yy = y_pred[:, 2, ...] - y_true[:, 2, ...]
+
+        k_xx = torch.mean(k_xx ** 2)
+        k_xy = torch.mean(k_xy ** 2)
+        k_yy = torch.mean(k_yy ** 2)
+
+        return torch.sqrt(k_xx + 2 * k_xy + k_yy)
+
+class CosineSimilarity(nn.Module):
+    def __init__(self):
+        super(CosineSimilarity, self).__init__()
+    def forward(self, y_pred, y_true):
+        criterion = nn.CosineSimilarity()
+        return 1 - criterion(y_pred, y_true)
+
+class WeightedMSELoss(nn.Module):
+    def __init__(self, weights):
+        super(WeightedMSELoss, self).__init__()
+        self.weights = torch.Tensor(weights)
+
+    def forward(self, y_pred, y_true):
+        mse_loss = F.mse_loss(y_pred, y_true, reduction='none')
+        weighted_mse_loss = torch.mean(self.weights * mse_loss)
+        return weighted_mse_loss
+
+def get_loss_fn(loss_function):
+    loss_fn_name = loss_function[0]
+    loss_fn_params = loss_function[1]
+    if loss_fn_name == "MSE" or loss_fn_name == "L2":
+        return nn.MSELoss()
+    elif loss_fn_name == "L1":
+        return nn.L1Loss()
+    elif loss_fn_name == "Frobenius":
+        return FrobeniusNorm()
+    elif loss_fn_name == "MSEweighted":
+        return WeightedMSELoss(loss_fn_params)
+    # elif loss_fn_name == "CosineSimilarity":
+    #     return CosineSimilarity
 
