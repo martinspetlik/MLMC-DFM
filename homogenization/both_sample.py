@@ -313,11 +313,11 @@ class BulkFieldsGSTools(BulkBase):
             self._create_field(self.mean_log_conductivity, self.cov_log_conductivity)
 
             mesh_data = BulkFieldsGSTools.extract_mesh(mesh)
-            #print("mesh data ", list(mesh_data.keys()))
+            print("mesh data ", list(mesh_data.keys()))
 
             self._fields.set_points(mesh_data['points'], mesh_data['point_region_ids'], mesh_data['region_map'])
 
-            #print("self._field_k_xx ", self._fields)
+            print("self._field_k_xx ", self._fields)
 
             rf_sample = self._fields.sample()
 
@@ -572,7 +572,7 @@ class BulkHomogenization(BulkBase):
         dist_2 = np.sum((self._center_points - center) ** 2, axis=1)
         cond_tn = self._cond_tns[tuple(self._center_points[np.argmin(dist_2)])]
 
-        #print("cond tn ", cond_tn)
+        print("cond tn ", cond_tn)
 
         return 1.0, cond_tn[0].reshape(2, 2)
 
@@ -621,7 +621,8 @@ def tensor_3d_flatten(tn_2d):
     return tn3d.ravel()
 
 
-def write_fields(mesh, basename, bulk_model, fracture_model, elid_to_fr, elids_same_value=None):
+def write_fields(mesh, basename, bulk_model, fracture_model, elid_to_fr, elids_same_value=None,
+                 positions=None, input_tensors=None):
     elem_ids = []
     cond_tn_field = []
     cs_field = []
@@ -644,6 +645,13 @@ def write_fields(mesh, basename, bulk_model, fracture_model, elid_to_fr, elids_s
         else:
             # n_nodes == 3
             cs, cond_tn = bulk_model.element_data(mesh, el_id)
+
+            if input_tensors is not None:
+                indices = positions[el_id]
+                cond_tn = input_tensors[:][indices[0]][indices[1]]
+
+                cond_tn = [[cond_tn[0], cond_tn[1]], [cond_tn[1], cond_tn[2]]]
+                #print("cond_tn ", cond_tn)
 
             #cs = 1.0
             #cond_tn = all_cond_tn[rot[all_ell_ids[el_id]]]
@@ -1031,7 +1039,7 @@ class FlowProblem:
             with open(mesh_file, "r") as f:
                 self.mesh.read(f)
 
-    def make_fields(self, elids_same_value=None):
+    def make_fields(self, elids_same_value=None, positions=None, input_tensors=None):
         """
         Calculate the conductivity and the cross-section fields, write into a GMSH file.
 
@@ -1044,7 +1052,10 @@ class FlowProblem:
                                        bulk_model=self.bulk_model)
         elem_ids, cs_field, cond_tn_field, fracture_cs, fracture_len = write_fields(self.mesh, self.basename,
                                                                                     self.bulk_model, fracture_model,
-                                                                                    self.elid_to_fr, elids_same_value)
+                                                                                    self.elid_to_fr,
+                                                                                    elids_same_value,
+                                                                                    positions,
+                                                                                    input_tensors)
 
         self._elem_ids = elem_ids
         self._cond_tn_field = cond_tn_field
@@ -1717,46 +1728,46 @@ def compute_semivariance(cond_field_xy, scalar_cond_log, dir):
 
     i = 0
     for xy_i, cond_i in zip(cond_field_xy, scalar_cond_log):
-        print("xy: {}, cond:{} ".format(xy_i[0], cond_i))
+        #print("xy: {}, cond:{} ".format(xy_i[0], cond_i))
         i+= 1
 
         for xy_j, cond_j in zip(cond_field_xy[i:], scalar_cond_log[i:]):
             #if xy_i[0][0] >= xy_j[0][0] and xy_i[0][1] >= xy_j[0][1]:
             dist = distance.euclidean(xy_i[0], xy_j[0])
             if dist < 800:
-                print("dist: {}, xy_i: {} xy_j: {}, cond_i:{} cond_j:{} ".format(dist, xy_i[0], xy_j[0], cond_i, cond_j))
+                #print("dist: {}, xy_i: {} xy_j: {}, cond_i:{} cond_j:{} ".format(dist, xy_i[0], xy_j[0], cond_i, cond_j))
                 semivariance.setdefault(int(dist), []).append([cond_i, cond_j])
 
 
     #exit()
 
 
-    #print("semivariance.keays() " ,semivariance.keys())
+    ##print("semivariance.keays() " ,semivariance.keys())
 
-    print(list(semivariance.keys()))
+    #print(list(semivariance.keys()))
     distances = list(semivariance.keys())
     distances = [np.min(list(semivariance.keys()))]
 
     dst = list(semivariance.keys())
     dst.sort()
     for key in dst:
-        print("semivariance[100] ", semivariance[key])
+        #print("semivariance[100] ", semivariance[key])
     
         #data = semivariance[100][:int(len(semivariance[100]) / 2)]
         data = semivariance[key]
 
         data_array = np.array(data)
-        print("data_array.shape", data_array.shape)
+        #print("data_array.shape", data_array.shape)
         x_values = data_array[:, 0]
         y_values = data_array[:, 1]
 
         # x_values = np.expand_dims(x_values, axis=1)
         # y_values = np.expand_dims(y_values, axis=1)
 
-        # print("x_values ", x_values)
-        # print("y_values ", y_values)
+        # #print("x_values ", x_values)
+        # #print("y_values ", y_values)
         #
-        # print("len(x_values)", len(x_values))
+        # #print("len(x_values)", len(x_values))
         #exit()
 
 
@@ -1783,7 +1794,7 @@ def compute_semivariance(cond_field_xy, scalar_cond_log, dir):
         ax.scatter(x_values, y_values)
         plt.show()
 
-        print("key: {}, pearsonr: {}".format(key, pearsonr(x_values, y_values)))
+        #print("key: {}, pearsonr: {}".format(key, pearsonr(x_values, y_values)))
 
         # corr_matrix = df.corr("kendall")
         # sn.heatmap(corr_matrix, annot=True)
@@ -1802,7 +1813,7 @@ def compute_variogram(cond_field_xy, scalar_cond_log, maxlag=800, dir=None):
     import itertools
     import skgstat as skg
 
-    print("compute variogram dir ", dir)
+    #print("compute variogram dir ", dir)
 
     compute_semivariance(cond_field_xy, scalar_cond_log, dir)
 
@@ -1819,13 +1830,13 @@ def compute_variogram(cond_field_xy, scalar_cond_log, maxlag=800, dir=None):
     cond_field_xy_arr = np.squeeze(np.array(cond_field_xy))
     scalar_cond_log_arr = np.squeeze(np.array(scalar_cond_log))
 
-    print(cond_field_xy_arr.shape)
-    print("cond field xy arr ", cond_field_xy_arr)
+    #print(cond_field_xy_arr.shape)
+    #print("cond field xy arr ", cond_field_xy_arr)
 
-    print(scalar_cond_log_arr.shape)
-    print("scalar cond log arr", scalar_cond_log_arr)
+    #print(scalar_cond_log_arr.shape)
+    #print("scalar cond log arr", scalar_cond_log_arr)
 
-    #print("cond_field_values_arr[:,0] ", cond_field_values_arr[:, 0,0].shape)
+    ##print("cond_field_values_arr[:,0] ", cond_field_values_arr[:, 0,0].shape)
 
     #V1 = skg.Variogram(cond_field_xy_arr, scalar_cond_log_arr, use_nugget = True, n_lags=100)
     #V1 = skg.Variogram(cond_field_xy_arr, scalar_cond_log_arr, n_lags=50, maxlag=0.8)
@@ -1833,23 +1844,23 @@ def compute_variogram(cond_field_xy, scalar_cond_log, maxlag=800, dir=None):
     fig2, ax2 = plt.subplots(1, 1, figsize=(8, 6))
     V1 = skg.Variogram(cond_field_xy_arr, scalar_cond_log_arr, maxlag=maxlag, bin_func=bin_func)
 
-    print("V1.values ", V1.values)
-    #print("V1.value_matrix ", V1.value_matrix())
+    #print("V1.values ", V1.values)
+    ##print("V1.value_matrix ", V1.value_matrix())
 
 
     V1.distance_difference_plot()
 
-    print("V1.distance ", V1.distance)
-    print("len(V1.distance)", len(V1.distance))
-    print("V1.values ", len(V1.values))
+    #print("V1.distance ", V1.distance)
+    #print("len(V1.distance)", len(V1.distance))
+    #print("V1.values ", len(V1.values))
 
-    print("V1 bins ", V1._bins)
-    print("V1 cov ", V1.cov)
-    print("V1 cof ", V1.cof)
+    #print("V1 bins ", V1._bins)
+    #print("V1 cov ", V1.cov)
+    #print("V1 cof ", V1.cof)
 
     #v1_figure = V1.plot(axes=ax, hist=True)
-    # print("v1 figure ", v1_figure)
-    # print("v1 type ", type(v1_figure))
+    # #print("v1 figure ", v1_figure)
+    # #print("v1 type ", type(v1_figure))
 
     # v1_axes = v1_figure.get_axes()
     #
@@ -1994,8 +2005,8 @@ def results_for_seed(seed):
             # if i not in [2]:
             #     continue
             dir_name = os.path.join(os.path.join(dir, "fine_{}".format(i)))
-            print("cwd ", os.getcwd())
-            print("dir name ", dir_name)
+            #print("cwd ", os.getcwd())
+            #print("dir name ", dir_name)
 
             if os.path.exists(dir_name):
                 print("dir exists ")
@@ -2145,10 +2156,10 @@ def process_mult_samples(sample_dict, work_dir=None):
                 if np.min(e_val) <= 0:
                     e_val = [FlowProblem.line_fit(np.array(summary_dict["fine"]["flux"]))]
 
-                #print("eval ", np.squeeze(e_val))
+                print("eval ", np.squeeze(e_val))
 
                 all_eigen_values.extend(list(np.squeeze(e_val)))
-                #print("all eigen values ", all_eigen_values)
+                print("all eigen values ", all_eigen_values)
 
                 # cond_field_xy.append(np.array(summary_dict['fine']['pos']))
 
@@ -2184,7 +2195,7 @@ def process_mult_samples(sample_dict, work_dir=None):
                 #if fr_rho_area == False:
                     # print("calculated rho ", rho)
                 fracture_area_ratio = fracture_area / area
-                #print("fracture are ratio ", fracture_area_ratio)
+                print("fracture are ratio ", fracture_area_ratio)
 
                 fr_rho_area = True
                 #fracture_area_ratio = 1

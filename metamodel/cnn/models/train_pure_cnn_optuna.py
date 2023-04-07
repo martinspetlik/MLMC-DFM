@@ -21,7 +21,7 @@ from metamodel.cnn.models.trials.net_optuna_2 import Net
 from metamodel.cnn.datasets.dfm_dataset import DFMDataset
 from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
-from metamodel.cnn.models.auxiliary_functions import get_mean_std, log_data
+from metamodel.cnn.models.auxiliary_functions import get_mean_std, log_data, exp_data
 #from metamodel.cnn.visualization.visualize_data import plot_samples
 
 
@@ -146,6 +146,58 @@ def train_one_epoch(model, optimizer, train_loader, config, loss_fn=nn.MSELoss()
     train_loss = running_loss / (i + 1)
     return train_loss
 
+def save_output_dataset(model, data_loader, study, output_data_dir, sample_id=0, use_cuda=False):
+
+    inverse_transform = None
+    if "normalize_output" in study.user_attrs and study.user_attrs["normalize_output"]:
+        std = 1/study.user_attrs["output_std"]
+        zeros_mean = np.zeros(len(study.user_attrs["output_mean"]))
+
+        print("output_mean ", study.user_attrs["output_mean"])
+        print("output_std ",  study.user_attrs["output_std"])
+
+        ones_std = np.ones(len(zeros_mean))
+        mean = -study.user_attrs["output_mean"]
+
+        transforms_list = [transforms.Normalize(mean=zeros_mean, std=std),
+                            transforms.Normalize(mean=mean, std=ones_std)]
+
+        if "output_log" in study.user_attrs and study.user_attrs["output_log"]:
+            transforms_list.append(transforms.Lambda(exp_data))
+
+        inverse_transform = transforms.Compose(transforms_list)
+
+    with torch.no_grad():
+        for i, data in enumerate(data_loader):
+            inputs, targets = data
+
+            if torch.cuda.is_available() and use_cuda:
+                inputs = inputs.cuda()
+                targets = targets.cuda()
+
+            inputs = inputs.float()
+            #vtargets = vtargets.float()
+            outputs = torch.squeeze(model(inputs, output_data_dir))
+
+            if os.path.exists(output_data_dir):
+                for sample in outputs:
+                    #print("sample ", sample)
+                    for i in range(3):
+                        for j in range(3):
+                            d = sample[:][i][j]
+                            #print("inverse_transform(torch.reshape(d, (*d.shape, 1, 1))) ", inverse_transform(torch.reshape(d, (*d.shape, 1, 1))))
+                            sample[:][i][j] = np.reshape(inverse_transform(torch.reshape(d, (*d.shape, 1, 1))), d.shape)
+
+                    sample_dir = os.path.join(output_data_dir, "sample_{}".format(sample_id))
+                    if not os.path.exists(sample_dir):
+                        os.mkdir(sample_dir)
+                    np.save(os.path.join(sample_dir, "input_tensor"), sample)
+
+                    sample_id += 1
+            else:
+                os.mkdir(output_data_dir)
+    return sample_id
+
 
 def validate(model, validation_loader, loss_fn=nn.MSELoss(), use_cuda=False):
     """
@@ -167,8 +219,8 @@ def validate(model, validation_loader, loss_fn=nn.MSELoss(), use_cuda=False):
             vtargets = vtargets.float()
 
             voutputs = torch.squeeze(model(vinputs))
-            #print("voutputs.shape ", voutputs.shape)
-            #print("vtargets.shape ", vtargets.shape)
+            # print("voutputs.shape ", voutputs.shape)
+            # print("vtargets.shape ", vtargets.shape)
             vloss = loss_fn(voutputs, vtargets)
             running_vloss += vloss.item()
 
@@ -316,6 +368,7 @@ def prepare_dataset(study, config, data_dir, serialize_path=None):
                          output_channels=config["output_channels"] if "output_channels" in config else None
                          )
     dataset.shuffle(config["seed"])
+    print("len dataset ", len(dataset))
 
     if n_train_samples is None:
         n_train_samples = int(len(dataset) * config["train_samples_ratio"])

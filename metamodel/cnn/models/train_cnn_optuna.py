@@ -26,15 +26,12 @@ from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
 from metamodel.cnn.models.auxiliary_functions import get_mean_std, log_data, check_shapes, get_loss_fn
 from metamodel.cnn.models.train_pure_cnn_optuna import train_one_epoch, prepare_dataset, validate, load_trials_config,\
-    get_trained_layers
+    get_trained_layers, save_output_dataset
 #from metamodel.cnn.visualization.visualize_data import plot_samples
 
 
 def objective(trial, trials_config, train_loader, validation_loader):
     best_vloss = 1_000_000.
-
-
-
 
     max_channel = trial.suggest_categorical("max_channel", trials_config["max_channel"])
     n_conv_layers = trial.suggest_categorical("n_conv_layers", trials_config["n_conv_layers"])
@@ -160,6 +157,8 @@ def objective(trial, trials_config, train_loader, validation_loader):
     n_pretrained_layers = 0
     if "trained_layers_dir" in trials_config:
         model_kwargs, n_pretrained_layers = get_trained_layers(trials_config, model_kwargs)
+        if "save_output_image" in trials_config:
+            model_kwargs["save_output_image"] = trials_config["save_output_image"]
 
     model = model_class(**model_kwargs).to(device)
 
@@ -219,9 +218,17 @@ def objective(trial, trials_config, train_loader, validation_loader):
                 scheduler = lr_scheduler.StepLR(optimizer, step_size=trials_config["scheduler"]["step_size"],
                                             gamma=trials_config["scheduler"]["gamma"])
 
+    if "save_output_image" in trials_config and trials_config["save_output_image"]:
+        model.train(False)
+        sample_id = 0
+        output_data_dir = "/home/martin/Documents/MLMC-DFM_data/layer_outputs/3_3_from_9_9"
+        sample_id = save_output_dataset(model, train_loader, study, output_data_dir=output_data_dir, sample_id=sample_id)
+        sample_id = save_output_dataset(model, validation_loader, study, output_data_dir=output_data_dir, sample_id=sample_id)
+        save_output_dataset(model, test_loader, study, output_data_dir=output_data_dir,sample_id=sample_id)
+        exit()
+
     for epoch in range(config["num_epochs"]):
         try:
-
             if train:
                 model.train(True)
                 avg_loss = train_one_epoch(model, optimizer, train_loader, config, loss_fn=loss_fn, use_cuda=use_cuda)  # Train the model
