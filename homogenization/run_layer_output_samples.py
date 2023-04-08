@@ -24,6 +24,7 @@ def calculate_sample(s_dir):
         sim_config = yaml.load(f, Loader=yaml.FullLoader)
         #print("sim_config_dict ", sim_config_dict)
 
+    sim_config["work_dir"] = s_dir
     config["sim_config"] = sim_config
     config["sim_config"]["geometry"]["n_subdomains"] = 1
 
