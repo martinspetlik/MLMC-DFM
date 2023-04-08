@@ -13,13 +13,13 @@ from homogenization.sim_sample import DFMSim
 from homogenization.both_sample import FlowProblem, BothSample
 
 
-def calculate_sample(s_dir):
+def calculate_sample(s_dir, work_dir):
     config = {'fine': {'step': 4.325, 'common_files_dir': '/home/martin/Documents/MLMC-DFM/test/01_cond_field/l_step_4.325_common_files'},
             'coarse': {'step': 10.0, 'common_files_dir': '/home/martin/Documents/MLMC-DFM/test/01_cond_field/l_step_10.0_common_files'},
               'gmsh': '/home/martin/gmsh/bin/gmsh', 'flow123d': ['flow123d/flow123d-gnu:3.1.0', 'flow123d'],
               'fields_params': {'model': 'exp', 'corr_length': 0.1, 'sigma': 1, 'mode_no': 10000}}
 
-    work_dir = "/home/martin/Documents/MLMC-DFM/test/01_cond_field/"
+    #work_dir = "/home/martin/Documents/MLMC-DFM/test/01_cond_field/"
     with open(os.path.join(work_dir, "sim_config.yaml"), "r") as f:
         sim_config = yaml.load(f, Loader=yaml.FullLoader)
         #print("sim_config_dict ", sim_config_dict)
@@ -111,13 +111,22 @@ def calculate_sample(s_dir):
     fine_res, status = DFMSim._run_sample(fine_flow, config)
     cond_tensors = DFMSim.homogenization(copy.deepcopy(config))
     DFMSim._save_tensors(cond_tensors)
+    exit()
 
 
 if __name__ == "__main__":
-    data_dir = "/home/martin/Documents/MLMC-DFM_data/layer_outputs/3_3_from_9_9"
+    import sys
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('work_dir', help='Work directory')
+    parser.add_argument('data_dir', help='Data directory')
+
+    args = parser.parse_args(sys.argv[1:])
+    data_dir = args.data_dir #"/home/martin/Documents/MLMC-DFM_data/layer_outputs/3_3_from_9_9"
     for s_dir in os.listdir(data_dir):
         try:
             l = re.findall(r'sample_[0-9]*', s_dir)[0]
         except IndexError:
             continue
-        calculate_sample(os.path.join(data_dir, s_dir))
+        calculate_sample(os.path.join(data_dir, s_dir), work_dir=args.work_dir)
