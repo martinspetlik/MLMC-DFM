@@ -325,9 +325,7 @@ if __name__ == '__main__':
     torch.manual_seed(random_seed)
     output_dir = os.path.join(output_dir, "seed_{}".format(random_seed))
     if os.path.exists(output_dir) and not args.append:
-        shutil.rmtree(output_dir)
-        #@TODO: remove ASAP
-        #raise IsADirectoryError("Results output dir {} already exists".format(output_dir))
+        raise IsADirectoryError("Results output dir {} already exists".format(output_dir))
     if not args.append:
         os.mkdir(output_dir)
     elif not os.path.exists(output_dir):
