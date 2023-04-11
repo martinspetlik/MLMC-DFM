@@ -38,6 +38,7 @@ def create_output(sample_dir, symmetrize=True):
 
     up_tr = cond_tn[np.triu_indices(3)]
     np.save(os.path.join(sample_dir, "output_tensor"), up_tr)
+    return cond_tn
     # np.savez_compressed(os.path.join(sample_dir, "output_tensor_compressed"), data=cond_tn.ravel)
 
 
@@ -97,8 +98,10 @@ def create_input(sample_dir, n_pixels_x=256, feature_names=[['conductivity_tenso
             bulk_data_array[k] = np.flip(trimesh, axis=0)
             fractures_data_array[k] = np.flip(cvs_lines, axis=0)
 
-        np.savez_compressed(os.path.join(sample_dir, "bulk_{}".format(n_pixels_x)), data=bulk_data_array)
-        np.savez_compressed(os.path.join(sample_dir, "fractures_{}".format(n_pixels_x)), data=fractures_data_array)
+        np.savez_compressed(os.path.join(sample_dir, "bulk"), data=bulk_data_array)
+        np.savez_compressed(os.path.join(sample_dir, "fractures"), data=fractures_data_array)
+
+        return bulk_data_array, fractures_data_array
 
 
 def join_fields(fields, f_names):
@@ -199,22 +202,27 @@ def extract_mesh_gmsh_io(mesh_file, get_points=False, image=False):
 if __name__ == "__main__":
     #data_dir = "/home/martin/Documents/MLMC-DFM/test/01_cond_field/homogenization_samples_no_fractures"
     #data_dir = "/home/martin/Documents/MLMC-DFM/test/01_cond_field/nn_data/homogenization_samples_dfm"
-    data_dir = "/home/martin/Documents/MLMC-DFM/test/01_cond_field/nn_data/homogenization_samples_no_fractures"
-    #data_dir = "/home/martin/Documents/MLMC-DFM/test/01_cond_field/nn_data/homogenization_samples_6_5_8_c_2"
+    #data_dir = "/home/martin/Documents/MLMC-DFM/test/01_cond_field/nn_data/homogenization_samples_no_fractures"
+    #data_dir = "/home/martin/Documents/MLMC-DFM/test/nn_data/homogenization_samples_6_5_8_c_2"
+    #data_dir = "/home/martin/Documents/MLMC-DFM/test/nn_data/charon_samples_no_fractures/test_data"
+    #data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/homogenization_samples_charon/"
+    #data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/homogenization_samples_3_3_charon/"
+    data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/homogenization_samples_5LMC_L4/"
 
     start_time = time.time()
+
+    n_pixels_x = 256
 
     i = 0
     while True:
         sample_dir = os.path.join(data_dir, "sample_{}".format(i))
-        print("sample dir ", sample_dir)
         if os.path.exists(sample_dir):
             if not os.path.exists(os.path.join(sample_dir, MESH_FILE)) \
                     or not os.path.exists(os.path.join(sample_dir, SUMMARY_FILE)):
                 i += 1
                 continue
 
-            create_input(sample_dir, n_pixels_x=256)
+            create_input(sample_dir, n_pixels_x=n_pixels_x)
             create_output(sample_dir, symmetrize=True)
             i += 1
 
