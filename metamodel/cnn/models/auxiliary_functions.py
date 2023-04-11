@@ -123,11 +123,26 @@ class FrobeniusNorm(nn.Module):
         k_xy = y_pred[:, 1, ...] - y_true[:, 1, ...]
         k_yy = y_pred[:, 2, ...] - y_true[:, 2, ...]
 
+        #k_xx = torch.mean(k_xx ** 2)
+        #k_xy = torch.mean(k_xy ** 2)
+        #k_yy = torch.mean(k_yy ** 2)
+
+        return torch.mean(torch.sqrt(k_xx**2 + 2 * k_xy**2 + k_yy**2))
+
+class FrobeniusNorm2(nn.Module):
+    def __init__(self):
+        super(FrobeniusNorm2, self).__init__()
+
+    def forward(self, y_pred, y_true):
+        k_xx = y_pred[:, 0, ...] - y_true[:, 0, ...]
+        k_xy = y_pred[:, 1, ...] - y_true[:, 1, ...]
+        k_yy = y_pred[:, 2, ...] - y_true[:, 2, ...]
+
         k_xx = torch.mean(k_xx ** 2)
         k_xy = torch.mean(k_xy ** 2)
         k_yy = torch.mean(k_yy ** 2)
 
-        return torch.sqrt(k_xx + 2 * k_xy + k_yy)
+        return torch.sqrt(k_xx**2 + 2 * k_xy**2 + k_yy**2)
 
 class CosineSimilarity(nn.Module):
     def __init__(self):
@@ -140,6 +155,8 @@ class WeightedMSELoss(nn.Module):
     def __init__(self, weights):
         super(WeightedMSELoss, self).__init__()
         self.weights = torch.Tensor(weights)
+        if torch.cuda.is_available():
+            self.weights = self.weights.cuda()
 
     def forward(self, y_pred, y_true):
         mse_loss = F.mse_loss(y_pred, y_true, reduction='none')
@@ -155,6 +172,8 @@ def get_loss_fn(loss_function):
         return nn.L1Loss()
     elif loss_fn_name == "Frobenius":
         return FrobeniusNorm()
+    elif loss_fn_name == "Frobenius2":
+        return FrobeniusNorm2()
     elif loss_fn_name == "MSEweighted":
         return WeightedMSELoss(loss_fn_params)
     # elif loss_fn_name == "CosineSimilarity":
