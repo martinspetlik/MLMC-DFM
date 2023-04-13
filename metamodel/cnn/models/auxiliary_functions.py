@@ -45,10 +45,10 @@ def get_mean_std(data_loader):
             output_channels_sum = list(np.zeros(output.shape[1]))
             output_channels_sqrd_sum = list(np.zeros(output.shape[1]))
 
-        channels_sum += (torch.mean(input, dim=[0, 2, 3])).numpy()
-        channels_sqrd_sum += (torch.mean(input ** 2, dim=[0, 2, 3])).numpy()
-        output_channels_sum += (torch.mean(output, dim=[0])).numpy()
-        output_channels_sqrd_sum += (torch.mean(output ** 2, dim=[0])).numpy()
+        channels_sum += (torch.nanmean(input, dim=[0, 2, 3])).numpy()
+        channels_sqrd_sum += (torch.nanmean(input ** 2, dim=[0, 2, 3])).numpy()
+        output_channels_sum += (torch.nanmean(output, dim=[0])).numpy()
+        output_channels_sqrd_sum += (torch.nanmean(output ** 2, dim=[0])).numpy()
         num_batches += 1
 
     mean = channels_sum / num_batches
