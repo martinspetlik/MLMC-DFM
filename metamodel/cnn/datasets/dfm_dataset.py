@@ -122,4 +122,17 @@ class DFMDataset(Dataset):
             reshaped_output = torch.reshape(output_features, (*output_features.shape, 1, 1))
             output_features = np.squeeze(self.output_transform(reshaped_output))
 
+        DFMDataset._check_nans(final_features, str_err="Input features contains NaN values, {}".format(bulk_path))
+        DFMDataset._check_nans(output_features, str_err="Output features contains NaN values, {}".format(output_path))
+
         return final_features, output_features
+
+    @staticmethod
+    def _check_nans(final_features, str_err="Data contains NaN values"):
+        has_nan = torch.any(torch.isnan(final_features))
+
+        if has_nan:
+            raise ValueError(str_err)
+
+
+
