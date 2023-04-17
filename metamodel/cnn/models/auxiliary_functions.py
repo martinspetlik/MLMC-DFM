@@ -160,8 +160,54 @@ class WeightedMSELoss(nn.Module):
 
     def forward(self, y_pred, y_true):
         mse_loss = F.mse_loss(y_pred, y_true, reduction='none')
+        if str(mse_loss.device) == "cpu":
+            self.weights = self.weights.cpu()
         weighted_mse_loss = torch.mean(self.weights * mse_loss)
         return weighted_mse_loss
+
+class WeightedMSELossSum(nn.Module):
+    def __init__(self, weights):
+        super(WeightedMSELossSum, self).__init__()
+        self.weights = torch.Tensor(weights)
+        if torch.cuda.is_available():
+            self.weights = self.weights.cuda()
+
+    def forward(self, y_pred, y_true):
+        mse_loss = F.mse_loss(y_pred, y_true, reduction='none')
+        if str(mse_loss.device) == "cpu":
+            self.weights = self.weights.cpu()
+
+        mse_loss_sum = torch.sum(self.weights * mse_loss, dim=1)
+        weighted_mse_loss = torch.mean(mse_loss_sum)
+        return weighted_mse_loss
+
+
+class WeightedL1Loss(nn.Module):
+    def __init__(self, weights):
+        super(WeightedL1Loss, self).__init__()
+        self.weights = torch.Tensor(weights)
+        if torch.cuda.is_available():
+            self.weights = self.weights.cuda()
+
+    def forward(self, y_pred, y_true):
+        abs_values = torch.abs(y_pred - y_true)
+        abs_values = self.weights * abs_values
+        mean_abs_values = torch.mean(abs_values, dim=1)
+        return torch.mean(mean_abs_values)
+
+class WeightedL1LossSum(nn.Module):
+    def __init__(self, weights):
+        super(WeightedL1LossSum, self).__init__()
+        self.weights = torch.Tensor(weights)
+        if torch.cuda.is_available():
+            self.weights = self.weights.cuda()
+
+    def forward(self, y_pred, y_true):
+        abs_values = torch.abs(y_pred - y_true)
+        abs_values = self.weights * abs_values
+        sum_abs_values = torch.sum(abs_values, dim=1)
+        return torch.mean(sum_abs_values)
+
 
 def get_loss_fn(loss_function):
     loss_fn_name = loss_function[0]
@@ -170,12 +216,18 @@ def get_loss_fn(loss_function):
         return nn.MSELoss()
     elif loss_fn_name == "L1":
         return nn.L1Loss()
+    elif loss_fn_name == "L1WeightedMean":
+        return WeightedL1Loss(loss_fn_params)
+    elif loss_fn_name == "L1WeightedSum":
+        return WeightedL1LossSum(loss_fn_params)
     elif loss_fn_name == "Frobenius":
         return FrobeniusNorm()
     elif loss_fn_name == "Frobenius2":
         return FrobeniusNorm2()
     elif loss_fn_name == "MSEweighted":
         return WeightedMSELoss(loss_fn_params)
+    elif loss_fn_name == "MSEweightedSum":
+        return WeightedMSELossSum(loss_fn_params)
     # elif loss_fn_name == "CosineSimilarity":
     #     return CosineSimilarity
 
