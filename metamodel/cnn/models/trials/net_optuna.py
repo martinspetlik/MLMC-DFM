@@ -114,7 +114,13 @@ class Net(nn.Module):
 
 
     def forward(self, x):
+        verbose= False
+
         for i, conv_i in enumerate(self._convs):  # For each convolutional layer
+            if verbose:
+                print("x.shape " ,x.shape)
+                print("conv_i.weights ", np.prod(conv_i.weight.shape))
+                print("conv_i.bias ", conv_i.bias.shape)
             if self._pool == "max":
                 pool = F.max_pool2d
             elif self._pool == "avg":
@@ -142,14 +148,23 @@ class Net(nn.Module):
                         x = F.relu(pool(conv_i(x), kernel_size=self._pool_size, stride=self._pool_stride))
                 else:
                     x = F.relu(conv_i(x))
-
+        if verbose:
+            print("ccn output shape ", x.shape)
         x = torch.flatten(x, 1)
+
+        if verbose:
+            print("x flatten shape ", x.shape)
 
         for i, hidden_i in enumerate(self._hidden_layers):
             x = self._hidden_activation(hidden_i(x))
-            if self._use_fc_dropout and i in self._fc_dropout_indices:
-                print("fc droppout ", self._fc_dropout_indices['{}'.format(i)])
-                x = self._fc_dropout_indices['{}'.format(i)](x)
+            if self._use_fc_dropout and '{}'.format(i) in self._fc_dropouts:
+                #print("fc droppout ", self._fc_dropouts['{}'.format(i)])
+                x = self._fc_dropouts['{}'.format(i)](x)
+
+            if verbose:
+                print("hidden shape ", x.shape)
+                print("hidden_i.weights ", np.prod(hidden_i.weight.shape))
+                print("hidden_i.bias ", hidden_i.bias.shape)
 
         x = self._output_layer(x)
         return x
