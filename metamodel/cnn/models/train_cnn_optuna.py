@@ -180,6 +180,7 @@ def objective(trial, trials_config, train_loader, validation_loader):
     optimizer_kwargs = {"lr": lr, "weight_decay": L2_penalty}
     non_frozen_parameters = [p for p in model.parameters() if p.requires_grad]
     optimizer = None
+    #print("non frozen parameters ", non_frozen_parameters)
     if len(non_frozen_parameters) > 0:
         optimizer = getattr(optim, optimizer_name)(params=non_frozen_parameters, **optimizer_kwargs)
 
@@ -209,14 +210,15 @@ def objective(trial, trials_config, train_loader, validation_loader):
     train = trials_config["train"] if "train" in trials_config else True
 
     if "scheduler" in trials_config and optimizer is not None:
-        if "class" in trials_config["scheduler"]:
-            if trials_config["scheduler"]["class"] == "ReduceLROnPlateau":
+        trial_scheduler = trial.suggest_categorical("scheduler", trials_config["scheduler"])
+        if "class" in trial_scheduler:
+            if trial_scheduler["class"] == "ReduceLROnPlateau":
                 scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, mode="min",
-                                                           patience=trials_config["scheduler"]["patience"],
-                                                           factor=trials_config["scheduler"]["factor"])
+                                                           patience=trial_scheduler["patience"],
+                                                           factor=trial_scheduler["factor"])
             else:
-                scheduler = lr_scheduler.StepLR(optimizer, step_size=trials_config["scheduler"]["step_size"],
-                                            gamma=trials_config["scheduler"]["gamma"])
+                scheduler = lr_scheduler.StepLR(optimizer, step_size=trial_scheduler["step_size"],
+                                            gamma=trial_scheduler["gamma"])
 
     if "save_output_image" in trials_config and trials_config["save_output_image"]:
         model.train(False)
@@ -226,6 +228,9 @@ def objective(trial, trials_config, train_loader, validation_loader):
         sample_id = save_output_dataset(model, validation_loader, study, output_data_dir=output_data_dir, sample_id=sample_id)
         save_output_dataset(model, test_loader, study, output_data_dir=output_data_dir,sample_id=sample_id)
         exit()
+
+    # input_mean, input_std, output_mean, output_std = get_mean_std(validation_loader)
+    # print("Validation loader, input mean: {}, std: {}".format(input_mean, input_std))
 
     for epoch in range(config["num_epochs"]):
         try:
@@ -297,7 +302,7 @@ if __name__ == '__main__':
 
     config = {"num_epochs": trials_config["num_epochs"],
               "batch_size_train": trials_config["batch_size_train"],
-              "batch_size_test": 250,
+              "batch_size_test": trials_config["batch_size_test"] if "batch_size_test" in trials_config else 250,
               "n_train_samples": trials_config["n_train_samples"] if "n_train_samples" in trials_config else None,
               "n_test_samples": trials_config["n_test_samples"] if "n_test_samples" in trials_config else None,
               "train_samples_ratio": trials_config["train_samples_ratio"] if "train_samples_ratio" in trials_config else 0.8,
@@ -325,6 +330,7 @@ if __name__ == '__main__':
     torch.manual_seed(random_seed)
     output_dir = os.path.join(output_dir, "seed_{}".format(random_seed))
     if os.path.exists(output_dir) and not args.append:
+        #shutil.rmtree(output_dir)
         raise IsADirectoryError("Results output dir {} already exists".format(output_dir))
     if not args.append:
         os.mkdir(output_dir)
