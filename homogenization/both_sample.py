@@ -188,13 +188,11 @@ class BulkFields(BulkBase):
         else:
             log_eigenvals = np.random.multivariate_normal(
                 mean=self.mean_log_conductivity,
-                cov=self.cov_log_conductivity,
-                )
+                cov=self.cov_log_conductivity)
 
-        #print("log_eigenvals ", log_eigenvals)
         unrotated_tn = np.diag(np.power(10, log_eigenvals))
-
-        #print("unrotated_tn ", unrotated_tn)
+        # print("unrotated_tn ", unrotated_tn)
+        # exit()
 
         # rotation angle
         if self.angle_concentration is None or self.angle_concentration == 0:
@@ -235,36 +233,41 @@ class BulkFieldsGSTools(BulkBase):
     cov_log_conductivity: Optional[List[List[float]]]
     angle_mean: float = attr.ib(converter=float)
     angle_concentration: float = attr.ib(converter=float)
-
-    # dim: int = attr.ib(converter=int)
-    # sigma: float = attr.ib(converter=float)
-    # corr_length: float = attr.ib(converter=float)
-    # model_name: str = "exp"
-    # log: bool = True
+    corr_lengths_x: Optional[List[float]]  # [15, 0, 0]
+    corr_lengths_y: Optional[List[float]]  # = [3, 0, 0]
+    anis_angles: Optional[List[float]]  # = [0, 0, 0]
     mode_no: int = 10000
-    corr_lengths_x = [0, 0, 20]
-    corr_lengths_y = [0, 0, 3]
-    anis_angles = [0, 0, np.pi/4]
-    model_k_xx = None
-    model_k_yy = None
-    model_angle = None
     angle_var = 1
-    #angle_mean = 0
-    log = True
+    _rf_sample = None
+    _mesh_data= None
+    log = False
 
     def _pca(self, mean_k_xx_yy, cov_matrix_k_xx_yy):
-        n_samples = 5000
+        n_samples = 10000
         samples = np.random.multivariate_normal(mean=mean_k_xx_yy, cov=cov_matrix_k_xx_yy, size=n_samples)
 
+        # sample_means = [np.mean(samples[:, 0]), np.mean(samples[:, 1])]
+        # sample_vars = [np.var(samples[:, 0]), np.var(samples[:, 1])]
+        # print("sample means: {} vars: {}".format(sample_means, sample_vars))
+
+        covariance_matrix = np.cov(samples.T)
+        #print("covariance matrix ", covariance_matrix)
+        eigen_values, eigen_vectors = np.linalg.eig(covariance_matrix)
+        self._projection_matrix = (eigen_vectors.T[:][:]).T
+
         eigen_values, eigen_vectors = np.linalg.eig(cov_matrix_k_xx_yy)
-        projection_matrix = (eigen_vectors.T[:][:]).T
-        p_components = samples.dot(projection_matrix)
+        self._projection_matrix = (eigen_vectors.T[:][:]).T
+        p_components = samples.dot(self._projection_matrix)
+
+        #print("p components shape ", p_components.shape)
 
         pc_means = [np.mean(p_components[:, 0]), np.mean(p_components[:, 1])]
         pc_vars = [np.var(p_components[:, 0]), np.var(p_components[:, 1])]
+        #print("pc means: {} vars: {}".format(pc_means, pc_vars))
 
-        print("pc means: {} vars: {}".format(pc_means, pc_vars))
-
+        ##########
+        ## K_xx ##
+        ##########
         if self.corr_lengths_x[0] == 0:
             len_scale = 1e-15
         else:
@@ -272,6 +275,9 @@ class BulkFieldsGSTools(BulkBase):
 
         self._model_k_xx = gstools.Exponential(dim=2, var=pc_vars[0], len_scale=len_scale, angles=self.anis_angles[0])
 
+        ##########
+        ## K_yy ##
+        ##########
         if self.corr_lengths_x[1] == 0:
             len_scale = 1e-15
         else:
@@ -279,92 +285,173 @@ class BulkFieldsGSTools(BulkBase):
 
         self._model_k_yy = gstools.Exponential(dim=2, var=pc_vars[1], len_scale=len_scale, angles=self.anis_angles[1])
 
+
+        ###########
+        ## Angle ##
+        ###########
         if self.corr_lengths_x[2] == 0:
             len_scale = 1e-15
         else:
             len_scale = [self.corr_lengths_x[2], self.corr_lengths_y[2]]
 
-        self._model_angle = gstools.Exponential(dim=2, var=self.angle_var, len_scale=len_scale, angles=self.anis_angles[2])
+        #model_angle = gstools.Gaussian(dim=2, var=self.angle_var, len_scale=len_scale, angles=self.anis_angles[2])
+        self._model_angle_x = gstools.Exponential(dim=2, var=self.angle_var, len_scale=len_scale, angles=self.anis_angles[2])
+        self._model_angle_y = gstools.Exponential(dim=2, var=self.angle_var, len_scale=len_scale, angles=self.anis_angles[2])
 
         # print("self._model_k_xx ", self._model_k_xx)
         # print("self._model_k_yy ", self._model_k_yy)
         # print("self._model_angle ", self._model_angle)
+
+        self._pc_means = pc_means
 
     def _create_field(self, mean_log_conductivity, cov_log_conductivity):
         from mlmc.random import correlated_field as cf
         self._pca(mean_log_conductivity, cov_log_conductivity)
 
         field_k_xx = cf.Field('k_xx', cf.GSToolsSpatialCorrelatedField(self._model_k_xx, log=self.log,
-                                                                       sigma=np.sqrt(self.cov_log_conductivity[0,0]),
-                                                                       mode_no=self.mode_no))
+                                                                       #sigma=np.sqrt(self.cov_log_conductivity[0,0]),
+                                                                       mode_no=self.mode_no,
+                                                                       #mu=pca_means[0]
+                                                                       ))
 
         field_k_yy = cf.Field('k_yy', cf.GSToolsSpatialCorrelatedField(self._model_k_yy, log=self.log,
-                                                                       sigma=np.sqrt(self.cov_log_conductivity[1, 1]),
-                                                                       mode_no=self.mode_no))
+                                                                       #sigma=np.sqrt(self.cov_log_conductivity[1,1]),
+                                                                       mode_no=self.mode_no,
+                                                                       #mu=pca_means[1]
+                                                                       ))
 
-        field_angle = cf.Field('angle', cf.GSToolsSpatialCorrelatedField(self._model_angle,
+        field_angle_x = cf.Field('angle_x', cf.GSToolsSpatialCorrelatedField(self._model_angle_x,
                                                                          sigma=np.sqrt(self.angle_var),
                                                                          mode_no=self.mode_no))
 
-        self._fields = cf.Fields([field_k_xx, field_k_yy, field_angle])
+        field_angle_y = cf.Field('angle_y', cf.GSToolsSpatialCorrelatedField(self._model_angle_x,
+                                                                         sigma=np.sqrt(self.angle_var),
+                                                                         mode_no=self.mode_no))
+
+        self._fields = cf.Fields([field_k_xx, field_k_yy, field_angle_x, field_angle_y])
 
     def element_data(self, mesh, eid):
-        if self.model_k_xx is None:
+        if self._rf_sample is None:
+            #if self.model_k_xx is None:
             self._create_field(self.mean_log_conductivity, self.cov_log_conductivity)
 
-            mesh_data = BulkFieldsGSTools.extract_mesh(mesh)
-            print("mesh data ", list(mesh_data.keys()))
+            self._mesh_data = BulkFieldsGSTools.extract_mesh(mesh)
+            # print("mesh data ", list(self._mesh_data.keys()))
+            # print("mesh data ele ids ", self._mesh_data["ele_ids"])
+            # print("mesh_data['points'] ", self._mesh_data['points'])
+            self._fields.set_points(self._mesh_data['points'], self._mesh_data['point_region_ids'], self._mesh_data['region_map'])
+            self._rf_sample = self._fields.sample()
 
-            self._fields.set_points(mesh_data['points'], mesh_data['point_region_ids'], mesh_data['region_map'])
+            self._rf_sample["k_xx"] += self._pc_means[0]
+            self._rf_sample["k_yy"] += self._pc_means[1]
 
-            print("self._field_k_xx ", self._fields)
+            srf_data = np.array([self._rf_sample["k_xx"], self._rf_sample["k_yy"]])
+            # pca_cond.transform()
+            # inv_srf_data = pca_cond.inverse_transform(srf_data.T).T
+            inv_srf_data = np.matmul(srf_data.T, self._projection_matrix.T).T
 
-            rf_sample = self._fields.sample()
+            # for i in range(inv_srf_data.shape[1]):
+            #     print("inv data ", inv_srf_data[:, i])
+            #
+            # print("inv srf data cov ", np.cov(inv_srf_data))
+            # print("inv srf data ", inv_srf_data.shape)
 
-            xv = mesh_data['points'][:, 0]
-            yv = mesh_data['points'][:, 1]
+            self._rf_sample["k_xx"] = inv_srf_data[0, :]
+            self._rf_sample["k_yy"] = inv_srf_data[1, :]
+
+            data_srf_angle_vec = np.stack([self._rf_sample["angle_x"],  self._rf_sample["angle_y"]])
+
+            #print("data srf angle vec shape ", data_srf_angle_vec.shape)
+
+            cos_sin_angle = data_srf_angle_vec / np.linalg.norm(data_srf_angle_vec, axis=0)
+            angle = np.arctan2(cos_sin_angle[1, :], cos_sin_angle[0, :])
+
+            self._rf_sample["angle"] = angle
+            # print("self rf sample ", self._rf_sample)
+            # exit()
+            # print("angle.shape ", angle.shape)
+            # exit()
+
+            xv = self._mesh_data['points'][:, 0]
+            yv = self._mesh_data['points'][:, 1]
 
             # print("rf sample angle ", len(rf_sample["angle"]))
             # exit()
-            try:
-                fig, ax = plt.subplots(1, 1, figsize=(15, 10))
-                cont = ax.tricontourf(xv, yv, rf_sample["angle"], level=32)
-                fig.colorbar(cont)
-                plt.title("angle srf")
-                plt.show()
-            except Exception as e:
-                print(e)
+            # try:
+            #     fig, ax = plt.subplots(1, 1, figsize=(15, 10))
+            #     cont = ax.tricontourf(xv, yv, self._rf_sample["k_xx"], level=32)
+            #     fig.colorbar(cont)
+            #     plt.title("k xx")
+            #     plt.show()
+            # except Exception as e:
+            #     print(e)
+            #
+            # try:
+            #     fig, ax = plt.subplots(1, 1, figsize=(15, 10))
+            #     cont = ax.tricontourf(xv, yv, self._rf_sample["k_yy"], level=32)
+            #     fig.colorbar(cont)
+            #     plt.title("k yy")
+            #     plt.show()
+            # except Exception as e:
+            #     print(e)
+            #
+            #
+            # try:
+            #     fig, ax = plt.subplots(1, 1, figsize=(15, 10))
+            #     cont = ax.tricontourf(xv, yv, self._rf_sample["angle"], level=32)
+            #     fig.colorbar(cont)
+            #     plt.title("angle srf")
+            #     plt.show()
+            # except Exception as e:
+            #     print(e)
+            #
+            # fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(10, 10))
+            # ax = axes  # [0]
+            # #ax.set_xscale('log')
+            # ax.hist(angle, bins=25, density=True)
+            # fig.legend()
+            # fig.show()
 
-            fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(10, 10))
-            ax = axes  # [0]
-            #ax.set_xscale('log')
-            ax.hist(rf_sample["angle"], bins=25, density=True)
-            fig.legend()
-            fig.show()
 
-
-            rf_sample["angle"] = (rf_sample["angle"] * 100) % (2*np.pi)  # uniform distribution
-
-            fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(10, 10))
-            ax = axes  # [0]
-            # ax.set_xscale('log')
-            ax.hist(rf_sample["angle"], bins=25, density=True)
-            fig.legend()
-            fig.show()
+            # rf_sample["angle"] = (rf_sample["angle"] * 100) % (2*np.pi)  # uniform distribution
+            #
+            # fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(10, 10))
+            # ax = axes  # [0]
+            # # ax.set_xscale('log')
+            # ax.hist(rf_sample["angle"], bins=25, density=True)
+            # fig.legend()
+            # fig.show()
 
             # xv = mesh_data['points'][:, 0]
             # yv = mesh_data['points'][:, 1]
 
             # print("rf sample angle ", len(rf_sample["angle"]))
             # exit()
-            try:
-                fig, ax = plt.subplots(1, 1, figsize=(15, 10))
-                cont = ax.tricontourf(xv, yv, rf_sample["angle"], level=32)
-                fig.colorbar(cont)
-                plt.title("angle srf")
-                plt.show()
-            except Exception as e:
-               print(e)
+            # try:
+            #     fig, ax = plt.subplots(1, 1, figsize=(15, 10))
+            #     cont = ax.tricontourf(xv, yv, rf_sample["angle"], level=32)
+            #     fig.colorbar(cont)
+            #     plt.title("angle srf")
+            #     plt.show()
+            # except Exception as e:
+            #    print(e)
+
+        ele_idx = np.where(self._mesh_data["ele_ids"] == eid)
+        k_xx = self._rf_sample["k_xx"][ele_idx][0]
+        k_yy = self._rf_sample["k_yy"][ele_idx][0]
+
+        unrotated_tn = np.diag(np.power(10, np.array([k_xx, k_yy])))
+
+        angle = self._rf_sample["angle"][ele_idx][0]
+        c, s = np.cos(angle), np.sin(angle)
+
+        rot_mat = np.array([[c, -s], [s, c]])
+        #print("rot mat ", rot_mat)
+
+        cond_2d = rot_mat @ unrotated_tn @ rot_mat.T
+        # print("cond_2d ", cond_2d)
+        # exit()
+        return 1.0, cond_2d
 
         # print("mesh.elements ", mesh.elements)
         # print("mesh.points ", mesh.points)
@@ -388,19 +475,19 @@ class BulkFieldsGSTools(BulkBase):
         #         cov=self.cov_log_conductivity,
         #         )
 
-        unrotated_tn = np.diag(np.power(10, log_eigenvals))
-
-        # rotation angle
-        if self.angle_concentration is None or self.angle_concentration == 0:
-            angle = np.random.uniform(0, 2*np.pi)
-        elif self.angle_concentration == np.inf:
-            angle = self.angle_mean
-        else:
-            angle = np.random.vonmises(self.angle_mean, self.angle_concentration)
-        c, s = np.cos(angle), np.sin(angle)
-        rot_mat = np.array([[c, -s], [s, c]])
-        cond_2d = rot_mat @ unrotated_tn @ rot_mat.T
-        return 1.0, cond_2d
+        # unrotated_tn = np.diag(np.power(10, log_eigenvals))
+        #
+        # # rotation angle
+        # if self.angle_concentration is None or self.angle_concentration == 0:
+        #     angle = np.random.uniform(0, 2*np.pi)
+        # elif self.angle_concentration == np.inf:
+        #     angle = self.angle_mean
+        # else:
+        #     angle = np.random.vonmises(self.angle_mean, self.angle_concentration)
+        # c, s = np.cos(angle), np.sin(angle)
+        # rot_mat = np.array([[c, -s], [s, c]])
+        # cond_2d = rot_mat @ unrotated_tn @ rot_mat.T
+        # return 1.0, cond_2d
 
     @staticmethod
     def extract_mesh(mesh):
@@ -572,7 +659,7 @@ class BulkHomogenization(BulkBase):
         dist_2 = np.sum((self._center_points - center) ** 2, axis=1)
         cond_tn = self._cond_tns[tuple(self._center_points[np.argmin(dist_2)])]
 
-        print("cond tn ", cond_tn)
+        #print("cond tn ", cond_tn)
 
         return 1.0, cond_tn[0].reshape(2, 2)
 
@@ -599,10 +686,14 @@ class FractureModel:
         i_fr = elid_to_fr[eid]
         fr_size = self.fractures.fractures[i_fr].rx
 
+
         if self.target_sigma is None or self.bulk_model is None:
+            # print("variable cond")
+            # exit()
             cs = fr_size * self.aperture_per_size
             cond = cs ** 2 / 12 * self.water_density * self.gravity_accel / self.water_viscosity
         else:
+            #print("target sigma: {}, max_fr: {}".format(self.target_sigma, self.max_fr))
             # print("self.max_fr ", self.max_fr)
             # print("self.bulk_model.mean_log_conductivity ", int(np.mean(self.bulk_model.mean_log_conductivity)))
             cond = self.target_sigma * self.max_fr * 10 ** int(np.mean(self.bulk_model.mean_log_conductivity)) # @TODO: remove abs numbers ASAP
@@ -644,11 +735,15 @@ def write_fields(mesh, basename, bulk_model, fracture_model, elid_to_fr, elids_s
             # print("sigma: {}", sigma)
         else:
             # n_nodes == 3
+            #print("bulk model self. rf sample ", bulk_model._rf_sample)
+
             cs, cond_tn = bulk_model.element_data(mesh, el_id)
+            #print("bulk model self. rf sample ", bulk_model._rf_sample)
+            #exit()
 
             if input_tensors is not None:
                 indices = positions[el_id]
-                cond_tn = input_tensors[:][indices[0]][indices[1]]
+                cond_tn = input_tensors[:, indices[0], indices[1]]
 
                 cond_tn = [[cond_tn[0], cond_tn[1]], [cond_tn[1], cond_tn[2]]]
                 #print("cond_tn ", cond_tn)
@@ -774,8 +869,11 @@ class FlowProblem:
                 del bulk_conductivity["marginal_distr"]
 
             #print("BULKFIelds bulk_conductivity ", bulk_conductivity)
-            bulk_model = BulkFields(**bulk_conductivity)
-            #bulk_model = BulkFieldsGSTools(**bulk_conductivity)
+            if "gstools" in config_dict["sim_config"] and config_dict["sim_config"]["gstools"]:
+                print("**bulk_conductivity ", bulk_conductivity)
+                bulk_model = BulkFieldsGSTools(**bulk_conductivity)
+            else:
+                bulk_model = BulkFields(**bulk_conductivity)
         return FlowProblem("fine", fr_range, fractures, bulk_model, config_dict)
 
     @staticmethod
@@ -1017,7 +1115,7 @@ class FlowProblem:
 
         #print("self. skip decomposition ", self.skip_decomposition)
 
-        #print("self regions ", self.regions)
+        print("self regions ", self.regions)
         if not self.skip_decomposition:
             self.make_fracture_network()
             gmsh_executable = self.config_dict["sim_config"]["gmsh_executable"]
@@ -1048,7 +1146,8 @@ class FlowProblem:
         :param cond_2d_samples: Array Nx2x2 of 2d tensor samples from own and other subsample problems.
         :return:
         """
-        fracture_model = FractureModel(self.fractures, self.reg_to_fr, **self.config_dict["sim_config"]['fracture_model'],
+        fracture_model = FractureModel(self.fractures, self.reg_to_fr,
+                                       **self.config_dict["sim_config"]['fracture_model'],
                                        bulk_model=self.bulk_model)
         elem_ids, cs_field, cond_tn_field, fracture_cs, fracture_len = write_fields(self.mesh, self.basename,
                                                                                     self.bulk_model, fracture_model,
@@ -1330,7 +1429,8 @@ class FlowProblem:
             #print("velocity ", velocity)
 
             for eid, ele_vel in velocity.items():
-                #print("eid : {}, ele_vel: {}".format(eid, ele_vel))
+                print("eid : {}, ele_vel: {}".format(eid, ele_vel))
+
                 reg_id, vol = ele_reg_vol[eid]
                 cs = field_cs[eid][0]
                 #print("vol: {}, cs: {}".format(vol, cs))
@@ -1573,7 +1673,7 @@ class BothSample:
 
         if rho_2D is not False:
             #print("rho 2d is not false")
-            exit()
+            #exit()
             self.config_dict["fracture_model"]["max_fr"] = pow_law_sample_range[1]
             A_ex = BothSample.excluded_area(pow_law_sample_range[0], pow_law_sample_range[1],
                                             kappa=pow_law_exp_3d-1, coef=np.pi/2)
@@ -1645,7 +1745,6 @@ class BothSample:
                 #                      sample_size=n_frac_limit)
                 # pop.set_sample_range([None, max(lx, ly)],
                 #                      sample_size=n_frac_limit)
-
                 pop.set_sample_range(fr_size_range,
                                      sample_size=n_frac_limit)
 
