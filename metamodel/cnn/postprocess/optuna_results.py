@@ -16,11 +16,13 @@ from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
 from metamodel.cnn.visualization.visualize_tensor import plot_tensors
 from metamodel.cnn.visualization.visualize_data import plot_target_prediction, plot_train_valid_loss
-from metamodel.cnn.models.auxiliary_functions import exp_data, get_eigendecomp, get_mse_nrmse_r2
+from metamodel.cnn.models.auxiliary_functions import exp_data, get_eigendecomp, get_mse_nrmse_r2, get_mean_std, log_data
+from metamodel.cnn.models.train_pure_cnn_optuna import prepare_dataset
 from sklearn.isotonic import IsotonicRegression
 from statsmodels.regression.quantile_regression import QuantReg
 from sklearn.linear_model import LogisticRegression
 from sklearn.calibration import CalibratedClassifierCV
+
 
 def get_calibrator():
     return IsotonicRegression(out_of_bounds="clip")
@@ -29,8 +31,6 @@ def get_calibrator():
 def calibrator_fit(calibrator, predictions, targets):
     #predictions = np.array(predictions).reshape(-1, 1)
     calibrator.fit(predictions, targets)
-
-
 
 def calibrator_predict(calibrator, data):
     return calibrator.predict(data)
@@ -54,7 +54,14 @@ def calibrate_data(data_list, calibs):
 
 
 def get_saved_model_path(results_dir, best_trial):
+    #print(best_trial.user_attrs["model_name"])
     model_path = 'trial_{}_losses_model_{}'.format(best_trial.number, best_trial.user_attrs["model_name"])
+
+    #model_path = "trial_2_losses_model_cnn_net"
+
+    #@TODO: remove ASAP
+    #return "/home/martin/Documents/MLMC-DFM/optuna_runs/karolina/cond_conv/exp_2/seed_12345/trial_1_losses_model_cnn_net"
+    #return "/home/martin/Documents/MLMC-DFM/optuna_runs/karolina/pooling/new_experiments/exp_13_4_s_36974/seed_12345/trial_0_losses_model_cnn_net"
 
     # for key, value in best_trial.params.items():
     #     model_path += "_{}_{}".format(key, value)
@@ -65,37 +72,109 @@ def get_saved_model_path(results_dir, best_trial):
     return os.path.join(results_dir, model_path)
 
 
-def load_models(args, study):
-    calibrate = True
-    results_dir = args.results_dir
-    model_path = get_saved_model_path(results_dir, study.best_trial)
+def load_dataset(results_dir, study):
     dataset = joblib.load(os.path.join(results_dir, "dataset.pkl"))
-    #print("len dataset ", len(dataset))
     n_train_samples = study.user_attrs["n_train_samples"]
     n_val_samples = study.user_attrs["n_val_samples"]
-
-    print("len(dataset) ", len(dataset))
-
-    print("n val samples ", n_val_samples)
-
-    train_val_set = dataset[:(n_train_samples+n_val_samples)]
+    # print("len(dataset) ", len(dataset))
+    # print("n val samples ", n_val_samples)
+    train_val_set = dataset[:(n_train_samples + n_val_samples)]
     train_set = train_val_set[:-n_val_samples]
     validation_set = train_val_set[-n_val_samples:]
     n_test_samples = study.user_attrs["n_test_samples"]
     test_set = dataset[-n_test_samples:]
-    #test_set = dataset[:study.user_attrs["n_train_samples"]]
-    #
-    #train_loader = torch.utils.data.DataLoader(train_set[:2000], shuffle=False)
-    validation_loader = torch.utils.data.DataLoader(validation_set, shuffle=False)
-    test_loader = torch.utils.data.DataLoader(test_set, shuffle=False)
 
-    # train_inputs = []
-    # train_outputs = []
-    # for data in train_loader:
-    #     input, output = data
-    #     train_inputs.append(input)
-    #     train_outputs.append(output)
+    return train_set, validation_set, test_set
 
+    data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/homogenization_samples_5LMC_L1"
+    config = {#"num_epochs": trials_config["num_epochs"],
+              "batch_size_train": 32,
+              # "batch_size_test": 250,
+              "n_train_samples": study.user_attrs["n_train_samples"],
+              "n_test_samples": study.user_attrs["n_test_samples"],
+              "train_samples_ratio": 0.8,
+              "val_samples_ratio":  0.2,
+              "print_batches": 10,
+              "log_input": study.user_attrs["input_log"],
+              "normalize_input": study.user_attrs["normalize_input"],
+              "log_output": study.user_attrs["output_log"],
+              "normalize_output": study.user_attrs["normalize_output"],
+              "seed": 12345}
+    return prepare_dataset(None, config, data_dir=data_dir)
+
+
+def get_rotation_angles(model, loader, inverse_transform):
+    targets_list, predictions_list = [], []
+    inv_targets_list, inv_predictions_list = [], []
+
+    for i, test_sample in enumerate(loader):
+        inputs, targets = test_sample
+        inputs = inputs.float()
+
+        if args.cuda and torch.cuda.is_available():
+            inputs = inputs.cuda()
+        predictions = model(inputs)
+
+        if len(targets.size()) > 1 and np.sum(targets.size()) / len(targets.size()) != 1:
+            targets = torch.squeeze(targets.float())
+        targets_np = targets.numpy()
+        targets_list.append(targets_np)
+
+        if len(predictions.size()) > 1 and np.sum(predictions.size()) / len(predictions.size()) != 1:
+            predictions = torch.squeeze(predictions.float())
+        predictions = predictions.cpu()
+        predictions_np = predictions.cpu().numpy()
+
+        predictions_list.append(predictions_np)
+
+        inv_targets = targets
+        inv_predictions = predictions
+        if inverse_transform is not None:
+            inv_targets = inverse_transform(torch.reshape(targets, (*targets.shape, 1, 1)))
+            inv_predictions = inverse_transform(torch.reshape(predictions, (*predictions.shape, 1, 1)))
+
+            inv_targets = np.reshape(inv_targets, targets.shape)
+            inv_predictions = np.reshape(inv_predictions, predictions.shape)
+
+        inv_targets_list.append(inv_targets.numpy())
+        inv_predictions_list.append(inv_predictions.numpy())
+
+    all_targets = np.array(targets_list)
+    all_predictions = np.array(predictions_list)
+
+    if len(all_targets.shape) == 1:
+        all_targets = np.reshape(all_targets, (*all_targets.shape, 1))
+        all_predictions = np.reshape(all_predictions, (*all_predictions.shape, 1))
+
+    n_channels = 1 if len(all_targets.shape) == 1 else all_targets.shape[1]
+
+    angles = []
+    for i in range(n_channels):
+        k_target, k_predict = all_targets[:, i], all_predictions[:, i]
+        angle, shift = get_channel_angles(k_target, k_predict)
+        angles.append((angle, shift))
+    return angles
+
+
+def get_channel_angles(targets, predictions):
+    a, b = np.polyfit(targets, predictions, 1)
+    angle = np.pi/4 - np.arctan(a)
+    return angle, b
+
+
+def rotate_by_angle(targets, predictions, angles):
+    n_channels = targets.shape[0]
+    rotated_predictions = []
+
+    for i in range(n_channels):
+        angle, shift = angles[i]
+        predictions[i] -= shift
+        yr = (targets[i] * np.sin(angle)) + (predictions[i] * np.cos(angle)) + shift
+        rotated_predictions.append(yr)
+    return torch.from_numpy(np.array(rotated_predictions))
+
+
+def get_inverse_transform(study):
     inverse_transform = None
     if "normalize_output" in study.user_attrs and study.user_attrs["normalize_output"]:
         std = 1/study.user_attrs["output_std"]
@@ -115,6 +194,103 @@ def load_models(args, study):
 
         inverse_transform = transforms.Compose(transforms_list)
 
+    return inverse_transform
+
+
+def renormalize_data(dataset, study):
+    print("dataset.input_transform ", dataset.input_transform)
+
+    import copy
+
+    new_dataset = copy.deepcopy(dataset)
+
+    transforms_list = []
+    if "input_log" in study.user_attrs and study.user_attrs["input_log"]:
+        transforms_list.append(transforms.Lambda(log_data))
+
+    input_transform = transforms.Compose(transforms_list)
+
+    new_dataset.input_transform = input_transform
+    #new_dataset.input_transform = None
+
+    loader = torch.utils.data.DataLoader(new_dataset, shuffle=False)
+
+    input_mean, input_std, output_mean, output_std = get_mean_std(loader)
+    print("Test loader, INPUT mean: {}, std: {}, OUTPUT mean: {}, std: {}".format(input_mean, input_std, output_mean, output_std))
+
+    if "normalize_input" in study.user_attrs and study.user_attrs["normalize_input"]:
+        transforms_list.append(transforms.Normalize(mean=input_mean, std=input_std))
+
+    input_transform = transforms.Compose(transforms_list)
+
+    new_dataset.input_transform = input_transform
+    # new_dataset.input_transform = None
+
+    loader = torch.utils.data.DataLoader(new_dataset, shuffle=False)
+
+    input_mean, input_std, output_mean, output_std = get_mean_std(loader)
+    print("Test loader, INPUT mean: {}, std: {}, OUTPUT mean: {}, std: {}".format(input_mean, input_std, output_mean,
+                                                                                  output_std))
+
+    return loader
+
+def load_models(args, study):
+    calibrate = False
+    rotate = True
+    results_dir = args.results_dir
+    model_path = get_saved_model_path(results_dir, study.best_trial)
+
+    train_set, validation_set, test_set = load_dataset(results_dir, study)
+
+    test_loader = torch.utils.data.DataLoader(test_set, shuffle=False)
+
+    # input_mean, input_std, output_mean, output_std = get_mean_std(train_loader)
+    # print("Train loader, input mean: {}, std: {}".format(input_mean, input_std))
+
+
+
+    #dataset = joblib.load("/home/martin/Documents/MLMC-DFM/optuna_runs/karolina/cond_conv/exp_2/dataset.pkl")
+    #print("len dataset ", len(dataset))
+    # n_train_samples = study.user_attrs["n_train_samples"]
+    # n_val_samples = study.user_attrs["n_val_samples"]
+    #
+    # #print("len(dataset) ", len(dataset))
+    # # print("n val samples ", n_val_samples)
+    #
+    # train_val_set = dataset[:(n_train_samples+n_val_samples)]
+    # train_set = train_val_set[:-n_val_samples]
+    # validation_set = train_val_set[-n_val_samples:]
+    # n_test_samples = study.user_attrs["n_test_samples"]
+    # test_set = dataset[-n_test_samples:]
+    # #test_set = dataset[:study.user_attrs["n_train_samples"]]
+    #
+    #train_loader = torch.utils.data.DataLoader(train_set, shuffle=False)
+    validation_loader = torch.utils.data.DataLoader(validation_set, shuffle=False)
+    test_loader = torch.utils.data.DataLoader(test_set, shuffle=False)
+
+
+
+
+    # input_mean, input_std, output_mean, output_std = get_mean_std(train_loader)
+    # print("Train loader, INPUT mean: {}, std: {}, OUTPUT mean: {}, std: {}".format(input_mean, input_std, output_mean, output_std))
+    # input_mean, input_std, output_mean, output_std = get_mean_std(validation_loader)
+    # print("Validation loader, INPUT mean: {}, std: {}, OUTPUT mean: {}, std: {}".format(input_mean, input_std, output_mean, output_std))
+    # input_mean, input_std, output_mean, output_std = get_mean_std(test_loader)
+    # print("Test loader, INPUT mean: {}, std: {}, OUTPUT mean: {}, std: {}".format(input_mean, input_std, output_mean, output_std))
+
+    #test_loader = renormalize_data(test_set, study)
+
+    print("len(trainset): {}, len(valset): {}, len(testset): {}".format(len(train_set), len(validation_set),
+                                                                        len(test_set)))
+
+    # train_inputs = []
+    # train_outputs = []
+    # for data in train_loader:
+    #     input, output = data
+    #     train_inputs.append(input)
+    #     train_outputs.append(output)
+
+    inverse_transform = get_inverse_transform(study)
 
     plot_separate_images = False
     # Disable grad
@@ -125,6 +301,11 @@ def load_models(args, study):
         # model_kwargs = {'n_conv_layers': 1, 'max_channel': 72, 'pool': 'None', 'pool_size': 0, 'kernel_size': 3,
         #                 'stride': 1, 'pool_stride': 0, 'use_batch_norm': True, 'n_hidden_layers': 1,
         #                 'max_hidden_neurons': 48, 'input_size': 3}
+
+        if "min_channel" in model_kwargs:
+            model_kwargs["input_channel"] = 1 #model_kwargs["min_channel"]
+            model_kwargs["n_output_neurons"] = 1
+            del model_kwargs["min_channel"]
         model = study.best_trial.user_attrs["model_class"](**model_kwargs)
 
         # Initialize optimizer
@@ -139,8 +320,14 @@ def load_models(args, study):
         checkpoint = torch.load(model_path)
         train_loss = checkpoint['train_loss']
         valid_loss = checkpoint['valid_loss']
-        plot_train_valid_loss(train_loss, valid_loss)
+        #print("checkpoint ", checkpoint)
+        #print("convs weight shape ", checkpoint["best_model_state_dict"]['_convs.0.weight'].shape)
+        #print("out layer weight shape ", checkpoint["best_model_state_dict"]['_output_layer.weight'].shape)
 
+        print("best val loss: {}".format(np.min(valid_loss)))
+        print("best epoch: {}".format(np.argmin(valid_loss)))
+        #exit()
+        plot_train_valid_loss(train_loss, valid_loss)
 
         print("checkpoint ", list(checkpoint['best_model_state_dict'].keys()))
 
@@ -153,6 +340,8 @@ def load_models(args, study):
         model.load_state_dict(checkpoint['best_model_state_dict'])
         model.eval()
 
+        if rotate:
+            angles = get_rotation_angles(model, validation_loader, inverse_transform)
 
         if calibrate:
             val_targets, val_predictions, inv_val_targets, inv_val_predictions = [], [], [], []
@@ -163,6 +352,8 @@ def load_models(args, study):
                 inputs = inputs.float()
                 if args.cuda and torch.cuda.is_available():
                     inputs = inputs.cuda()
+
+
                 predictions = model(inputs)
 
                 if len(targets.size()) > 1 and np.sum(targets.size()) / len(targets.size()) != 1:
@@ -213,6 +404,8 @@ def load_models(args, study):
                 nrmse_str += " k_{}: {}".format(i, nrmse[i])
             print(r2_str)
             print(nrmse_str)
+
+            #exit()
 
             inv_val_predictions = np.array(inv_val_predictions)
             inv_val_targets = np.array(inv_val_targets)
@@ -340,6 +533,8 @@ def load_models(args, study):
             optimizer.load_state_dict(checkpoint['best_optimizer_state_dict'])
         epoch = checkpoint['best_epoch']
 
+        print("Best epoch ", epoch)
+
         print("train loss ", train_loss)
         print("valid loss ", valid_loss)
         print("model training time ", checkpoint["training_time"])
@@ -368,11 +563,11 @@ def load_models(args, study):
 
             if len(targets.size()) > 1 and np.sum(targets.size())/len(targets.size()) != 1:
                 targets = torch.squeeze(targets.float())
-            targets_np = targets.numpy()
+
 
             #print("targets_np.shape ", targets_np.shape)
 
-            targets_list.append(targets_np)
+
 
             # if calibrate:
             #     predictions[1] = torch.tensor(calibrator_1.predict(targets[1].cpu().numpy()))
@@ -391,10 +586,14 @@ def load_models(args, study):
 
             #print("squeeze prediction size ", predictions.size())
 
+            if rotate:
+                predictions = rotate_by_angle(targets, predictions, angles)
 
             predictions = predictions.cpu()
             predictions_np = predictions.cpu().numpy()
 
+            targets_np = targets.numpy()
+            targets_list.append(targets_np)
             predictions_list.append(predictions_np)
 
             # square_err_k_xx.append(targets_np[0])
@@ -402,9 +601,16 @@ def load_models(args, study):
             # square_err_k_yy.append(targets_np[2])
 
             #print("targets_lists[0][0] ", targets_list[0][0])
-            loss_fn = study.best_trial.user_attrs["loss_fn_name"]()
+            if "loss_fn_name" in study.best_trial.user_attrs:
+                loss_fn = study.best_trial.user_attrs["loss_fn_name"]()
+            if "loss_fn" in study.best_trial.user_attrs:
+                loss_fn = study.best_trial.user_attrs["loss_fn"]
+
             # print("predictions.device ", predictions.device)
             # print("targets.device", targets.device)
+
+            #print("predictions.shape ", predictions.shape)
+            #print("targets.shape ", targets.shape)
 
             loss = loss_fn(predictions, targets)
             running_loss += loss
@@ -424,7 +630,6 @@ def load_models(args, study):
                 # if len(inv_predictions.size()) > 1 and np.sum(inv_predictions.size())/len(inv_predictions.size()) != 1:
                 #     inv_predictions = torch.squeeze(inv_predictions)
 
-
             inv_running_loss += loss_fn(inv_predictions, inv_targets)
 
             inv_targets_list.append(inv_targets.numpy())
@@ -440,12 +645,10 @@ def load_models(args, study):
             # tar_evals.append(tar_eval)
             # tar_evecs.append(tar_evec)
 
-
-            # if i % 10 == 9:
-            #     plot_tensors(inv_predictions.numpy(), inv_targets.numpy(), label="test_sample_{}".format(i),
+            # if i % 50 == 9:
+            #     plot_tensors(inv_predictions.numpy(), inv_targets.numpy(), label="test_sample_{}_cal".format(i),
             #              plot_separate_images=plot_separate_images)
 
-            #exit()
 
             # if i % 10 == 9:
             #     plot_tensors(inv_predictions.numpy(), inv_targets.numpy(), label="test_sample_{}".format(i),
@@ -454,10 +657,8 @@ def load_models(args, study):
         if calibrate:
             #calibs = [calibrator_0, calibrator_1, calibrator_2]
             predictions_list = calibrate_data(predictions_list, calibrators)
-
             #inv_calibs = [inv_calibrator_0, inv_calibrator_1, inv_calibrator_2]
             inv_predictions_list = calibrate_data(inv_predictions_list, inv_calibrators)
-
 
         mse, rmse, nrmse, r2 = get_mse_nrmse_r2(targets_list, predictions_list)
         inv_mse, inv_rmse, inv_nrmse, inv_r2 = get_mse_nrmse_r2(inv_targets_list, inv_predictions_list)
