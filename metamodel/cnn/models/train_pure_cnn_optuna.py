@@ -130,7 +130,6 @@ def train_one_epoch(model, optimizer, train_loader, config, loss_fn=nn.MSELoss()
 
         inputs = inputs.float()
         targets = targets.float()
-
         optimizer.zero_grad()
 
         outputs = torch.squeeze(model(inputs))
@@ -314,7 +313,8 @@ def prepare_dataset(study, config, data_dir, serialize_path=None):
     if config["log_output"]:
         output_transform = transforms.Compose([transforms.Lambda(log_data)])
 
-    if config["normalize_input"]:
+    if config["normalize_input"] or config["normalize_output"]:
+        print("output transform ", output_transform)
         dataset_for_mean_std = DFMDataset(data_dir=data_dir,
                                           input_transform=input_transform,
                                           output_transform=output_transform,
@@ -334,6 +334,8 @@ def prepare_dataset(study, config, data_dir, serialize_path=None):
 
         train_loader_mean_std = torch.utils.data.DataLoader(train_set, batch_size=config["batch_size_train"], shuffle=False)
         input_mean, input_std, output_mean, output_std = get_mean_std(train_loader_mean_std)
+
+        print("input mean: {}, std:{}, output mean: {}, std: {}".format(input_mean, input_std, output_mean, output_std))
 
     # =======================
     # data transforms
@@ -405,20 +407,21 @@ def prepare_dataset(study, config, data_dir, serialize_path=None):
     #     with NpyAppendArray(filename_output) as npaa_out:
     #         npaa_out.append(output)
 
-    study.set_user_attr("n_train_samples", len(train_set))
-    study.set_user_attr("n_val_samples", len(validation_set))
-    study.set_user_attr("n_test_samples", len(test_set))
+    if study is not None:
+        study.set_user_attr("n_train_samples", len(train_set))
+        study.set_user_attr("n_val_samples", len(validation_set))
+        study.set_user_attr("n_test_samples", len(test_set))
 
-    study.set_user_attr("normalize_input", config["normalize_input"])
-    study.set_user_attr("normalize_output", config["normalize_output"])
+        study.set_user_attr("normalize_input", config["normalize_input"])
+        study.set_user_attr("normalize_output", config["normalize_output"])
 
-    study.set_user_attr("input_log", config["log_input"])
-    study.set_user_attr("input_mean", input_mean)
-    study.set_user_attr("input_std", input_std)
+        study.set_user_attr("input_log", config["log_input"])
+        study.set_user_attr("input_mean", input_mean)
+        study.set_user_attr("input_std", input_std)
 
-    study.set_user_attr("output_log", config["log_output"])
-    study.set_user_attr("output_mean", output_mean)
-    study.set_user_attr("output_std", output_std)
+        study.set_user_attr("output_log", config["log_output"])
+        study.set_user_attr("output_mean", output_mean)
+        study.set_user_attr("output_std", output_std)
 
     if serialize_path is not None:
         joblib.dump(dataset, os.path.join(serialize_path, "dataset.pkl"))
