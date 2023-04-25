@@ -21,6 +21,7 @@ from torch.optim import lr_scheduler
 from metamodel.cnn.models.trials.net_optuna import Net
 from metamodel.cnn.models.cond_net import CondNet
 from metamodel.vit.model.vit_model import ViTRegressor
+from metamodel.vit.model.vit_model_2 import ViTRegressor2
 from metamodel.cnn.datasets.dfm_dataset import DFMDataset
 from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
@@ -89,7 +90,8 @@ def objective(trial, trials_config, train_loader, validation_loader):
                                                         shuffle=False)
         test_loader = torch.utils.data.DataLoader(test_set, batch_size=config["batch_size_test"], shuffle=False)
 
-    #plot_samples(train_loader, n_samples=25)
+    # plot_samples(train_loader, n_samples=25)
+    # exit()
 
     optimizer_name = "Adam"
     if "optimizer_name" in trials_config:
@@ -107,6 +109,9 @@ def objective(trial, trials_config, train_loader, validation_loader):
 
     flag, input_size = check_shapes(n_conv_layers, kernel_size, stride, pool_size, pool_stride,
                                     input_size=trials_config["input_size"])
+
+    if "vit_params" in trials_config:
+        vit_params = trial.suggest_categorical("vit_params", trials_config["vit_params"])
 
     # print("max channels ", max_channel)
     # print("flag: {} flatten x: {}".format(flag, input_size * input_size * max_channel))
@@ -135,7 +140,8 @@ def objective(trial, trials_config, train_loader, validation_loader):
                     "cnn_dropout_indices": cnn_dropout_indices if "cnn_dropout_indices" in trials_config else [],
                     "fc_dropout_indices": fc_dropout_indices if "fc_dropout_indices" in trials_config else [],
                     "cnn_dropout_ratios": cnn_dropout_ratios if "cnn_dropout_ratios" in trials_config else [],
-                    "fc_dropout_ratios": fc_dropout_ratios if "fc_dropout_ratios" in trials_config else []}
+                    "fc_dropout_ratios": fc_dropout_ratios if "fc_dropout_ratios" in trials_config else [],
+                    "vit_params": vit_params if "vit_params" in trials_config else {}}
 
     if "input_channels" in trials_config:
         model_kwargs["input_channel"] = len(trials_config["input_channels"])
@@ -180,6 +186,8 @@ def objective(trial, trials_config, train_loader, validation_loader):
     optimizer_kwargs = {"lr": lr, "weight_decay": L2_penalty}
     non_frozen_parameters = [p for p in model.parameters() if p.requires_grad]
     optimizer = None
+    #print("optimizer kwargs ", optimizer_kwargs)
+
     #print("non frozen parameters ", non_frozen_parameters)
     if len(non_frozen_parameters) > 0:
         optimizer = getattr(optim, optimizer_name)(params=non_frozen_parameters, **optimizer_kwargs)
