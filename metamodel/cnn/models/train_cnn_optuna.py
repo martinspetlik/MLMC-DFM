@@ -21,7 +21,7 @@ from torch.optim import lr_scheduler
 from metamodel.cnn.models.trials.net_optuna import Net
 from metamodel.cnn.models.cond_net import CondNet
 from metamodel.vit.model.vit_model import ViTRegressor
-from metamodel.vit.model.vit_model_2 import ViTRegressor2
+#from metamodel.vit.model.vit_model_2 import ViTRegressor2
 from metamodel.cnn.datasets.dfm_dataset import DFMDataset
 from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
@@ -141,8 +141,10 @@ def objective(trial, trials_config, train_loader, validation_loader):
                     "fc_dropout_indices": fc_dropout_indices if "fc_dropout_indices" in trials_config else [],
                     "cnn_dropout_ratios": cnn_dropout_ratios if "cnn_dropout_ratios" in trials_config else [],
                     "fc_dropout_ratios": fc_dropout_ratios if "fc_dropout_ratios" in trials_config else [],
-                    "vit_params": vit_params if "vit_params" in trials_config else {}}
+                    }
 
+    if "vit_params" in trials_config:
+        model_kwargs["vit_params"] = vit_params
     if "input_channels" in trials_config:
         model_kwargs["input_channel"] = len(trials_config["input_channels"])
     if "output_channels" in trials_config:
