@@ -324,8 +324,12 @@ if __name__ == '__main__':
               "normalize_output": trials_config["normalize_output"] if "normalize_output" in trials_config else True,
               "input_channels": trials_config["input_channels"] if "input_channels" in trials_config else None,
               "output_channels": trials_config["output_channels"] if "output_channels" in trials_config else None,
-              "seed": trials_config["random_seed"] if "random_seed" in trials_config else 12345
+              "seed": trials_config["random_seed"] if "random_seed" in trials_config else 12345,
+              "output_dir": output_dir
               }
+
+    if "input_transform" in trials_config:
+        config["input_transform"] = trials_config["input_transform"]
 
     # Optuna params
     num_trials = trials_config["num_trials"]

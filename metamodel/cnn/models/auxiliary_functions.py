@@ -4,6 +4,24 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+class QuantileTRF():
+    def __init__(self):
+        self.quantile_trfs_out = None
+        self.quantile_trfs_in = None
+
+    def quantile_transform_all_in(self, passed_data):
+        return quantile_transform_all_trf(passed_data, self.quantile_trfs_in)
+
+    def quantile_transform_offdiagonal_in(self, passed_data):
+        return quantile_transform_offdiagonal_trf(passed_data, self.quantile_trfs_in)
+
+    def quantile_transform_all_out(self, passed_data):
+        return quantile_transform_all_trf(passed_data, self.quantile_trfs_out)
+
+    def quantile_transform_offdiagonal_out(self, passed_data):
+        return quantile_transform_offdiagonal_trf(passed_data, self.quantile_trfs_out)
+
+
 def log_data(data):
     output_data = torch.empty((data.shape))
     if data.shape[0] == 3:
@@ -17,6 +35,50 @@ def log_data(data):
         raise NotImplementedError("Log transformation implemented for 2D case only")
 
     return output_data
+
+def quantile_transform_all_fit(data):
+    from sklearn.preprocessing import QuantileTransformer
+    transform_obj = []
+    for i in range(data.shape[0]):
+        transformer = QuantileTransformer(n_quantiles=10000, random_state=0, output_distribution="normal")
+        if torch.is_tensor(data[i]):
+            transform_obj.append(transformer.fit(data[i].reshape(-1, 1).numpy()))
+        else:
+            transform_obj.append(transformer.fit(data[i].reshape(-1, 1)))
+    return transform_obj
+
+def quantile_transform_all_trf(data, quantile_trfs):
+    return_data = torch.empty((data.shape))
+    for i in range(data.shape[0]):
+        transformed_data = quantile_trfs[i].transform(data[i].reshape(-1, 1).numpy())
+        return_data[i][...] = torch.from_numpy(np.reshape(transformed_data, data[i].shape))
+    return return_data
+
+
+def quantile_transform_offdiagonal_fit(data):
+    from sklearn.preprocessing import QuantileTransformer
+    transform_obj = []
+    for i in range(data.shape[0]):
+        if i == 1:
+            transformer = QuantileTransformer(n_quantiles=10000, random_state=0, output_distribution="normal")
+            if torch.is_tensor(data[i]):
+                transform_obj.append(transformer.fit(data[i].reshape(-1, 1).numpy()))
+            else:
+                transform_obj.append(transformer.fit(data[i].reshape(-1, 1)))
+    return transform_obj
+
+
+def quantile_transform_offdiagonal_trf(data, quantile_trfs):
+    return_data = torch.empty((data.shape))
+    for i in range(data.shape[0]):
+        if i == 1:
+            #print("data ", data[i])
+            transformed_data = quantile_trfs[0].transform(data[i].reshape(-1, 1).numpy())
+            return_data[i][...] = torch.from_numpy(np.reshape(transformed_data, data[i].shape))
+        else:
+            return_data[i][...] = data[i]
+    return return_data
+
 
 def exp_data(data):
     output_data = torch.empty((data.shape))
@@ -177,7 +239,13 @@ class WeightedMSELossSum(nn.Module):
         if str(mse_loss.device) == "cpu":
             self.weights = self.weights.cpu()
 
-        mse_loss_sum = torch.sum(self.weights * mse_loss, dim=1)
+        #print("mse loss ", len(mse_loss.shape))
+
+        if len(mse_loss.shape) == 1:
+            mse_loss_sum = self.weights * mse_loss
+        else:
+            mse_loss_sum = torch.sum(self.weights * mse_loss, dim=1)
+        #print("mse loss sum ", mse_loss_sum)
         weighted_mse_loss = torch.mean(mse_loss_sum)
         return weighted_mse_loss
 
@@ -191,9 +259,15 @@ class WeightedL1Loss(nn.Module):
 
     def forward(self, y_pred, y_true):
         abs_values = torch.abs(y_pred - y_true)
+        if str(abs_values.device) == "cpu":
+            self.weights = self.weights.cpu()
         abs_values = self.weights * abs_values
-        mean_abs_values = torch.mean(abs_values, dim=1)
-        return torch.mean(mean_abs_values)
+
+        if len(abs_values.shape)> 1:
+            abs_values = torch.mean(abs_values, dim=1)
+
+        #mean_abs_values = torch.mean(abs_values, dim=1)
+        return torch.mean(abs_values)
 
 class WeightedL1LossSum(nn.Module):
     def __init__(self, weights):
@@ -204,9 +278,13 @@ class WeightedL1LossSum(nn.Module):
 
     def forward(self, y_pred, y_true):
         abs_values = torch.abs(y_pred - y_true)
+        if str(abs_values.device) == "cpu":
+            self.weights = self.weights.cpu()
         abs_values = self.weights * abs_values
-        sum_abs_values = torch.sum(abs_values, dim=1)
-        return torch.mean(sum_abs_values)
+
+        if len(abs_values.shape)> 1:
+            abs_values = torch.sum(abs_values, dim=1)
+        return torch.mean(abs_values)
 
 
 def get_loss_fn(loss_function):
