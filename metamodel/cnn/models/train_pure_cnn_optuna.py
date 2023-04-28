@@ -21,8 +21,8 @@ from metamodel.cnn.models.trials.net_optuna_2 import Net
 from metamodel.cnn.datasets.dfm_dataset import DFMDataset
 from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
-from metamodel.cnn.models.auxiliary_functions import get_mean_std, log_data, exp_data, quantile_transform_all_trf,\
-    quantile_transform_all_fit, quantile_transform_offdiagonal_trf, quantile_transform_offdiagonal_fit, QuantileTRF
+from metamodel.cnn.models.auxiliary_functions import get_mean_std, log_data, exp_data,\
+    quantile_transform_fit, QuantileTRF, NormalizeData
 #from metamodel.cnn.visualization.visualize_data import plot_samples
 
 
@@ -299,7 +299,7 @@ def objective(trial, train_loader, validation_loader):
     return avg_vloss
 
 
-def quantile_transform(config, data_dir, input_transform_list, output_transform_list, dataset_for_transform=None):
+def features_transform(config, data_dir, input_transform_list, output_transform_list, dataset_for_transform=None):
     #################################
     ## Data for Quantile Transform ##
     #################################
@@ -328,56 +328,20 @@ def quantile_transform(config, data_dir, input_transform_list, output_transform_
                     output_data = np.concatenate([output_data, output], axis=1)
 
     if "input_transform" in config:
-        if config["input_transform"] == "QuantileTransformAll":
-            quantile_trfs = quantile_transform_all_fit(input_data)
-            joblib.dump(quantile_trfs, os.path.join(config["output_dir"], "input_transform.pkl"))
-
-            quantile_trf_obj.quantile_trfs_in = quantile_trfs
-
-            # def quantile_transform_all(passed_data):
-            #     return quantile_transform_all_trf(passed_data, quantile_trfs)
-
-            input_transform_list.append(transforms.Lambda(quantile_trf_obj.quantile_transform_all_in))
-
-        elif config["input_transform"] == "QuantileTransformOffDiagonal":
-            quantile_trfs = quantile_transform_offdiagonal_fit(input_data)
-            joblib.dump(quantile_trfs, os.path.join(config["output_dir"], "input_transform.pkl"))
-
-            quantile_trf_obj.quantile_trfs_in = quantile_trfs
-
-            # def quantile_transform_all(passed_data):
-            #     return quantile_transform_all_trf(passed_data, quantile_trfs)
-
-            input_transform_list.append(transforms.Lambda(quantile_trf_obj.quantile_transform_offdiagonal_in))
-
-            # def quantile_transform_all(passed_data):
-            #     return quantile_transform_offdiagonal_trf(passed_data, quantile_trfs)
-            #
-            # input_transform_list.append(transforms.Lambda(quantile_transform_all))
+        quantile_trfs = quantile_transform_fit(input_data,
+                                                indices=config["input_transform"]["indices"],
+                                                transform_type=config["input_transform"]["type"])
+        joblib.dump(quantile_trfs, os.path.join(config["output_dir"], "input_transform.pkl"))
+        quantile_trf_obj.quantile_trfs_in = quantile_trfs
+        input_transform_list.append(transforms.Lambda(quantile_trf_obj.quantile_transform_in))
 
     if "output_transform" in config:
-        if config["output_transform"] == "QuantileTransformAll":
-            quantile_trfs_out = quantile_transform_all_fit(output_data)
-            joblib.dump(quantile_trfs_out, os.path.join(config["output_dir"], "output_transform.pkl"))
-
-            # def quantile_transform_all(passed_data):
-            #     return quantile_transform_all_trf(passed_data, quantile_trfs_out)
-            #
-            # output_transform_list.append(transforms.Lambda(quantile_transform_all))
-            quantile_trf_obj.quantile_trfs_out = quantile_trfs_out
-            output_transform_list.append(transforms.Lambda(quantile_trf_obj.quantile_transform_all_out))
-
-        elif config["output_transform"] == "QuantileTransformOffDiagonal":
-            quantile_trfs_out = quantile_transform_offdiagonal_fit(output_data)
-
-            joblib.dump(quantile_trfs_out, os.path.join(config["output_dir"], "output_transform.pkl"))
-
-            # def quantile_transform_all(passed_data):
-            #     return quantile_transform_offdiagonal_trf(passed_data, quantile_trfs_out)
-            #
-            # output_transform_list.append(transforms.Lambda(quantile_transform_all))
-            quantile_trf_obj.quantile_trfs_out = quantile_trfs_out
-            output_transform_list.append(transforms.Lambda(quantile_trf_obj.quantile_transform_offdiagonal_out))
+        quantile_trfs_out = quantile_transform_fit(output_data,
+                                                   indices=config["input_transform"]["indices"],
+                                                   transform_type=config["input_transform"]["type"])
+        joblib.dump(quantile_trfs_out, os.path.join(config["output_dir"], "output_transform.pkl"))
+        quantile_trf_obj.quantile_trfs_out = quantile_trfs_out
+        output_transform_list.append(transforms.Lambda(quantile_trf_obj.quantile_transform_out))
 
     return input_transform_list, output_transform_list
 
@@ -386,8 +350,8 @@ def prepare_dataset(study, config, data_dir, serialize_path=None):
     # ===================================
     # Get mean and std for each channel
     # ===================================
-    input_transform, output_transform = None, None
     input_mean, output_mean, input_std, output_std = 0, 0, 1, 1
+    data_normalizer = NormalizeData()
 
     n_train_samples = None
     if "n_train_samples" in config and config["n_train_samples"] is not None:
@@ -399,7 +363,7 @@ def prepare_dataset(study, config, data_dir, serialize_path=None):
     ########################
     ## Quantile Transform ##
     ########################
-    input_transform_list, output_transform_list = quantile_transform(config, data_dir, input_transform_list, output_transform_list)
+    input_transform_list, output_transform_list = features_transform(config, data_dir, input_transform_list, output_transform_list)
 
     ####################
     ## Log transforms ##
@@ -442,15 +406,19 @@ def prepare_dataset(study, config, data_dir, serialize_path=None):
     input_transformations = []
     output_transformations = []
 
-    input_transformations, output_transformations = quantile_transform(config, data_dir, input_transformations,
-                                                                    output_transformations, train_set)
+    input_transformations, output_transformations = features_transform(config, data_dir, input_transformations,
+                                                                       output_transformations, train_set)
 
     data_input_transform, data_output_transform = None, None
     # Standardize input
     if config["log_input"]:
         input_transformations.append(transforms.Lambda(log_data))
     if config["normalize_input"]:
-        input_transformations.append(transforms.Normalize(mean=input_mean, std=input_std))
+        if "normalize_input_indices" in config:
+            data_normalizer.input_indices = config["normalize_input_indices"]
+        data_normalizer.input_mean = input_mean
+        data_normalizer.input_std = input_std
+        input_transformations.append(data_normalizer.normalize_input)
 
     if len(input_transformations) > 0:
         data_input_transform = transforms.Compose(input_transformations)
@@ -459,7 +427,11 @@ def prepare_dataset(study, config, data_dir, serialize_path=None):
     if config["log_output"]:
         output_transformations.append(transforms.Lambda(log_data))
     if config["normalize_output"]:
-        output_transformations.append(transforms.Normalize(mean=output_mean, std=output_std))
+        if "normalize_output_indices" in config:
+            data_normalizer.input_indices = config["normalize_output_indices"]
+        data_normalizer.output_mean = output_mean
+        data_normalizer.output_std = output_std
+        output_transformations.append(data_normalizer.normalize_output)
 
     if len(output_transformations) > 0:
         data_output_transform = transforms.Compose(output_transformations)
@@ -514,6 +486,12 @@ def prepare_dataset(study, config, data_dir, serialize_path=None):
         study.set_user_attr("n_train_samples", len(train_set))
         study.set_user_attr("n_val_samples", len(validation_set))
         study.set_user_attr("n_test_samples", len(test_set))
+
+        if "normalize_input_indices" in config:
+            study.set_user_attr("normalize_input_indices", config["normalize_input_indices"])
+
+        if "normalize_output_indices" in config:
+            study.set_user_attr("normalize_output_indices", config["normalize_output_indices"])
 
         study.set_user_attr("normalize_input", config["normalize_input"])
         study.set_user_attr("normalize_output", config["normalize_output"])

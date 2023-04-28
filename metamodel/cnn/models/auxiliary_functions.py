@@ -2,6 +2,7 @@ import torch
 import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
+from sklearn.preprocessing import QuantileTransformer, RobustScaler
 
 
 class QuantileTRF():
@@ -9,17 +10,41 @@ class QuantileTRF():
         self.quantile_trfs_out = None
         self.quantile_trfs_in = None
 
-    def quantile_transform_all_in(self, passed_data):
-        return quantile_transform_all_trf(passed_data, self.quantile_trfs_in)
+    def quantile_transform_in(self, passed_data):
+        return quantile_transform_trf(passed_data, self.quantile_trfs_in)
 
-    def quantile_transform_offdiagonal_in(self, passed_data):
-        return quantile_transform_offdiagonal_trf(passed_data, self.quantile_trfs_in)
+    def quantile_transform_out(self, passed_data):
+        return quantile_transform_trf(passed_data, self.quantile_trfs_out)
 
-    def quantile_transform_all_out(self, passed_data):
-        return quantile_transform_all_trf(passed_data, self.quantile_trfs_out)
 
-    def quantile_transform_offdiagonal_out(self, passed_data):
-        return quantile_transform_offdiagonal_trf(passed_data, self.quantile_trfs_out)
+class NormalizeData():
+    def __init__(self):
+        self.input_indices = [0, 1, 2]
+        self.output_indices = [0, 1, 2]
+        self.input_mean = [0, 0, 0]
+        self.output_mean = [0, 0, 0]
+        self.input_std = [1, 1, 1]
+        self.output_std = [1,1,1]
+
+    def normalize_input(self, data):
+        output_data = torch.empty((data.shape))
+        for i in range(data.shape[0]):
+            if i in self.input_indices:
+                output_data[i][...] = (data[i] - self.input_mean[i]) /self.input_std[i]
+            else:
+                output_data[i][...] = data[i]
+
+        return output_data
+
+    def normalize_output(self, data):
+        output_data = torch.empty((data.shape))
+        for i in range(data.shape[0]):
+            if i in self.output_indices:
+                output_data[i][...] = (data[i] - self.output_mean[i]) /self.output_std[i]
+            else:
+                output_data[i][...] = data[i]
+
+        return output_data
 
 
 def log_data(data):
@@ -36,48 +61,57 @@ def log_data(data):
 
     return output_data
 
-def quantile_transform_all_fit(data):
-    from sklearn.preprocessing import QuantileTransformer
+def quantile_transform_fit(data, indices=[], transform_type=None):
     transform_obj = []
     for i in range(data.shape[0]):
-        transformer = QuantileTransformer(n_quantiles=10000, random_state=0, output_distribution="normal")
-        if torch.is_tensor(data[i]):
-            transform_obj.append(transformer.fit(data[i].reshape(-1, 1).numpy()))
-        else:
-            transform_obj.append(transformer.fit(data[i].reshape(-1, 1)))
-    return transform_obj
-
-def quantile_transform_all_trf(data, quantile_trfs):
-    return_data = torch.empty((data.shape))
-    for i in range(data.shape[0]):
-        transformed_data = quantile_trfs[i].transform(data[i].reshape(-1, 1).numpy())
-        return_data[i][...] = torch.from_numpy(np.reshape(transformed_data, data[i].shape))
-    return return_data
-
-
-def quantile_transform_offdiagonal_fit(data):
-    from sklearn.preprocessing import QuantileTransformer
-    transform_obj = []
-    for i in range(data.shape[0]):
-        if i == 1:
-            transformer = QuantileTransformer(n_quantiles=10000, random_state=0, output_distribution="normal")
+        if i in indices:
+            if transform_type == "RobustScaler":
+                transformer = RobustScaler()
+            else:
+                transformer = QuantileTransformer(n_quantiles=10000, random_state=0, output_distribution="normal")
             if torch.is_tensor(data[i]):
                 transform_obj.append(transformer.fit(data[i].reshape(-1, 1).numpy()))
             else:
                 transform_obj.append(transformer.fit(data[i].reshape(-1, 1)))
+        else:
+            transform_obj.append(None)
     return transform_obj
 
-
-def quantile_transform_offdiagonal_trf(data, quantile_trfs):
-    return_data = torch.empty((data.shape))
+def quantile_transform_trf(data, quantile_trfs):
+    trf_data = torch.empty((data.shape))
     for i in range(data.shape[0]):
-        if i == 1:
-            #print("data ", data[i])
-            transformed_data = quantile_trfs[0].transform(data[i].reshape(-1, 1).numpy())
-            return_data[i][...] = torch.from_numpy(np.reshape(transformed_data, data[i].shape))
+        if quantile_trfs[i] is not None:
+            transformed_data = quantile_trfs[i].transform(data[i].reshape(-1, 1).numpy())
+            trf_data[i][...] = torch.from_numpy(np.reshape(transformed_data, data[i].shape))
         else:
-            return_data[i][...] = data[i]
-    return return_data
+            trf_data[i][...] = data[i]
+    return trf_data
+
+# def quantile_transform_offdiagonal_fit(data, transform_type=None):
+#     transform_obj = []
+#     for i in range(data.shape[0]):
+#         if i == 1:
+#             if transform_type == "RobustScaler":
+#                 transformer = RobustScaler()
+#             else:
+#                 transformer = QuantileTransformer(n_quantiles=10000, random_state=0, output_distribution="normal")
+#             if torch.is_tensor(data[i]):
+#                 transform_obj.append(transformer.fit(data[i].reshape(-1, 1).numpy()))
+#             else:
+#                 transform_obj.append(transformer.fit(data[i].reshape(-1, 1)))
+#     return transform_obj
+#
+#
+# def quantile_transform_offdiagonal_trf(data, quantile_trfs):
+#     return_data = torch.empty((data.shape))
+#     for i in range(data.shape[0]):
+#         if i == 1:
+#             #print("data ", data[i])
+#             transformed_data = quantile_trfs[0].transform(data[i].reshape(-1, 1).numpy())
+#             return_data[i][...] = torch.from_numpy(np.reshape(transformed_data, data[i].shape))
+#         else:
+#             return_data[i][...] = data[i]
+#     return return_data
 
 
 def exp_data(data):

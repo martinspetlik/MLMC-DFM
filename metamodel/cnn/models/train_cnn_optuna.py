@@ -330,6 +330,10 @@ if __name__ == '__main__':
 
     if "input_transform" in trials_config:
         config["input_transform"] = trials_config["input_transform"]
+    if "normalize_input_indices" in trials_config:
+        config["normalize_input_indices"] = trials_config["normalize_input_indices"]
+    if "normalize_output_indices" in trials_config:
+        config["normalize_output_indices"] = trials_config["normalize_output_indices"]
 
     # Optuna params
     num_trials = trials_config["num_trials"]
