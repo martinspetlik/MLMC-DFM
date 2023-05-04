@@ -16,7 +16,7 @@ class DFMDataset(Dataset):
 
     def __init__(self, data_dir, bulk_file_name="bulk.npz", fracture_file_name="fractures.npz",
                  output_file_name="output_tensor.npy", input_transform=None, output_transform=None, two_dim=True,
-                 input_channels=None, output_channels=None):
+                 input_channels=None, output_channels=None, fractures_sep=False):
 
         self._data_dir = data_dir
         self._bulk_file_name = bulk_file_name
@@ -27,6 +27,7 @@ class DFMDataset(Dataset):
         self._two_dim = two_dim
         self._input_channels = input_channels
         self._output_channels = output_channels
+        self._fractures_sep = fractures_sep
 
         self._bulk_file_paths = []
         self._fracture_file_paths = []
@@ -73,7 +74,7 @@ class DFMDataset(Dataset):
         fractures_path = []
         bulk_path = self._bulk_file_paths[idx]
 
-        if idx in self._fracture_file_paths:
+        if len(self._fracture_file_paths) > 0:
             fractures_path = self._fracture_file_paths[idx]
         output_path = self._output_file_paths[idx]
 
@@ -84,13 +85,24 @@ class DFMDataset(Dataset):
             new_dataset._output_file_paths = output_path
             return new_dataset
 
+        #bulk_features = np.load(bulk_path)["data"]
+
+        #print("bulk path ", bulk_path)
+
         bulk_features = np.load(bulk_path)["data"]
+
+        # print("output path ", output_path)
+        # exit()
+        # print("bulk features ", bulk_features)
 
         if len(fractures_path) > 0:
             fractures_features = np.load(fractures_path)["data"]
         else:
             fractures_features = None
         output_features = np.load(output_path, allow_pickle=True)
+
+        #print("fractures features ", fractures_features)
+        #print("output features ", output_features)
 
         if self._two_dim:
             indices = [0,1,3]
@@ -103,11 +115,20 @@ class DFMDataset(Dataset):
 
         flatten_bulk_features = bulk_features.reshape(-1)
         if fractures_features is not None:
-            flatten_fracture_features = fractures_features.reshape(-1)
-            not_nan_indices = np.argwhere(~np.isnan(flatten_fracture_features))
-            flatten_bulk_features[not_nan_indices] = flatten_fracture_features[not_nan_indices]
+            if self._fractures_sep is False:
+                flatten_fracture_features = fractures_features.reshape(-1)
+                not_nan_indices = np.argwhere(~np.isnan(flatten_fracture_features))
+                flatten_bulk_features[not_nan_indices] = flatten_fracture_features[not_nan_indices]
+            else:
+                flatten_fracture_features = fractures_features.reshape(-1)
+                nan_indices = np.argwhere(np.isnan(flatten_fracture_features))
+                flatten_fracture_features[nan_indices] = 0
+                fractures_channel = fractures_features[0, ...]
 
         final_features = flatten_bulk_features.reshape(bulk_features_shape)
+        if self._fractures_sep:
+            final_features = np.concatenate((final_features, np.expand_dims(fractures_channel, axis=0)), axis=0)
+
         final_features = torch.from_numpy(final_features)
         output_features = torch.from_numpy(output_features)
 

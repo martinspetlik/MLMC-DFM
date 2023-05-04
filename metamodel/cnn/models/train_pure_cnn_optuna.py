@@ -305,7 +305,9 @@ def features_transform(config, data_dir, input_transform_list, output_transform_
     #################################
     quantile_trf_obj = QuantileTRF()
     if dataset_for_transform is None:
-        dataset_for_transform = DFMDataset(data_dir=data_dir, two_dim=True)
+        dataset_for_transform = DFMDataset(data_dir=data_dir, two_dim=True,
+                                           fractures_sep=config["fractures_sep"] if "fractures_sep" in config else False
+                                           )
     input_data, output_data = np.array([]), np.array([])
     n_data_input = 1000000
     n_data_output = 300000
@@ -383,7 +385,8 @@ def prepare_dataset(study, config, data_dir, serialize_path=None):
                                           output_transform=output_transform,
                                           two_dim=True,
                                           input_channels=config["input_channels"] if "input_channels" in config else None,
-                                          output_channels=config["output_channels"] if "output_channels" in config else None
+                                          output_channels=config["output_channels"] if "output_channels" in config else None,
+                                          fractures_sep=config["fractures_sep"] if "fractures_sep" in config else False
                                           )
         dataset_for_mean_std.shuffle(seed=config["seed"])
 
@@ -442,7 +445,8 @@ def prepare_dataset(study, config, data_dir, serialize_path=None):
     dataset = DFMDataset(data_dir=data_dir, input_transform=data_input_transform,
                          output_transform=data_output_transform,
                          input_channels=config["input_channels"] if "input_channels" in config else None,
-                         output_channels=config["output_channels"] if "output_channels" in config else None
+                         output_channels=config["output_channels"] if "output_channels" in config else None,
+                         fractures_sep=config["fractures_sep"] if "fractures_sep" in config else False
                          )
     dataset.shuffle(config["seed"])
     print("len dataset ", len(dataset))

@@ -83,6 +83,7 @@ def objective(trial, trials_config, train_loader, validation_loader):
         if "n_test_samples" in trials_config and trials_config["n_test_samples"] is not None:
             config["n_test_samples"] = trials_config["n_test_samples"]
 
+
         train_set, validation_set, test_set = prepare_dataset(study, config, data_dir=data_dir,
                                                               serialize_path=output_dir)
         train_loader = torch.utils.data.DataLoader(train_set, batch_size=config["batch_size_train"], shuffle=True)
@@ -324,6 +325,7 @@ if __name__ == '__main__':
               "normalize_output": trials_config["normalize_output"] if "normalize_output" in trials_config else True,
               "input_channels": trials_config["input_channels"] if "input_channels" in trials_config else None,
               "output_channels": trials_config["output_channels"] if "output_channels" in trials_config else None,
+              "fractures_sep": trials_config["fractures_sep"] if "fractures_sep" in trials_config else False,
               "seed": trials_config["random_seed"] if "random_seed" in trials_config else 12345,
               "output_dir": output_dir
               }
