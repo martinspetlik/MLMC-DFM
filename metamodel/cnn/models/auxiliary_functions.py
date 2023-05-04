@@ -53,6 +53,11 @@ def log_data(data):
         output_data[0][...] = torch.log(data[0])
         output_data[1][...] = data[1]
         output_data[2][...] = torch.log(data[2])
+    elif data.shape[0] == 4:
+        output_data[0][...] = torch.log(data[0])
+        output_data[1][...] = data[1]
+        output_data[2][...] = torch.log(data[2])
+        output_data[3][...] = data[3]
     elif data.shape[0] < 3:
         for i in range(data.shape[0]):
             output_data[i][...] = torch.log(data[i])
