@@ -19,10 +19,10 @@ import torchvision.transforms as transforms
 import torch.optim as optim
 from metamodel.cnn.models.trials.net_optuna_2 import Net
 from metamodel.cnn.datasets.dfm_dataset import DFMDataset
-from torch.utils.tensorboard import SummaryWriter
+#from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
 from metamodel.cnn.models.auxiliary_functions import get_mean_std, log_data, exp_data,\
-    quantile_transform_fit, QuantileTRF, NormalizeData
+    quantile_transform_fit, QuantileTRF, NormalizeData, log_all_data
 #from metamodel.cnn.visualization.visualize_data import plot_samples
 
 
@@ -371,7 +371,10 @@ def prepare_dataset(study, config, data_dir, serialize_path=None):
     ## Log transforms ##
     ####################
     if config["log_input"]:
-        input_transform_list.append(transforms.Lambda(log_data))
+        if "log_all_input_channels" in config and config["log_all_input_channels"]:
+            input_transform_list.append(transforms.Lambda(log_all_data))
+        else:
+            input_transform_list.append(transforms.Lambda(log_data))
     if config["log_output"]:
         output_transform_list.append(transforms.Lambda(log_data))
 
@@ -415,7 +418,10 @@ def prepare_dataset(study, config, data_dir, serialize_path=None):
     data_input_transform, data_output_transform = None, None
     # Standardize input
     if config["log_input"]:
-        input_transformations.append(transforms.Lambda(log_data))
+        if "log_all_input_channels" in config and config["log_all_input_channels"]:
+            input_transformations.append(transforms.Lambda(log_all_data))
+        else:
+            input_transformations.append(transforms.Lambda(log_data))
     if config["normalize_input"]:
         if "normalize_input_indices" in config:
             data_normalizer.input_indices = config["normalize_input_indices"]
@@ -496,6 +502,9 @@ def prepare_dataset(study, config, data_dir, serialize_path=None):
 
         if "normalize_output_indices" in config:
             study.set_user_attr("normalize_output_indices", config["normalize_output_indices"])
+
+        if "log_all_input_channels" in config:
+            study.set_user_attr("log_all_input_channels", config["log_all_input_channels"])
 
         study.set_user_attr("normalize_input", config["normalize_input"])
         study.set_user_attr("normalize_output", config["normalize_output"])

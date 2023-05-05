@@ -46,6 +46,24 @@ class NormalizeData():
 
         return output_data
 
+def log_all_data(data):
+    output_data = torch.empty((data.shape))
+    if data.shape[0] == 3:
+        output_data[0][...] = torch.log(data[0])
+
+        flatten_data = data[1].flatten()
+        positive_data_indices = flatten_data >= 1e-15
+        negative_data_indices = flatten_data < 1e-15
+
+        flatten_data[positive_data_indices] = torch.log(flatten_data[positive_data_indices])
+        flatten_data[negative_data_indices] = torch.log(np.abs(flatten_data[negative_data_indices]))
+
+        output_data[1][...] = np.reshape(flatten_data, data[1].shape)
+        output_data[2][...] = torch.log(data[2])
+    else:
+        raise NotImplementedError("Log transformation implemented for 2D case only")
+
+    return output_data
 
 def log_data(data):
     output_data = torch.empty((data.shape))

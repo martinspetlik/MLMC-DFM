@@ -319,6 +319,7 @@ if __name__ == '__main__':
               "train_samples_ratio": trials_config["train_samples_ratio"] if "train_samples_ratio" in trials_config else 0.8,
               "val_samples_ratio": trials_config["val_samples_ratio"] if "val_samples_ratio" in trials_config else 0.2,
               "print_batches": 10,
+              "log_all_input_channels": trials_config["log_all_input_channels"] if "log_all_input_channels" in trials_config else True,
               "log_input": trials_config["log_input"] if "log_input" in trials_config else True,
               "normalize_input": trials_config["normalize_input"] if "normalize_input" in trials_config else True,
               "log_output": trials_config["log_output"] if "log_output" in trials_config else False,
