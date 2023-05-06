@@ -102,14 +102,23 @@ def objective(trial, trials_config, train_loader, validation_loader):
     if "L2_penalty" in trials_config:
         L2_penalty = trial.suggest_categorical("L2_penalty", trials_config["L2_penalty"])
 
+    cnn_activation_name = "relu"
+    if "cnn_activation_name" in trials_config:
+        cnn_activation_name = trial.suggest_categorical("cnn_activation_name",
+                                                           trials_config["cnn_activation_name"])
+    cnn_activation = getattr(F, cnn_activation_name)
+
     hidden_activation_name = "relu"
     if "hidden_activation_name" in trials_config:
         hidden_activation_name = trial.suggest_categorical("hidden_activation_name",
                                                            trials_config["hidden_activation_name"])
     hidden_activation = getattr(F, hidden_activation_name)
 
-    flag, input_size = check_shapes(n_conv_layers, kernel_size, stride, pool_size, pool_stride,
+    flag, input_size = check_shapes(n_conv_layers, kernel_size, stride, pool_size, pool_stride, pool_indices,
                                     input_size=trials_config["input_size"])
+
+    if "global_pool" in trials_config:
+        global_pool = trial.suggest_categorical("global_pool", trials_config["global_pool"])
 
     if "vit_params" in trials_config:
         vit_params = trial.suggest_categorical("vit_params", trials_config["vit_params"])
@@ -133,6 +142,8 @@ def objective(trial, trials_config, train_loader, validation_loader):
                     "n_hidden_layers": n_hidden_layers,
                     "max_hidden_neurons": max_hidden_neurons,
                     "hidden_activation": hidden_activation,
+                    "cnn_activation": cnn_activation,
+                    "global_pool": global_pool if "global_pool" in trials_config else None,
                     "input_size": trials_config["input_size"],
                     "output_bias": trials_config["output_bias"] if "output_bias" in trials_config else False,
                     "pool_indices": pool_indices if "pool_indices" in trials_config else [],
