@@ -299,14 +299,15 @@ def objective(trial, train_loader, validation_loader):
     return avg_vloss
 
 
-def features_transform(config, data_dir, input_transform_list, output_transform_list, dataset_for_transform=None):
+def features_transform(config, data_dir, output_file_name, input_transform_list, output_transform_list, dataset_for_transform=None):
     #################################
     ## Data for Quantile Transform ##
     #################################
     quantile_trf_obj = QuantileTRF()
     if dataset_for_transform is None:
-        dataset_for_transform = DFMDataset(data_dir=data_dir, two_dim=True,
-                                           fractures_sep=config["fractures_sep"] if "fractures_sep" in config else False
+        dataset_for_transform = DFMDataset(data_dir=data_dir, output_file_name=output_file_name, two_dim=True,
+                                           fractures_sep=config["fractures_sep"] if "fractures_sep" in config else False,
+                                           vel_avg=config["vel_avg"] if "vel_avg" in config else False
                                            )
     input_data, output_data = np.array([]), np.array([])
     n_data_input = 1000000
@@ -349,6 +350,10 @@ def features_transform(config, data_dir, input_transform_list, output_transform_
 
 
 def prepare_dataset(study, config, data_dir, serialize_path=None):
+    output_file_name = "output_tensor.npy"
+    if "vel_avg" in config and config["vel_avg"]:
+        output_file_name = "output_vel_avg.npy"
+
     # ===================================
     # Get mean and std for each channel
     # ===================================
@@ -365,7 +370,11 @@ def prepare_dataset(study, config, data_dir, serialize_path=None):
     ########################
     ## Quantile Transform ##
     ########################
-    input_transform_list, output_transform_list = features_transform(config, data_dir, input_transform_list, output_transform_list)
+    input_transform_list, output_transform_list = features_transform(config,
+                                                                     data_dir,
+                                                                     output_file_name,
+                                                                     input_transform_list,
+                                                                     output_transform_list)
 
     ####################
     ## Log transforms ##
@@ -381,15 +390,18 @@ def prepare_dataset(study, config, data_dir, serialize_path=None):
     input_transform = transforms.Compose(input_transform_list)
     output_transform = transforms.Compose(output_transform_list)
 
+
     if config["normalize_input"] or config["normalize_output"]:
         #print("output transform ", output_transform)
         dataset_for_mean_std = DFMDataset(data_dir=data_dir,
+                                          output_file_name=output_file_name,
                                           input_transform=input_transform,
                                           output_transform=output_transform,
                                           two_dim=True,
                                           input_channels=config["input_channels"] if "input_channels" in config else None,
                                           output_channels=config["output_channels"] if "output_channels" in config else None,
-                                          fractures_sep=config["fractures_sep"] if "fractures_sep" in config else False
+                                          fractures_sep=config["fractures_sep"] if "fractures_sep" in config else False,
+                                          vel_avg=config["vel_avg"] if "vel_avg" in config else False
                                           )
         dataset_for_mean_std.shuffle(seed=config["seed"])
 
@@ -401,10 +413,11 @@ def prepare_dataset(study, config, data_dir, serialize_path=None):
         train_val_set = dataset_for_mean_std[:n_train_samples]
         train_set = train_val_set[:-int(n_train_samples * config["val_samples_ratio"])]
 
-        train_loader_mean_std = torch.utils.data.DataLoader(train_set, batch_size=config["batch_size_train"], shuffle=False)
+        train_loader_mean_std = torch.utils.data.DataLoader(train_val_set, batch_size=config["batch_size_train"], shuffle=False)
         input_mean, input_std, output_mean, output_std = get_mean_std(train_loader_mean_std)
 
         print("input mean: {}, std:{}, output mean: {}, std: {}".format(input_mean, input_std, output_mean, output_std))
+        #exit()
 
     # =======================
     # data transforms
@@ -412,7 +425,7 @@ def prepare_dataset(study, config, data_dir, serialize_path=None):
     input_transformations = []
     output_transformations = []
 
-    input_transformations, output_transformations = features_transform(config, data_dir, input_transformations,
+    input_transformations, output_transformations = features_transform(config, data_dir, output_file_name, input_transformations,
                                                                        output_transformations, train_set)
 
     data_input_transform, data_output_transform = None, None
@@ -448,11 +461,14 @@ def prepare_dataset(study, config, data_dir, serialize_path=None):
     # ============================
     # Datasets and data loaders
     # ============================
-    dataset = DFMDataset(data_dir=data_dir, input_transform=data_input_transform,
+    dataset = DFMDataset(data_dir=data_dir,
+                         output_file_name=output_file_name,
+                         input_transform=data_input_transform,
                          output_transform=data_output_transform,
                          input_channels=config["input_channels"] if "input_channels" in config else None,
                          output_channels=config["output_channels"] if "output_channels" in config else None,
-                         fractures_sep=config["fractures_sep"] if "fractures_sep" in config else False
+                         fractures_sep=config["fractures_sep"] if "fractures_sep" in config else False,
+                         vel_avg=config["vel_avg"] if "vel_avg" in config else False
                          )
     dataset.shuffle(config["seed"])
     print("len dataset ", len(dataset))

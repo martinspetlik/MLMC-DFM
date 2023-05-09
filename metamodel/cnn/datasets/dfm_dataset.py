@@ -16,7 +16,7 @@ class DFMDataset(Dataset):
 
     def __init__(self, data_dir, bulk_file_name="bulk.npz", fracture_file_name="fractures.npz",
                  output_file_name="output_tensor.npy", input_transform=None, output_transform=None, two_dim=True,
-                 input_channels=None, output_channels=None, fractures_sep=False):
+                 input_channels=None, output_channels=None, fractures_sep=False, vel_avg=False):
 
         self._data_dir = data_dir
         self._bulk_file_name = bulk_file_name
@@ -28,6 +28,7 @@ class DFMDataset(Dataset):
         self._input_channels = input_channels
         self._output_channels = output_channels
         self._fractures_sep = fractures_sep
+        self._vel_avg = vel_avg
 
         self._bulk_file_paths = []
         self._fracture_file_paths = []
@@ -85,30 +86,20 @@ class DFMDataset(Dataset):
             new_dataset._output_file_paths = output_path
             return new_dataset
 
-        #bulk_features = np.load(bulk_path)["data"]
-
-        #print("bulk path ", bulk_path)
-
         bulk_features = np.load(bulk_path)["data"]
-
-        # print("output path ", output_path)
-        # exit()
-        # print("bulk features ", bulk_features)
 
         if len(fractures_path) > 0:
             fractures_features = np.load(fractures_path)["data"]
         else:
             fractures_features = None
         output_features = np.load(output_path, allow_pickle=True)
-
-        #print("fractures features ", fractures_features)
-        #print("output features ", output_features)
-
         if self._two_dim:
             indices = [0,1,3]
             bulk_features = bulk_features[indices, ...]
             if fractures_features is not None:
                 fractures_features = fractures_features[indices, ...]
+
+        if self._two_dim and not self._vel_avg:
             output_features = output_features[indices, ...]
 
         bulk_features_shape = bulk_features.shape
@@ -154,6 +145,3 @@ class DFMDataset(Dataset):
 
         if has_nan:
             raise ValueError(str_err)
-
-
-

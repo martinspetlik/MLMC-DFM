@@ -24,7 +24,6 @@ class Net(nn.Module):
         self._hidden_layers = nn.ModuleList()
         self._cnn_dropouts = {}
         self._fc_dropouts = {}
-
         self._use_batch_norm = use_batch_norm
         self._hidden_activation = hidden_activation
         self._cnn_activation = cnn_activation

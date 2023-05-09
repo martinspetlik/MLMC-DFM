@@ -55,6 +55,7 @@ def objective(trial, trials_config, train_loader, validation_loader):
 
     loss_fn = get_loss_fn(loss_function)
 
+    pool_indices = None
     if "pool_indices" in trials_config:
         pool_indices = trial.suggest_categorical("pool_indices", trials_config["pool_indices"])
 
@@ -146,7 +147,7 @@ def objective(trial, trials_config, train_loader, validation_loader):
                     "global_pool": global_pool if "global_pool" in trials_config else None,
                     "input_size": trials_config["input_size"],
                     "output_bias": trials_config["output_bias"] if "output_bias" in trials_config else False,
-                    "pool_indices": pool_indices if "pool_indices" in trials_config else [],
+                    "pool_indices": pool_indices if "pool_indices" in trials_config else {},
                     "use_cnn_dropout": use_cnn_dropout if "use_cnn_dropout" in trials_config else False,
                     "use_fc_dropout": use_fc_dropout if "use_fc_dropout" in trials_config else False,
                     "cnn_dropout_indices": cnn_dropout_indices if "cnn_dropout_indices" in trials_config else [],
@@ -330,7 +331,7 @@ if __name__ == '__main__':
               "train_samples_ratio": trials_config["train_samples_ratio"] if "train_samples_ratio" in trials_config else 0.8,
               "val_samples_ratio": trials_config["val_samples_ratio"] if "val_samples_ratio" in trials_config else 0.2,
               "print_batches": 10,
-              "log_all_input_channels": trials_config["log_all_input_channels"] if "log_all_input_channels" in trials_config else True,
+              "log_all_input_channels": trials_config["log_all_input_channels"] if "log_all_input_channels" in trials_config else False,
               "log_input": trials_config["log_input"] if "log_input" in trials_config else True,
               "normalize_input": trials_config["normalize_input"] if "normalize_input" in trials_config else True,
               "log_output": trials_config["log_output"] if "log_output" in trials_config else False,
@@ -338,6 +339,7 @@ if __name__ == '__main__':
               "input_channels": trials_config["input_channels"] if "input_channels" in trials_config else None,
               "output_channels": trials_config["output_channels"] if "output_channels" in trials_config else None,
               "fractures_sep": trials_config["fractures_sep"] if "fractures_sep" in trials_config else False,
+              "vel_avg": trials_config["vel_avg"] if "vel_avg" in trials_config else False,
               "seed": trials_config["random_seed"] if "random_seed" in trials_config else 12345,
               "output_dir": output_dir
               }
