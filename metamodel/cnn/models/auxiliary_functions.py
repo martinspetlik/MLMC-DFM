@@ -203,9 +203,10 @@ def check_shapes(n_conv_layers, kernel_size, stride, pool_size, pool_stride, poo
 
         input_size = int(((input_size - kernel_size) / stride)) + 1
 
-        if i in list(pool_indices.keys()):
-            if pool_size > 0 and pool_stride > 0:
-                input_size = int(((input_size - pool_size) / pool_stride)) + 1
+        if pool_indices is not None:
+            if i in list(pool_indices.keys()):
+                if pool_size > 0 and pool_stride > 0:
+                    input_size = int(((input_size - pool_size) / pool_stride)) + 1
 
     return 0, input_size
 
