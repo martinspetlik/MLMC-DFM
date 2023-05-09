@@ -921,15 +921,13 @@ class Fractures:
     def get_lines(self, fr_range):
         lines = {}
         fr_min, fr_max = fr_range
-        #fr_max = 20
+
+        #print("fr min: {}, fr max: {}".format(fr_min, fr_max))
         #fr_min = 20
-        #print("len self fractures ", len(self.fractures))
-        #print("fr range ", fr_range)
+
         for i, (line, fr) in enumerate(zip(self.lines, self.fractures)):
-            #print("fr.rx ", fr.rx)
             if fr_min <= fr.rx < fr_max:
                 lines[i] = [self.points[p][:2] for p in line]
-        #print("len lines ", len(lines))
         return lines
 
     def make_bihs(self):

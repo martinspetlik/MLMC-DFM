@@ -375,13 +375,25 @@ class BulkFieldsGSTools(BulkBase):
             xv = self._mesh_data['points'][:, 0]
             yv = self._mesh_data['points'][:, 1]
 
+            #import matplotlib
+            #matplotlib.rcParams.update({'font.size': 34})
+
             # print("rf sample angle ", len(rf_sample["angle"]))
             # exit()
             # try:
             #     fig, ax = plt.subplots(1, 1, figsize=(15, 10))
             #     cont = ax.tricontourf(xv, yv, self._rf_sample["k_xx"], level=32)
             #     fig.colorbar(cont)
-            #     plt.title("k xx")
+            #     plt.title(r"$log(k_{xx})$")
+            #     plt.show()
+            # except Exception as e:
+            #     print(e)
+            #
+            # try:
+            #     fig, ax = plt.subplots(1, 1, figsize=(15, 10))
+            #     cont = ax.tricontourf(xv, yv, np.power(10, self._rf_sample["k_xx"]), level=32)
+            #     fig.colorbar(cont)
+            #     plt.title(r"$k_{xx}$")
             #     plt.show()
             # except Exception as e:
             #     print(e)
@@ -390,7 +402,16 @@ class BulkFieldsGSTools(BulkBase):
             #     fig, ax = plt.subplots(1, 1, figsize=(15, 10))
             #     cont = ax.tricontourf(xv, yv, self._rf_sample["k_yy"], level=32)
             #     fig.colorbar(cont)
-            #     plt.title("k yy")
+            #     plt.title(r"$log(k_{yy})$")
+            #     plt.show()
+            # except Exception as e:
+            #     print(e)
+            #
+            # try:
+            #     fig, ax = plt.subplots(1, 1, figsize=(15, 10))
+            #     cont = ax.tricontourf(xv, yv, np.power(10, self._rf_sample["k_yy"]), level=32)
+            #     fig.colorbar(cont)
+            #     plt.title(r"$k_{yy}$")
             #     plt.show()
             # except Exception as e:
             #     print(e)
@@ -405,6 +426,41 @@ class BulkFieldsGSTools(BulkBase):
             # except Exception as e:
             #     print(e)
             #
+            #
+            # k_xy = []
+            # for eid in self._mesh_data["ele_ids"]:
+            #     ele_idx = np.where(self._mesh_data["ele_ids"] == eid)
+            #     k_xx = self._rf_sample["k_xx"][ele_idx][0]
+            #     k_yy = self._rf_sample["k_yy"][ele_idx][0]
+            #
+            #     unrotated_tn = np.diag(np.power(10, np.array([k_xx, k_yy])))
+            #
+            #     angle = self._rf_sample["angle"][ele_idx][0]
+            #     c, s = np.cos(angle), np.sin(angle)
+            #
+            #     rot_mat = np.array([[c, -s], [s, c]])
+            #     # print("rot mat ", rot_mat)
+            #
+            #     cond_2d = rot_mat @ unrotated_tn @ rot_mat.T
+            #
+            #     k_xy.append((cond_2d[0,1] + cond_2d[1,0])/2)
+            #
+            # print("k_xy ", k_xy)
+            #
+            # try:
+            #     fig, ax = plt.subplots(1, 1, figsize=(15, 10))
+            #     cont = ax.tricontourf(xv, yv, k_xy, level=32)
+            #     fig.colorbar(cont)
+            #     plt.title(r"$k_{xy}$")
+            #     plt.show()
+            # except Exception as e:
+            #     print(e)
+            #
+            # exit()
+            #
+
+
+
             # fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(10, 10))
             # ax = axes  # [0]
             # #ax.set_xscale('log')
@@ -588,7 +644,6 @@ class BulkFieldsGSTools(BulkBase):
 #         return 1.0, cond_2d
 
 
-
 class BulkMicroScale(BulkBase):
     def __init__(self, microscale):
         self.microscale = microscale
@@ -651,16 +706,13 @@ class BulkHomogenization(BulkBase):
     def _get_tensors(self, cond_tn_file):
         with open(cond_tn_file, "r") as f:
             self._cond_tns = ruamel.yaml.load(f)
+        print("self._cond_tns ", self._cond_tns)
 
     def element_data(self, mesh, eid):
         el_type, tags, node_ids = mesh.elements[eid]
         center = np.mean([np.array(mesh.nodes[nid]) for nid in node_ids], axis=0)[0:2]
-
         dist_2 = np.sum((self._center_points - center) ** 2, axis=1)
         cond_tn = self._cond_tns[tuple(self._center_points[np.argmin(dist_2)])]
-
-        #print("cond tn ", cond_tn)
-
         return 1.0, cond_tn[0].reshape(2, 2)
 
 
@@ -686,7 +738,6 @@ class FractureModel:
         i_fr = elid_to_fr[eid]
         fr_size = self.fractures.fractures[i_fr].rx
 
-
         if self.target_sigma is None or self.bulk_model is None:
             # print("variable cond")
             # exit()
@@ -711,20 +762,121 @@ def tensor_3d_flatten(tn_2d):
     # tn3d[0:2, 0:2] += tn_2d # ???
     return tn3d.ravel()
 
+def find_closest(center, center_cond_field, kdtree):
+    centers, cond_field = center_cond_field
+    _, index = kdtree.query(center)
+    # print("index ", index)
+    # print("centers[index] ", centers[index])
+    # print("cond_field[index] ", cond_field[index])
+    # exit()
+    return cond_field[index]
+
 
 def write_fields(mesh, basename, bulk_model, fracture_model, elid_to_fr, elids_same_value=None,
-                 positions=None, input_tensors=None):
+                 positions=None, input_tensors=None, center_cond_tn_field=None, interp_data=None):
     elem_ids = []
     cond_tn_field = []
     cs_field = []
     fracture_cs = []
     fracture_len = []
     el_cond = {}
+    centers = []
+
+    # rotation_matrix = np.array([[0, 1, 0],
+    #                             [-1, 0, 0],
+    #                             [0, 0, 1]])
+    #rotation_matrix = np.array([[0, 1], [-1, 0]])
+
+    # all_cond_tn = {}
+    # all_ele_ids = {}
+    #
+    # indices = np.reshape(np.array(list(range(9))), (3, 3))
+    #
+    # rot = indices.T
+    #
+    # rot = rot.flatten()
+    # print("rot flatten ", rot)
+    #
+    # all_ell_ids = {17: 0, 18: 0, 19: 1, 20: 1, 21: 2, 22: 2, 23: 3, 24: 3, 25: 4, 26: 4, 27: 5, 28: 5, 29: 6, 30: 6,
+    #                31: 7, 32: 7, 33: 8, 34: 8}
+    #
+    # all_cond_tn = {0: np.array([[8.77108150e-07, -1.08600165e-07],
+    #                             [-1.08600165e-07, 6.58661058e-07]]), 1: np.array([[4.92966922e-07, -3.66120247e-10],
+    #                                                                               [-3.66120247e-10, 4.91705754e-07]]),
+    #                2: np.array([[4.36438326e-07, 2.24193169e-07],
+    #                             [2.24193169e-07, 4.09646465e-07]]), 3: np.array([[8.89458094e-07, 2.74144935e-07],
+    #                                                                              [2.74144935e-07, 8.19394721e-07]]),
+    #                4: np.array([[9.90674584e-07, 4.36280744e-07],
+    #                             [4.36280744e-07, 1.24064447e-06]]), 5: np.array([[2.63761706e-06, 6.14196903e-07],
+    #                                                                              [6.14196903e-07, 1.03941896e-06]]),
+    #                6: np.array([[4.31686662e-07, -6.25398254e-08],
+    #                             [-6.25398254e-08, 5.65524507e-07]]), 7: np.array([[1.17374197e-06, 2.34448527e-08],
+    #                                                                               [2.34448527e-08, 1.14371008e-06]]),
+    #                8: np.array([[1.46986308e-06, -3.47998338e-07],
+    #                             [-3.47998338e-07, 1.53616856e-06]])}
+    # i = 0
+
+    # for el_id, ele in gmsh_mesh_bulk_elements(mesh):
+    #     elem_ids.append(el_id)
+    #     el_type, tags, node_ids = ele
+    #     n_nodes = len(node_ids)
+    #
+    #     if n_nodes == 2:
+    #         cs, cond_tn, fr_size = fracture_model.element_data(mesh, el_id, elid_to_fr)
+    #         # print("fr cs: {}, cond_tn: {}".format(cs, cond_tn))
+    #         fracture_cs.append(cs)
+    #         fracture_len.append(fr_size)
+    #         # sigma = cs * (cond_tn[0][0] /10**-6)
+    #         # print("sigma: {}", sigma)
+    #     else:
+    #         # n_nodes == 3
+    #         cs, cond_tn = bulk_model.element_data(mesh, el_id)
+    #         # print("bulk cs: {}, cond_tn: {}".format(cs, cond_tn))
+    #
+    #         if elids_same_value is not None and el_id in elids_same_value:
+    #             if elids_same_value[el_id] in elem_ids:
+    #                 cond_tn = el_cond[elids_same_value[el_id]]
+    #             # all_cond_tn.append(cond_tn)
+    #         # print("cond tn ", cond_tn.shape)
+    #         # exit()
+    #         #
+    #         # print("np.reshape(cond_tn, (3,3)) ", np.reshape(np.array(cond_tn), (3,3)))
+    #         # exit()
+    #         # cond_tn = rotation_matrix.T @ cond_tn @ rotation_matrix
+    #         # cond_tn = cond_tn.flatten()
+    #
+    #         el_cond[el_id] = cond_tn
+    #
+    #     cs_field.append(np.array(cs))
+    #     cond_tn_field.append(tensor_3d_flatten(cond_tn))
+    #
+
+    if center_cond_tn_field is not None:
+        from scipy.spatial import KDTree
+        centers_cnd, values_cnd = center_cond_tn_field
+        kdtree = KDTree(centers_cnd)
 
     for el_id, ele in gmsh_mesh_bulk_elements(mesh):
         elem_ids.append(el_id)
         el_type, tags, node_ids = ele
         n_nodes = len(node_ids)
+        center = np.average(np.array([mesh.nodes[i_node] for i_node in node_ids]), axis=0)
+
+        if center_cond_tn_field is not None:
+            cond_tn_flatten = find_closest(center, center_cond_tn_field, kdtree)
+
+        if interp_data is not None:
+            eids = interp_data[0][1]
+            cond_values = interp_data[1]
+            el_index = eids.index(el_id)
+            cond_tn = cond_values[el_index]
+
+            cond_tn_flatten = np.zeros(9)
+            cond_tn_flatten[0] = cond_tn[0]
+            cond_tn_flatten[1] = cond_tn[1]
+            cond_tn_flatten[3] = cond_tn[1]
+            cond_tn_flatten[4] = cond_tn[2]
+            cond_tn_flatten[8] = 1
 
         if n_nodes == 2:
             cs, cond_tn, fr_size = fracture_model.element_data(mesh, el_id, elid_to_fr)
@@ -736,7 +888,6 @@ def write_fields(mesh, basename, bulk_model, fracture_model, elid_to_fr, elids_s
         else:
             # n_nodes == 3
             #print("bulk model self. rf sample ", bulk_model._rf_sample)
-
             cs, cond_tn = bulk_model.element_data(mesh, el_id)
             #print("bulk model self. rf sample ", bulk_model._rf_sample)
             #exit()
@@ -744,7 +895,6 @@ def write_fields(mesh, basename, bulk_model, fracture_model, elid_to_fr, elids_s
             if input_tensors is not None:
                 indices = positions[el_id]
                 cond_tn = input_tensors[:, indices[0], indices[1]]
-
                 cond_tn = [[cond_tn[0], cond_tn[1]], [cond_tn[1], cond_tn[2]]]
                 #print("cond_tn ", cond_tn)
 
@@ -760,9 +910,7 @@ def write_fields(mesh, basename, bulk_model, fracture_model, elid_to_fr, elids_s
             #     all_cond_tn[i] = cond_tn
             #     all_ele_ids[el_id] = i
             #     i += 1
-
-
-                # print("cond tn ", cond_tn.shape)
+            # print("cond tn ", cond_tn.shape)
             # exit()
             #
             # print("np.reshape(cond_tn, (3,3)) ", np.reshape(np.array(cond_tn), (3,3)))
@@ -777,12 +925,20 @@ def write_fields(mesh, basename, bulk_model, fracture_model, elid_to_fr, elids_s
             el_cond[el_id] = cond_tn
 
         cs_field.append(np.array(cs))
-        cond_tn_field.append(tensor_3d_flatten(cond_tn))
+        if center_cond_tn_field is not None or interp_data is not None:
+            cond_tn_field.append(cond_tn_flatten)
+        else:
+            cond_tn_field.append(tensor_3d_flatten(cond_tn))
+            centers.append(center)
+
+    # print("centers ", centers)
+    # exit()
+    # #print("mesh nodes ", )
+    # print("el cond ", el_cond)
 
     # print("all_cond_tn ", all_cond_tn)
     # print("all_ell_ids ", all_ele_ids)
     # exit()
-
     # print("cond_tn_field ", cond_tn_field)
     # cond_tn_field_arr = np.array(cond_tn_field)
     # print("cond_tn_field_arr ", cond_tn_field_arr.shape)
@@ -806,7 +962,8 @@ def write_fields(mesh, basename, bulk_model, fracture_model, elid_to_fr, elids_s
 
     # print("fracture_cs ", fracture_cs)
     # exit()
-    return elem_ids, cs_field, cond_tn_field, fracture_cs, fracture_len
+    center_cond = (centers, cond_tn_field)
+    return elem_ids, cs_field, cond_tn_field, fracture_cs, fracture_len, center_cond
 
 
 @attr.s(auto_attribs=True)
@@ -908,7 +1065,7 @@ class FlowProblem:
         #bulk_model = BulkMicroScale(micro_scale_problem)
         #print("coarse fr range ", fr_range)
         bulk_model = BulkHomogenization(config_dict)
-        bulk_model.mean_log_conductivity = 10**-6
+        #bulk_model.mean_log_conductivity = 10**-6
 
         return FlowProblem("coarse",
                            fr_range, fractures, bulk_model, config_dict)
@@ -1104,6 +1261,10 @@ class FlowProblem:
     #     g2d.call_gmsh(gmsh_executable, step_range)
     #     self.mesh = g2d.modify_mesh()
 
+
+    def get_subdomain(self, outer_polygon):
+        self.mesh
+
     def make_mesh(self, mesh_file=None):
         import homogenization.geometry_2d as geom
         if mesh_file is None:
@@ -1127,7 +1288,6 @@ class FlowProblem:
             #print("self.reg_to_fr ", self.reg_to_fr)
             self.mesh, self.elid_to_fr = g2d.modify_mesh(self.reg_to_fr)
             #print("self.elid_to_fr ", self.elid_to_fr)
-
         elif self.skip_decomposition and self.config_dict["sim_config"]["mesh_window"]:
             self._make_mesh_window()
         else:
@@ -1136,6 +1296,108 @@ class FlowProblem:
             self.mesh = gmsh_io.GmshIO()
             with open(mesh_file, "r") as f:
                 self.mesh.read(f)
+
+    def get_centers(self, mesh):
+        centers = []
+        elem_ids = []
+        for el_id, ele in gmsh_mesh_bulk_elements(mesh):
+            elem_ids.append(el_id)
+            el_type, tags, node_ids = ele
+            #n_nodes = len(node_ids)
+            center = np.average(np.array([mesh.nodes[i_node] for i_node in node_ids]), axis=0)
+            centers.append(center)
+        return [centers, elem_ids]
+
+    def interpolate_fields(self, center_cond_tn_field, mode="linear"):
+        fracture_model = FractureModel(self.fractures, self.reg_to_fr,
+                                       **self.config_dict["sim_config"]['fracture_model'],
+                                       bulk_model=self.bulk_model)
+
+        mesh_centers_eids = self.get_centers(self.mesh)
+
+        # print("center_cond_tn_field[0] ", center_cond_tn_field[0])
+        # print("center_cond_tn_field[1] ", center_cond_tn_field[1])
+        # print("mesh_centers_eids[0] ", mesh_centers_eids[0])
+
+        grid_fine = np.array(center_cond_tn_field[0])[:, :2]
+        values = np.array(center_cond_tn_field[1])[:, [0,1,4]]
+        grid_hom = np.array(mesh_centers_eids[0])[:, :2]
+
+        # print("grid fine ", grid_fine)
+        # # print("values ", values)
+        # print("grid hom ", grid_hom)
+        # print("grid fine ", grid_fine.shape)
+        # print("values ", values.shape)
+        # print("grid hom ", grid_hom.shape)
+        # x_fine = grid_fine[:, 0]
+        # y_fine = grid_fine[:, 1]
+        #
+        # xy = np.zeros((2, np.size(x_fine)))
+        # xy[0] = x_fine
+        # xy[1] = y_fine
+        # xy = xy.T
+
+        tria = sc_spatial.Delaunay(grid_fine)
+        mean_val = np.mean(values)
+
+        interp = sc_interpolate.LinearNDInterpolator(tria, values, fill_value=0)
+        value_hom = interp(grid_hom)
+
+        for index, row in enumerate(value_hom):
+            if np.alltrue(row == 0):
+                v = [mean_val, 0, mean_val]
+                value_hom[index] = v
+
+        # value_hom = sc_interpolate.griddata(grid_fine, values, grid_hom, method=mode)
+        #
+        # fig, axs = plt.subplots(3)
+        # for i, i_type in enumerate(['cubic', 'nearest', 'linear']):  # , cubic
+        #
+        #     grid_z = sc_interpolate.griddata(xy, values, (grid_hom[:, 0], grid_hom[:, 1]), method=i_type)
+        #
+        #     print("grid z ", grid_z)
+        #
+        #     # check if there is a nan in the z grid:
+        #     axs[i].imshow(grid_z)
+        #     axs[i].set_title(i_type)
+        #
+        # #plt.tight_layout()
+        # plt.show()
+        #
+        #
+        # exit()
+
+        # if np.any(np.isnan(value_hom)):
+        #     print("nearest ")
+        #     value_hom = sc_interpolate.griddata(grid_fine, values, grid_hom, method='nearest')
+
+        #print("value hom ", value_hom)
+        #exit()
+
+        #grid_hom = sc_interpolate.griddata(center_cond_tn_field[0], center_cond_tn_field[1], mesh_centers_eids[0], method='linear')
+
+        # print("center cond tn field ", center_cond_tn_field)
+        # print("self.mesh.nodes ", self.mesh.nodes)
+        #
+        # print("grid hom ", grid_hom)
+        # exit()
+
+        interp_data = [mesh_centers_eids, value_hom]
+
+        elem_ids, cs_field, cond_tn_field, fracture_cs, fracture_len, center_cond = write_fields(self.mesh,
+                                                                                                 self.basename,
+                                                                                                 self.bulk_model,
+                                                                                                 fracture_model,
+                                                                                                 self.elid_to_fr,
+                                                                                                 center_cond_tn_field=center_cond_tn_field,
+                                                                                                 interp_data=interp_data,
+                                                                                                 )
+
+        self._elem_ids = elem_ids
+        self._cond_tn_field = cond_tn_field
+        self._fracture_cs = fracture_cs
+        self._fracture_len = fracture_len
+        self._center_cond = center_cond
 
     def make_fields(self, elids_same_value=None, positions=None, input_tensors=None):
         """
@@ -1149,7 +1411,7 @@ class FlowProblem:
         fracture_model = FractureModel(self.fractures, self.reg_to_fr,
                                        **self.config_dict["sim_config"]['fracture_model'],
                                        bulk_model=self.bulk_model)
-        elem_ids, cs_field, cond_tn_field, fracture_cs, fracture_len = write_fields(self.mesh, self.basename,
+        elem_ids, cs_field, cond_tn_field, fracture_cs, fracture_len, center_cond = write_fields(self.mesh, self.basename,
                                                                                     self.bulk_model, fracture_model,
                                                                                     self.elid_to_fr,
                                                                                     elids_same_value,
@@ -1160,7 +1422,7 @@ class FlowProblem:
         self._cond_tn_field = cond_tn_field
         self._fracture_cs = fracture_cs
         self._fracture_len = fracture_len
-
+        self._center_cond = center_cond
 
 
     def bulk_field(self):
@@ -1354,6 +1616,23 @@ class FlowProblem:
         #print("eval c_x, c_y", e_val)
 
         return e_val
+    @staticmethod
+    def get_node_features(fields_mesh, feature_names):
+        """
+        Extract mesh from file
+        :param fields_mesh: Mesh file
+        :param feature_names: [[], []] - fields in each sublist are joint to one feature, each sublist corresponds to one vertex feature
+        :return: list
+        """
+        mesh = gmsh_io.GmshIO(fields_mesh)
+        features = []
+        all_fields = []
+        for f_names in feature_names:
+            all_fields.append(mesh._fields)
+            joint_features = join_fields(mesh._fields, f_names)
+            features.append(list(joint_features.values()))
+
+        return np.array(features).T, all_fields
 
     def effective_tensor_from_bulk(self, pressure_loads=None, reg_to_group_1=None, basename=None, elids_same_value=None):
         """
@@ -1369,7 +1648,7 @@ class FlowProblem:
         # print("bulk regions ", bulk_regions)
         # print("self.regions ", self.regions)
         # print("self.reg_to_group ", self.reg_to_group)
-        #print("self.pressure_loads ", pressure_loads)
+        print("self.pressure_loads ", pressure_loads)
 
         #compute_effective_cond.effective_tensor_from_bulk(self.regions, bulk_regions, self.pressure_loads, os.path.join(self.basename, "flow_fields.msh"))
         #print("bulk regions ", bulk_regions)
@@ -1381,6 +1660,13 @@ class FlowProblem:
         time, field_cs = out_mesh.element_data['cross_section'][time_idx]
         ele_reg_vol = {eid: (tags[0] - 10000, self.element_volume(out_mesh, nodes))
                        for eid, (tele, tags, nodes) in out_mesh.elements.items()}
+
+        ###
+        # Get conductivity tensor
+        ###
+        # feature_names = [['conductivity_tensor'], ['cross_section']]
+        # FlowProblem.get_node_features("fields_fine.msh", feature_names)
+
 
         assert len(field_cs) == len(ele_reg_vol)
         velocity_field = out_mesh.element_data['velocity_p0']
@@ -1429,7 +1715,7 @@ class FlowProblem:
             #print("velocity ", velocity)
 
             for eid, ele_vel in velocity.items():
-                print("eid : {}, ele_vel: {}".format(eid, ele_vel))
+                #print("eid : {}, ele_vel: {}".format(eid, ele_vel))
 
                 reg_id, vol = ele_reg_vol[eid]
                 cs = field_cs[eid][0]
@@ -1437,6 +1723,9 @@ class FlowProblem:
                 volume = cs * vol
                 i_group = group_idx[bulk_regions[reg_id]]
                 flux_response[i_group, i_time, :] += -(volume * np.array(ele_vel[0:2]))
+
+                #neg_pressure = np.matmul(np.linalg.inv(cond_tn), velocities[e_id])
+
                 area[i_group, i_time] += volume
 
         #print("flux response ", flux_response)
@@ -1445,6 +1734,7 @@ class FlowProblem:
         flux_response /= area[:, :, None]
         cond_tensors = {}
         print("Fitting tensors ...")
+        print("flux response ", flux_response)
 
         #print("groud_idx ", group_idx.items())
         for group_id, i_group in group_idx.items():
@@ -1463,6 +1753,7 @@ class FlowProblem:
                 #@TODO: skalarni soucin rychlosti s (p0, p1)
                 # pressure_matrix[i0] = [p0, p1, 0]
                 # pressure_matrix[i1] = [0, p0, p1]
+
                 pressure_matrix[i0] = [p0, p1, 0, 0]
                 pressure_matrix[i1] = [0, 0, p0, p1]
 
@@ -1474,6 +1765,10 @@ class FlowProblem:
             #print("rhs ", rhs)
             #print("rhs type ", type(rhs))
             #print("rhs ", rhs)
+
+            #print("pressure matrix ", pressure_matrix)
+            #print("rhs ", rhs)
+            # exit()
 
             C, residuals, rank, sing_values = np.linalg.lstsq(pressure_matrix, rhs)
 
@@ -1489,6 +1784,9 @@ class FlowProblem:
             #cond_tn = np.array([[C[0], C[1]], [C[1], C[2]]])
             cond_tn = np.array([[C[0], C[1]], [C[2], C[3]]])
             diff = np.abs((C[1]-C[2])/((C[1]+C[2]/2)))
+
+            #print("cond tn ", cond_tn)
+            #exit()
 
             #exit()
 

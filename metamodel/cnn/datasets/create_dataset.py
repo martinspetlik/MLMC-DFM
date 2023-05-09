@@ -1,15 +1,33 @@
 import os
+import sys
 import os.path
 import numpy as np
 import yaml
 import gmsh_io
-from rasterization import rasterize
+from metamodel.cnn.datasets.rasterization import rasterize
 import time
+import argparse
 #from matplotlib import pyplot as plt
 
 MESH_FILE = "mesh_fine.msh"
 FIELDS_MESH_FILE = "fields_fine.msh"
 SUMMARY_FILE = "summary.yaml"
+
+
+def create_vel_avg_output(sample_dir):
+    """
+    Load tensor form yaml file and save it as compressed numpy array
+    :param sample_dir: sample directory
+    :param symmetrize: bool, if True symmetrize conductivity tensor
+    :return: None
+    """
+    with open(os.path.join(sample_dir, SUMMARY_FILE), "r") as f:
+        summary_dict = yaml.load(f, Loader=yaml.Loader)
+    flux = np.array(summary_dict['fine']['flux'])
+
+    flux = flux.flatten()
+    np.save(os.path.join(sample_dir, "output_vel_avg"), flux)
+    return flux
 
 
 def create_output(sample_dir, symmetrize=True):
@@ -59,7 +77,7 @@ def create_input(sample_dir, n_pixels_x=256, feature_names=[['conductivity_tenso
 
     field_mesh = os.path.join(sample_dir, FIELDS_MESH_FILE)
     if os.path.exists(field_mesh):
-        features, all_fields = get_node_features(field_mesh, feature_names)
+        all_fields = get_node_features(field_mesh, feature_names)
 
         cond_tn_elements_triangles = []
         cond_tn_elements_lines = []
@@ -132,10 +150,15 @@ def get_node_features(fields_mesh, feature_names):
     all_fields = []
     for f_names in feature_names:
         all_fields.append(mesh._fields)
-        joint_features = join_fields(mesh._fields, f_names)
-        features.append(list(joint_features.values()))
+        #joint_features = join_fields(mesh._fields, f_names)
+        #print("len(list(joint_features.values())) ", len(list(joint_features.values())))
+        #features.append(list(joint_features.values()))
 
-    return np.array(features).T, all_fields
+    # print("np.array(features) ", np.array(features))
+    # print("features ", features)
+    # print("all fields ", all_fields)
+
+    return all_fields
 
 
 def extract_mesh_gmsh_io(mesh_file, get_points=False, image=False):
@@ -207,27 +230,50 @@ if __name__ == "__main__":
     #data_dir = "/home/martin/Documents/MLMC-DFM/test/nn_data/charon_samples_no_fractures/test_data"
     #data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/homogenization_samples_charon/"
     #data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/homogenization_samples_3_3_charon/"
-    data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/homogenization_samples_5LMC_L4/"
+    # data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/homogenization_samples_5LMC_L4/"
+    # data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/homogenization_samples_5LMC_L3/"
+    # data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/homogenization_samples_5LMC_L2/"
+    # data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/homogenization_samples_5LMC_L1/"
+    # data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/homogenization_samples_MLMC-DFM_5LMC-L4_cl_1/"
+    #
+    # data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/homogenization_samples_MLMC-DFM_5LMC_L4_cl_v_1_0"
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('data_dir', help='Data directory')
+    parser.add_argument("-b", "--begin", type=int, default=-1, help="starting index")
+    parser.add_argument("-e", "--end", type=int, default=-1, help="end index")
+
+    args = parser.parse_args(sys.argv[1:])
 
     start_time = time.time()
 
     n_pixels_x = 256
 
-    i = 0
+    print("args.begin", args.begin)
+    print("args.end ", args.end)
+
+    i = int(args.begin)
+    if int(args.begin) == -1:
+        i = 0
+
     while True:
-        sample_dir = os.path.join(data_dir, "sample_{}".format(i))
+        if i >= int(args.end) != -1:
+            break
+        sample_dir = os.path.join(args.data_dir, "sample_{}".format(i))
+        print("sample dir ", sample_dir)
         if os.path.exists(sample_dir):
             if not os.path.exists(os.path.join(sample_dir, MESH_FILE)) \
                     or not os.path.exists(os.path.join(sample_dir, SUMMARY_FILE)):
                 i += 1
                 continue
-
-            create_input(sample_dir, n_pixels_x=n_pixels_x)
-            create_output(sample_dir, symmetrize=True)
+            try:
+                create_input(sample_dir, n_pixels_x=n_pixels_x)
+                create_output(sample_dir, symmetrize=True)
+            except Exception as e:
+                print(str(e))
             i += 1
-
         else:
             break
 
     stop_time = time.time()
-    print("total time: {}, time per sample: {}".format(stop_time - start_time, (stop_time-start_time)/(i+1)))
+    print("total time: {}, time per sample: {}".format(stop_time - start_time, (stop_time - start_time) / (i + 1)))
