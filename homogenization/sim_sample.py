@@ -124,6 +124,7 @@ class DFMSim(Simulation):
     GEO_FILE = 'mesh.geo'
     MESH_FILE = 'mesh.msh'
     YAML_TEMPLATE_H = "flow_input_h.yaml.tmpl"
+    YAML_TEMPLATE_H_VTK = "flow_input_h_vtk.yaml.tmpl"
     YAML_TEMPLATE = 'flow_input.yaml.tmpl'
     YAML_FILE = 'flow_input.yaml'
     FIELDS_FILE = "flow_fields.msh"
@@ -171,6 +172,7 @@ class DFMSim(Simulation):
         # # It is used for minimal element from mesh determination (see level_instance method)
         #
         self.base_yaml_file_homogenization = config['yaml_file_homogenization']
+        self.base_yaml_file_homogenization_vtk = config['yaml_file_homogenization_vtk']
         self.base_yaml_file = config['yaml_file']
         # self.base_geo_file = config['geo_file']
         # self.field_template = config.get('field_template',
@@ -213,8 +215,14 @@ class DFMSim(Simulation):
             yaml_template_h = os.path.join(common_files_dir, DFMSim.YAML_TEMPLATE_H)
             shutil.copyfile(self.base_yaml_file_homogenization, yaml_template_h)
 
+            yaml_template_h_vtk = os.path.join(common_files_dir, DFMSim.YAML_TEMPLATE_H_VTK)
+            shutil.copyfile(self.base_yaml_file_homogenization_vtk, yaml_template_h_vtk)
+
             yaml_template = os.path.join(common_files_dir, DFMSim.YAML_TEMPLATE)
             shutil.copyfile(self.base_yaml_file, yaml_template)
+
+            yaml_file = os.path.join(common_files_dir, DFMSim.YAML_FILE)
+            self._substitute_yaml(yaml_template, yaml_file)
 
             yaml_file = os.path.join(common_files_dir, DFMSim.YAML_FILE)
             self._substitute_yaml(yaml_template, yaml_file)
@@ -724,12 +732,37 @@ class DFMSim(Simulation):
         #config["fine_flow"] = fine_flow
         config["center_cond_field"] = fine_flow._center_cond
 
+
+
         done = []
         status, p_loads, outer_reg_names = DFMSim._run_homogenization_sample(fine_flow, config)
         done.append(fine_flow)
         cond_tn, diff = fine_flow.effective_tensor_from_bulk(p_loads, outer_reg_names, fine_flow.basename)
+
+        if os.path.exists("flow_fields.pvd"):
+            os.remove("flow_fields.pvd")
+        if os.path.exists("flow_fields"):
+            shutil.rmtree("flow_fields")
+
+        status, p_loads, outer_reg_names = DFMSim._run_homogenization_sample(fine_flow, config, format="vtk")
+
+        ff_fine_vtk = os.path.join(os.getcwd(), "flow_field_fine_vtk")
+        if os.path.exists(ff_fine_vtk):
+            shutil.rmtree(ff_fine_vtk)
+        os.mkdir(ff_fine_vtk)
+
         if os.path.exists("flow_fields.msh"):
             shutil.move("flow_fields.msh", "flow_fields_fine.msh")
+
+        if os.path.exists("flow_fields.pvd"):
+            shutil.move("flow_fields.pvd", ff_fine_vtk)
+            # shutil.move("flow_fields.pvd", "flow_fields_coarse_vtk.pvd")
+        if os.path.exists("flow_fields"):
+            shutil.move("flow_fields", ff_fine_vtk)
+        # if os.path.exists("flow_fields.pvd"):
+        #     shutil.move("flow_fields.pvd", "flow_fields_fine_vtk.pvd")
+        # if os.path.exists("flow_fields"):
+        #     shutil.move("flow_fields", "flow_fields_fine_vtk")
         if os.path.exists("summary.yaml"):
             shutil.move("summary.yaml", "summary_fine.yaml")
         DFMSim.make_summary(done)
@@ -791,13 +824,35 @@ class DFMSim(Simulation):
             print("status ", status)
             coarse_res = coarse_res[0]
 
+            if os.path.exists("flow_fields"):
+                shutil.rmtree("flow_fields")
+
             done = []
             status, p_loads, outer_reg_names = DFMSim._run_homogenization_sample(coarse_flow, config)
             done.append(coarse_flow)
             cond_tn, diff = coarse_flow.effective_tensor_from_bulk(p_loads, outer_reg_names, coarse_flow.basename)
+
+            if os.path.exists("flow_fields.pvd"):
+                os.remove("flow_fields.pvd")
+            if os.path.exists("flow_fields"):
+                shutil.rmtree("flow_fields")
+
+            status, p_loads, outer_reg_names = DFMSim._run_homogenization_sample(coarse_flow, config, format="vtk")
+
             DFMSim.make_summary(done)
             if os.path.exists("flow_fields.msh"):
                 shutil.move("flow_fields.msh", "flow_fields_coarse.msh")
+
+            ff_coarse_vtk = os.path.join(os.getcwd(), "flow_field_coarse_vtk")
+            if os.path.exists(ff_coarse_vtk):
+                shutil.rmtree(ff_coarse_vtk)
+            os.mkdir(ff_coarse_vtk)
+
+            if os.path.exists("flow_fields.pvd"):
+                shutil.move("flow_fields.pvd", ff_coarse_vtk)
+                #shutil.move("flow_fields.pvd", "flow_fields_coarse_vtk.pvd")
+            if os.path.exists("flow_fields"):
+                shutil.move("flow_fields", ff_coarse_vtk)
             if os.path.exists("summary.yaml"):
                 shutil.move("summary.yaml", "summary_coarse.yaml")
 
@@ -828,7 +883,31 @@ class DFMSim(Simulation):
                 status, p_loads, outer_reg_names = DFMSim._run_homogenization_sample(coarse_flow, config)
                 done.append(coarse_flow)
                 cond_tn, diff = coarse_flow.effective_tensor_from_bulk(p_loads, outer_reg_names, coarse_flow.basename)
+
+                if os.path.exists("flow_fields.pvd"):
+                    os.remove("flow_fields.pvd")
+                if os.path.exists("flow_fields"):
+                    shutil.rmtree("flow_fields")
+
+                status, p_loads, outer_reg_names = DFMSim._run_homogenization_sample(coarse_flow, config, format="vtk")
+
                 DFMSim.make_summary(done)
+
+                ff_coarse_vtk = os.path.join(os.getcwd(), "flow_field_coarse_vtk")
+                if os.path.exists(ff_coarse_vtk):
+                    shutil.rmtree(ff_coarse_vtk)
+                os.mkdir(ff_coarse_vtk)
+
+                if os.path.exists("flow_fields.pvd"):
+                    shutil.move("flow_fields.pvd", ff_coarse_vtk)
+                    # shutil.move("flow_fields.pvd", "flow_fields_coarse_vtk.pvd")
+                if os.path.exists("flow_fields"):
+                    shutil.move("flow_fields", ff_coarse_vtk)
+                if os.path.exists("summary.yaml"):
+                    shutil.move("summary.yaml", "summary_coarse.yaml")
+
+                if os.path.exists("flow_fields.msh"):
+                    shutil.move("flow_fields.msh", "flow_fields_coarse.msh")
 
         return fine_res, coarse_res, times
 
@@ -870,7 +949,7 @@ class DFMSim(Simulation):
 
 
     @staticmethod
-    def _run_homogenization_sample(flow_problem, config):
+    def _run_homogenization_sample(flow_problem, config, format="gmsh"):
         """
                Create random fields file, call Flow123d and extract results
                :param fields_file: Path to file with random fields
@@ -888,6 +967,8 @@ class DFMSim(Simulation):
 
         base = flow_problem.basename
         base = base + "_hom"
+        if format == "vtk":
+            base += "_vtk"
         outer_regions_list = outer_reg_names
         # flow_args = config["flow123d"]
         n_steps = config["sim_config"]["n_pressure_loads"]
@@ -907,8 +988,13 @@ class DFMSim(Simulation):
         out_dir = os.getcwd()
 
         common_files_dir = config["fine"]["common_files_dir"]
-        substitute_placeholders(os.path.join(common_files_dir, DFMSim.YAML_TEMPLATE_H), in_f, params)
-        print("os.path.join(common_files_dir, DFMSim.YAML_TEMPLATE_H) ", os.path.join(common_files_dir, DFMSim.YAML_TEMPLATE_H))
+
+        if format == "vtk":
+            substitute_placeholders(os.path.join(common_files_dir, DFMSim.YAML_TEMPLATE_H_VTK), in_f, params)
+            print("os.path.join(common_files_dir, DFMSim.YAML_TEMPLATE_H_VTK) ", os.path.join(common_files_dir, DFMSim.YAML_TEMPLATE_H_VTK))
+        else:
+            substitute_placeholders(os.path.join(common_files_dir, DFMSim.YAML_TEMPLATE_H), in_f, params)
+
         flow_args = ["docker", "run", "-v", "{}:{}".format(os.getcwd(), os.getcwd()), *config["flow123d"]]
         #flow_args = ["singularity", "exec", "/storage/liberec3-tul/home/martin_spetlik/flow_3_1_0.sif", "flow123d"]
 

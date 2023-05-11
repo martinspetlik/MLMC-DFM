@@ -33,11 +33,13 @@ class ProcessSimple:
         self.n_levels = 2
         self.n_moments = 25
         # Number of MLMC levels
-
         # step_range = [0.055, 0.0035]
-        step_range = [10, 4.325] # Used for tested data of CNNs
-        #step_range = [100, 25]
-        # step_range = [0.1, 0.055]
+        #step_range = [0.809, 0.35]
+        step_range = [10.0, 4.325]
+        step_range = [25.0, 10.0]
+        #step_range = [10, 1] # Used for tested data of CNNs
+        #step_range = [100, 10]
+        #step_range = [100, 1]
         # step   - elements
         # 0.1    - 262
         # 0.08   - 478
@@ -133,7 +135,7 @@ class ProcessSimple:
         if recollect:
             raise NotImplementedError("Not supported in released version")
         else:
-            self.generate_jobs(sampler, n_samples=[2, 2], renew=renew)
+            self.generate_jobs(sampler, n_samples=[1, 1], renew=renew)
             self.all_collect(sampler)  # Check if all samples are finished
 
     def setup_config(self, clean):
@@ -158,6 +160,7 @@ class ProcessSimple:
         sim_config_dict['work_dir'] = self.work_dir
         sim_config_dict['yaml_file'] = os.path.join(self.work_dir, '01_conductivity.yaml')
         sim_config_dict['yaml_file_homogenization'] = os.path.join(self.work_dir, 'flow_templ.yaml')
+        sim_config_dict['yaml_file_homogenization_vtk'] = os.path.join(self.work_dir, 'flow_templ_vtk.yaml')
 
         # simulation_config = {
         #     'work_dir': self.work_dir,
