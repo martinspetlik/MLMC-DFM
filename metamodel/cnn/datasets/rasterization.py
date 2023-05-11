@@ -41,13 +41,38 @@ def rasterize(mesh_nodes, triangles, cond_tn_elements_triangles,
     tris['rf_value'] = np.squeeze(np.array(list(srf.values())))
     trimesh = canvas.trimesh(verts, tris, interpolate='nearest')
 
+    ##
+    # Dealing with NaN values - caused sometimes by trimesh (observed for large number of pixels e.g. 256x256 and small number of mesh elements e.g. 20)
+    ##
+    coord_x, coord_y = np.where(np.isnan(trimesh) == True)
+    if np.any(np.isnan(trimesh)):
+        neighbour_pixels_x = [-1, 0, 1]
+        neighbour_pixels_y = [-1, 0, 1]
+        grid_x, grid_y = np.meshgrid(neighbour_pixels_x, neighbour_pixels_y)
+        grid_x, grid_y = grid_x.flatten(), grid_y.flatten()
+        for x,y in zip(coord_x, coord_y):
+            neigh_value_sum = 0
+            i = 0
+            for x_n, y_n in zip(grid_x, grid_y):
+                if x_n == 0 and y_n == 0:
+                    continue
+                if 0 <= x-x_n < trimesh.shape[0] and 0 <= y-y_n < trimesh.shape[1]:
+                    if not np.isnan(trimesh[x-x_n, y-y_n].values):
+                        neigh_value_sum += trimesh[x-x_n, y-y_n].values
+                        i += 1
+            neigh_value = neigh_value_sum / i
+            trimesh[x,y] = neigh_value
+
     cvs_lines = np.full((n_pixels_x, n_pixels_x), np.nan)
     if len(lines) > 0:
         cvs_lines = rasterize_lines(canvas, verts, lines, cond_tn_elements_lines,  cs_lines)
 
-    # nearest_img = tf.shade(canvas.trimesh(verts, tris, interpolate='nearest'), name='10 Vertices')
-    # export_image(img=nearest_img, filename='mesh_nearest_img', fmt=".png", export_path=".")
+    nearest_img = tf.shade(canvas.trimesh(verts, tris, interpolate='nearest'), name='10 Vertices')
+    export_image(img=nearest_img, filename='mesh_nearest_img', fmt=".png", export_path=".")
+
+    #linear_img = tf.shade(canvas.trimesh(verts, tris, interpolate='linear'), name='10 Vertices')
     #export_image(img=linear_img, filename='mesh_linear_img', fmt=".png", export_path=".")
+
     #lines_img = tf.shade(cvs_lines, name='lines', cmap=c)
 
     # tf.stack(nearest_img, linear_img, how="over")

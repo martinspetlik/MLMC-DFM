@@ -6,6 +6,7 @@ import shutil
 import time
 import copy
 import torch
+import joblib
 import ruamel.yaml as yaml
 from typing import List
 import gstools
@@ -17,7 +18,8 @@ from mlmc.quantity.quantity_spec import QuantitySpec
 import homogenization.fracture as fracture
 from homogenization.both_sample import FlowProblem, BothSample
 from metamodel.cnn.datasets import create_dataset
-from metamodel.cnn.postprocess.optuna_results import load_study, load_models, get_saved_model_path
+from metamodel.cnn.postprocess.optuna_results import load_study, load_models, get_saved_model_path, get_inverse_transform
+from metamodel.cnn.datasets.dfm_dataset import DFMDataset
 
 
 def create_corr_field(model='gauss', corr_length=0.125, dim=2, log=True, sigma=1, mode_no=1000):
@@ -127,6 +129,7 @@ class DFMSim(Simulation):
     FIELDS_FILE = "flow_fields.msh"
     COND_TN_POP_FILE = 'cond_tn_pop.npy'
     COND_TN_FILE = "cond_tensors.yaml"
+    PRED_COND_TN_FILE = "pred_cond_tensors.yaml"
     COMMON_FILES = "l_step_{}_common_files"
 
     """
@@ -331,6 +334,7 @@ class DFMSim(Simulation):
         n_subdomains = int(np.floor(np.sqrt(n_subdomains)))
 
         cond_tensors = {}
+        pred_cond_tensors = {}
         percentage_sym_tn_diff = []
         time_measurements = []
 
@@ -417,8 +421,12 @@ class DFMSim(Simulation):
                 #fine_flow.mesh = config["fine_mesh"]
                 #fine_flow.get_subdomain(outer_polygon)
 
+                cond_fields = config["center_cond_field"]
+                if "center_larger_cond_field" in config:
+                    cond_fields = config["center_larger_cond_field"]
+
                 center_cond_field = DFMSim.eliminate_far_points(outer_polygon,
-                                                                config["center_cond_field"],
+                                                                cond_fields,
                                                                 fine_step=config["fine"]["step"])
                 fine_flow.make_mesh()
                 fine_flow.interpolate_fields(center_cond_field, mode="linear")
@@ -434,6 +442,7 @@ class DFMSim(Simulation):
                 DFMSim.make_summary(done)
                 percentage_sym_tn_diff.append(diff)
 
+                pred_cond_tn = None
                 ######################
                 ## Employ metamodel ##
                 #####################
@@ -444,14 +453,15 @@ class DFMSim(Simulation):
                     shutil.copy("mesh_fine.msh", dset_dir)
                     shutil.copy("summary.yaml", dset_dir)
 
-                    process = subprocess.run([config["sim_config"]["create_dataset_script"], os.getcwd()],
-                                             stderr=subprocess.PIPE,
-                                             stdout=subprocess.PIPE)
+                    process = subprocess.run(["bash", config["sim_config"]["create_dataset_script"], os.getcwd()],
+                                            capture_output=True, text=True)
+
+                    #exit_code = subprocess.call('./sample.sh')
 
                     if process.returncode != 0:
                         raise Exception(process.stderr.decode('ascii'))
-                    else:
-                        print("dataset sample created")
+                    # else:
+                    #     print("dataset sample created ", os.getcwd())
 
                     #bulk_data_array, fractures_data_array = create_dataset.create_input(os.getcwd())
                     #print("bulk_data_array ", bulk_data_array)
@@ -459,14 +469,64 @@ class DFMSim(Simulation):
                     if DFMSim.model is None:
                         nn_path = config["sim_config"]["nn_path"]
                         study = load_study(nn_path)
+
+                        #print(" study.user_attrs ",  study.user_attrs)
                         model_path = get_saved_model_path(nn_path, study.best_trial)
                         model_kwargs = study.best_trial.user_attrs["model_kwargs"]
                         DFMSim.model = study.best_trial.user_attrs["model_class"](**model_kwargs)
                         DFMSim.checkpoint = torch.load(model_path)
 
+                        DFMSim.inverse_transform = get_inverse_transform(study)
+
+                        DFMSim.dataset = joblib.load(os.path.join(config["sim_config"]["nn_path"], "dataset.pkl"))
+
+                    ##
+                    # Create dataset
+                    ##
+                    #print("os.getcwd() ", os.getcwd())
+                    dataset_for_prediction = DFMDataset(data_dir=os.getcwd(),
+                                                      #output_file_name=output_file_name,
+                                                      input_transform=DFMSim.dataset.input_transform,
+                                                      output_transform=DFMSim.dataset.output_transform,
+                                                      two_dim=True,
+                                                      # input_channels=config[
+                                                      #     "input_channels"] if "input_channels" in config else None,
+                                                      # output_channels=config[
+                                                      #     "output_channels"] if "output_channels" in config else None,
+                                                      # fractures_sep=config[
+                                                      #     "fractures_sep"] if "fractures_sep" in config else False,
+                                                      # vel_avg=config["vel_avg"] if "vel_avg" in config else False
+                                                      )
+
+                    # print("dataset for prediction ", dataset_for_prediction)
+                    # print("len(dataset for predictin) ", len(dataset_for_prediction))
+
+                    dset_prediction_loader = torch.utils.data.DataLoader(dataset_for_prediction, shuffle=False)
+
+                    #print("dset prediction loader ", dset_prediction_loader)
+
                     with torch.no_grad():
-                        DFMSim.model.load_state_dict(checkpoint['best_model_state_dict'])
+                        DFMSim.model.load_state_dict(DFMSim.checkpoint['best_model_state_dict'])
                         DFMSim.model.eval()
+
+                        for i, sample in enumerate(dset_prediction_loader):
+                            inputs, targets = sample
+                            #print("intputs ", inputs)
+                            inputs = inputs.float()
+
+                            #if args.cuda and torch.cuda.is_available():
+                            #    inputs = inputs.cuda()
+                            predictions = DFMSim.model(inputs)
+
+                            #print("predictions ", predictions)
+                            #print("tragets ", targets)
+
+                            inv_predictions = torch.squeeze(DFMSim.inverse_transform(torch.reshape(predictions, (*predictions.shape, 1, 1))))
+
+                            #print("inv predictions ", inv_predictions)
+
+                            pred_cond_tn = np.array([[inv_predictions[0], inv_predictions[1]],
+                                                    [inv_predictions[1], inv_predictions[2]]])
 
                     # print("os.getcwd() ", os.getcwd())
                     #
@@ -492,10 +552,15 @@ class DFMSim(Simulation):
                 # @TODO: save cond tn and center to npz file
 
                 if n_subdomains > 1:
-                    cond_tensors[(center_x, center_y)] = cond_tn
+                    cond_tn_flatten = cond_tn[0].flatten()
+                    cond_tensors[(center_x, center_y)] = cond_tn[0].flatten()
 
+                    if pred_cond_tn is not None:
+                        pred_cond_tn_flatten = pred_cond_tn.flatten()
+                        pred_cond_tensors[(center_x, center_y)] = pred_cond_tn.flatten()
                     cond_tn_pop_file = os.path.join(config["coarse"]["common_files_dir"], DFMSim.COND_TN_POP_FILE)
                     np.save(cond_tn_pop_file, cond_tn[0])
+
 
                 dir_name = os.path.join(work_dir, subdir_name)
                 config["dir_name"] = dir_name
@@ -527,34 +592,10 @@ class DFMSim(Simulation):
 
         os.chdir(sample_dir)
 
-        return cond_tensors
-
+        return cond_tensors, pred_cond_tensors
 
     @staticmethod
-    def calculate(config, seed):
-        """
-        Method that actually run the calculation, it's called from mlmc.tool.pbs_job.PbsJob.calculate_samples()
-        Calculate fine and coarse sample and also extract their results
-        :param config: dictionary containing simulation configuration, LevelSimulation.config_dict (set in level_instance)
-        :param seed: random seed, int
-        :return: List[fine result, coarse result], both flatten arrays (see mlmc.sim.synth_simulation.calculate())
-        """
-        # print("config ", config)
-        # exit()
-        #@TODO: check sample dir creation
-        fractures = DFMSim.generate_fractures(config)
-
-        coarse_step = config["coarse"]["step"]
-        fine_step = config["fine"]["step"]
-
-        #print("fine_step", config["fine"]["step"])
-        #print("coarse_step", config["coarse"]["step"])
-
-        times = {}
-        fine_res = 0
-
-        # try:
-        #shutil.rmtree("fine")
+    def _remove_files():
         if os.path.exists("fields_fine.msh"):
             os.remove("fields_fine.msh")
         if os.path.exists("fields_coarse.msh"):
@@ -583,6 +624,33 @@ class DFMSim(Simulation):
             os.remove("water_balance.yaml")
         if os.path.exists("flow_fields.msh"):
             os.remove("flow_fields.msh")
+
+    @staticmethod
+    def calculate(config, seed):
+        """
+        Method that actually run the calculation, it's called from mlmc.tool.pbs_job.PbsJob.calculate_samples()
+        Calculate fine and coarse sample and also extract their results
+        :param config: dictionary containing simulation configuration, LevelSimulation.config_dict (set in level_instance)
+        :param seed: random seed, int
+        :return: List[fine result, coarse result], both flatten arrays (see mlmc.sim.synth_simulation.calculate())
+        """
+        # print("config ", config)
+        # exit()
+        #@TODO: check sample dir creation
+        fractures = DFMSim.generate_fractures(config)
+
+        coarse_step = config["coarse"]["step"]
+        fine_step = config["fine"]["step"]
+
+        #print("fine_step", config["fine"]["step"])
+        #print("coarse_step", config["coarse"]["step"])
+
+        times = {}
+        fine_res = 0
+
+        # try:
+        #shutil.rmtree("fine")
+        DFMSim._remove_files()
         # if os.path.exists("fields_fine.msh")
         #shutil.rmtree("fine")
         # except:
@@ -595,6 +663,27 @@ class DFMSim(Simulation):
         ####################
         ### fine problem ###
         ####################
+        if config["sim_config"]["use_larger_domain"]:
+            orig_domain_box = config["sim_config"]["geometry"]["domain_box"]
+            sub_domain_box = config["sim_config"]["geometry"]["subdomain_box"]
+            config["sim_config"]["geometry"]["domain_box"] = [orig_domain_box[0] + 2*sub_domain_box[0], orig_domain_box[1]+ 2*sub_domain_box[1]]
+            hom_domain_box = [orig_domain_box[0] + sub_domain_box[0], orig_domain_box[1]+ sub_domain_box[1]]
+            print("domain box ", config["sim_config"]["geometry"]["domain_box"])
+
+            larger_domain_box = config["sim_config"]["geometry"]["domain_box"]
+
+            larger_dom_obj = FlowProblem.make_fine((config["fine"]["step"], config["sim_config"]["geometry"]["fr_max_size"]),
+                                              fractures, config)
+            larger_dom_obj.fr_range = [config["fine"]["step"], larger_dom_obj.fr_range[1]]
+
+            larger_dom_obj.make_mesh()
+            larger_dom_obj.make_fields()
+            config["center_larger_cond_field"] = larger_dom_obj._center_cond
+
+            print("orig domain box ", orig_domain_box)
+            config["sim_config"]["geometry"]["domain_box"] = orig_domain_box
+            DFMSim._remove_files()
+
         fine_res = 0
         fine_flow = FlowProblem.make_fine((config["fine"]["step"], config["sim_config"]["geometry"]["fr_max_size"]), fractures, config)
         fine_flow.fr_range = [config["fine"]["step"], fine_flow.fr_range[1]]
@@ -617,7 +706,12 @@ class DFMSim(Simulation):
             fine_flow.make_mesh()
             times['make_mesh'] = time.time() - make_mesh_start
             make_fields_start = time.time()
-            fine_flow.make_fields()
+            if "center_larger_cond_field" in config:
+                #fine_flow.make_mesh()
+                center_cond_field = np.array(config["center_larger_cond_field"][0]), np.array(config["center_larger_cond_field"][1])
+                fine_flow.interpolate_fields(center_cond_field, mode="linear")
+            else:
+                fine_flow.make_fields()
             times['make_fields'] = time.time() - make_fields_start
 
         #fine_flow.run() # @TODO replace fine_flow.run by DFMSim._run_sample()
@@ -629,12 +723,17 @@ class DFMSim(Simulation):
 
         #config["fine_flow"] = fine_flow
         config["center_cond_field"] = fine_flow._center_cond
-        # done = []
-        # done.append(fine_flow)
-        # fine_flow.effective_tensor_from_bulk(p_loads, outer_reg_names, fine_flow.basename)
-        # #print("done ", done)
-        # DFMSim.make_summary(done)
-        # #print("fine res ", fine_res)
+
+        done = []
+        status, p_loads, outer_reg_names = DFMSim._run_homogenization_sample(fine_flow, config)
+        done.append(fine_flow)
+        cond_tn, diff = fine_flow.effective_tensor_from_bulk(p_loads, outer_reg_names, fine_flow.basename)
+        if os.path.exists("flow_fields.msh"):
+            shutil.move("flow_fields.msh", "flow_fields_fine.msh")
+        if os.path.exists("summary.yaml"):
+            shutil.move("summary.yaml", "summary_fine.yaml")
+        DFMSim.make_summary(done)
+
 
         coarse_res = 0
 
@@ -653,9 +752,14 @@ class DFMSim(Simulation):
         #     pass
 
         if coarse_step > 0:
-            # @TODO: create homogenization mesh and run homogenization samples
-            cond_tensors = DFMSim.homogenization(copy.deepcopy(config))
-            DFMSim._save_tensors(cond_tensors)
+            if config["sim_config"]["use_larger_domain"]:
+                config["sim_config"]["geometry"]["domain_box"] = hom_domain_box
+            cond_tensors, pred_cond_tensors = DFMSim.homogenization(copy.deepcopy(config))
+
+            #print("cond tensors ", cond_tensors)
+            #print("pred cond tensors ", pred_cond_tensors)
+            DFMSim._save_tensors(cond_tensors, file=DFMSim.COND_TN_FILE)
+            DFMSim._save_tensors(pred_cond_tensors, file=DFMSim.PRED_COND_TN_FILE)
 
             cond_tn_pop = os.path.join(DFMSim.COMMON_FILES.format(fine_step), DFMSim.COND_TN_POP_FILE)
             # print("cond tn pop ", cond_tn_pop)
@@ -663,35 +767,74 @@ class DFMSim(Simulation):
                 config["fine"]["cond_tn_pop_file"] = cond_tn_pop
 
             config["cond_tns_yaml_file"] = os.path.abspath(DFMSim.COND_TN_FILE)
+            config["pred_cond_tns_yaml_file"] = os.path.abspath(DFMSim.PRED_COND_TN_FILE)
 
             ######################
             ### coarse problem ###
             ######################
+            config["sim_config"]["geometry"]["domain_box"] = orig_domain_box
             #coarse_ref = FlowProblem.make_microscale((config["fine"]["step"], config["coarse"]["step"]), fractures, fine_flow, config)
             # coarse_ref.pressure_loads = p_loads
             # coarse_ref.reg_to_group = fine_flow.reg_to_group
             # coarse_ref.regions = fine_flow.regions
-            print("coarse problem ")
+            #print("coarse problem ")
 
             coarse_flow = FlowProblem.make_coarse((config["coarse"]["step"], config["sim_config"]["geometry"]["fr_max_size"]), fractures, config)
             coarse_flow.fr_range = [config["coarse"]["step"], coarse_flow.fr_range[1]]
             coarse_flow.make_mesh()
             coarse_flow.make_fields()
-            done = []
-            # fine_flow.run() # @TODO replace fine_flow.run by DFMSim._run_sample()
-            #print("run samples ")
+            # print("coarse flow ", coarse_flow)
+            # print("config ", config)
+
             coarse_res, status = DFMSim._run_sample(coarse_flow, config)
+            print("coarse res ", coarse_res)
+            print("status ", status)
             coarse_res = coarse_res[0]
 
-            # done.append(coarse_flow)
-            # coarse_flow.effective_tensor_from_bulk(p_loads, outer_reg_names, coarse_flow.basename)
-            # DFMSim.make_summary(done)
+            done = []
+            status, p_loads, outer_reg_names = DFMSim._run_homogenization_sample(coarse_flow, config)
+            done.append(coarse_flow)
+            cond_tn, diff = coarse_flow.effective_tensor_from_bulk(p_loads, outer_reg_names, coarse_flow.basename)
+            DFMSim.make_summary(done)
+            if os.path.exists("flow_fields.msh"):
+                shutil.move("flow_fields.msh", "flow_fields_coarse.msh")
+            if os.path.exists("summary.yaml"):
+                shutil.move("summary.yaml", "summary_coarse.yaml")
+
+
+            ############################################
+            ## Coarse sample - predicted cond tensors ##
+            ############################################
+            if len(pred_cond_tensors) > 0:
+                pred_coarse_dir = os.path.join(os.getcwd(), "pred_coarse")
+                os.mkdir(pred_coarse_dir)
+                os.chdir(pred_coarse_dir)
+                # print("os.getcwd() ", os.getcwd())
+                # exit()
+                config["back_up_cond_tns_yaml_file"] = config["cond_tns_yaml_file"]
+                config["cond_tns_yaml_file"] = config["pred_cond_tns_yaml_file"]
+                coarse_flow = FlowProblem.make_coarse(
+                    (config["coarse"]["step"], config["sim_config"]["geometry"]["fr_max_size"]), fractures, config)
+                coarse_flow.fr_range = [config["coarse"]["step"], coarse_flow.fr_range[1]]
+                coarse_flow.make_mesh()
+                coarse_flow.make_fields()
+                done = []
+                # fine_flow.run() # @TODO replace fine_flow.run by DFMSim._run_sample()
+                # print("run samples ")
+                coarse_res, status = DFMSim._run_sample(coarse_flow, config)
+                coarse_res = coarse_res[0]
+
+                done = []
+                status, p_loads, outer_reg_names = DFMSim._run_homogenization_sample(coarse_flow, config)
+                done.append(coarse_flow)
+                cond_tn, diff = coarse_flow.effective_tensor_from_bulk(p_loads, outer_reg_names, coarse_flow.basename)
+                DFMSim.make_summary(done)
 
         return fine_res, coarse_res, times
 
     @staticmethod
-    def _save_tensors(cond_tensors):
-        with open(DFMSim.COND_TN_FILE, "w") as f:
+    def _save_tensors(cond_tensors, file):
+        with open(file, "w") as f:
             yaml.dump(cond_tensors, f)
 
         # import time
@@ -744,33 +887,28 @@ class DFMSim(Simulation):
             outer_reg_names.append(reg.sub_reg.name)
 
         base = flow_problem.basename
+        base = base + "_hom"
         outer_regions_list = outer_reg_names
         # flow_args = config["flow123d"]
         n_steps = config["sim_config"]["n_pressure_loads"]
         t = np.pi * np.arange(0, n_steps) / n_steps
         p_loads = np.array([np.cos(t), np.sin(t)]).T
 
-        in_f = in_file(flow_problem.basename)
-        out_dir = flow_problem.basename
+        in_f = in_file(base)
+        out_dir =base
         # n_loads = len(self.p_loads)
         # flow_in = "flow_{}.yaml".format(self.base)
         params = dict(
             mesh_file=mesh_file(flow_problem.basename),
             fields_file=fields_file(flow_problem.basename),
             outer_regions=str(outer_regions_list),
-            n_steps=len(p_loads)
-        )
-
-        # print("in_f ", in_f)
-        # print("outerregions ", outer_regions_list)
-        # print("p_loads ", p_loads)
-        #
-        # print("os.getcwd() ", os.getcwd())
+            n_steps=len(p_loads))
 
         out_dir = os.getcwd()
 
         common_files_dir = config["fine"]["common_files_dir"]
         substitute_placeholders(os.path.join(common_files_dir, DFMSim.YAML_TEMPLATE_H), in_f, params)
+        print("os.path.join(common_files_dir, DFMSim.YAML_TEMPLATE_H) ", os.path.join(common_files_dir, DFMSim.YAML_TEMPLATE_H))
         flow_args = ["docker", "run", "-v", "{}:{}".format(os.getcwd(), os.getcwd()), *config["flow123d"]]
         #flow_args = ["singularity", "exec", "/storage/liberec3-tul/home/martin_spetlik/flow_3_1_0.sif", "flow123d"]
 
@@ -778,8 +916,13 @@ class DFMSim(Simulation):
 
         # print("out dir ", out_dir)
 
-        if os.path.exists(os.path.join(out_dir, DFMSim.FIELDS_FILE)):
-            return True
+        #print("flow_args ", flow_args)
+
+        # if os.path.exists(os.path.join(out_dir, "flow123.0.log")):
+        #     os.remove(os.path.join(out_dir, "flow123.0.log"))
+
+        # if os.path.exists(os.path.join(out_dir, DFMSim.FIELDS_FILE)):
+        #     return True
         with open(base + "_stdout", "w") as stdout:
             with open(base + "_stderr", "w") as stderr:
                 completed = subprocess.run(flow_args, stdout=stdout, stderr=stderr)
@@ -823,6 +966,7 @@ class DFMSim(Simulation):
         out_dir = os.getcwd()
 
         common_files_dir = config["fine"]["common_files_dir"]
+        #print("yaml file ", os.path.join(common_files_dir, DFMSim.YAML_TEMPLATE))
         substitute_placeholders(os.path.join(common_files_dir, DFMSim.YAML_TEMPLATE), in_f, params)
         flow_args = ["docker", "run", "-v", "{}:{}".format(os.getcwd(), os.getcwd()), *config["flow123d"]]
         #flow_args = ["singularity", "exec", "/storage/liberec3-tul/home/martin_spetlik/flow_3_1_0.sif", "flow123d"]
@@ -830,6 +974,7 @@ class DFMSim(Simulation):
         flow_args.extend(['--output_dir', out_dir, os.path.join(out_dir, in_f)])
 
         if os.path.exists(os.path.join(out_dir, DFMSim.FIELDS_FILE)):
+            print("os.path.join(out_dir, DFMSim.FIELDS_FILE) ", os.path.join(out_dir, DFMSim.FIELDS_FILE))
             return True
         with open(base + "_stdout", "w") as stdout:
             with open(base + "_stderr", "w") as stderr:

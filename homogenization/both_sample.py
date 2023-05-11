@@ -706,6 +706,13 @@ class BulkHomogenization(BulkBase):
     def _get_tensors(self, cond_tn_file):
         with open(cond_tn_file, "r") as f:
             self._cond_tns = ruamel.yaml.load(f)
+
+        tria = sc_spatial.Delaunay(list(self._cond_tns.keys()))
+        self._mean_val = np.mean(list(self._cond_tns.values()))
+
+        values = np.array(list(self._cond_tns.values()))[:, [0,1,3]]
+        self._interp = sc_interpolate.LinearNDInterpolator(tria, values, fill_value=0)
+        self._interp_nearest = sc_interpolate.NearestNDInterpolator(tria, values)
         print("self._cond_tns ", self._cond_tns)
 
     def element_data(self, mesh, eid):
@@ -713,7 +720,20 @@ class BulkHomogenization(BulkBase):
         center = np.mean([np.array(mesh.nodes[nid]) for nid in node_ids], axis=0)[0:2]
         dist_2 = np.sum((self._center_points - center) ** 2, axis=1)
         cond_tn = self._cond_tns[tuple(self._center_points[np.argmin(dist_2)])]
-        return 1.0, cond_tn[0].reshape(2, 2)
+
+        interp_value = self._interp(center)
+
+        # print("cond tn ", cond_tn)
+        # print("cond tn ", cond_tn.shape)
+        # print("interp ", interp_value)
+
+        if np.all(interp_value == 0):
+            interp_value = self._interp_nearest(center)
+
+        interp_value = np.squeeze(interp_value)
+
+        cond_tn = np.array([[interp_value[0], interp_value[1]], [interp_value[1], interp_value[2]]])
+        return 1.0, cond_tn.reshape(2, 2)
 
 
 @attr.s(auto_attribs=True)
@@ -929,7 +949,7 @@ def write_fields(mesh, basename, bulk_model, fracture_model, elid_to_fr, elids_s
             cond_tn_field.append(cond_tn_flatten)
         else:
             cond_tn_field.append(tensor_3d_flatten(cond_tn))
-            centers.append(center)
+        centers.append(center)
 
     # print("centers ", centers)
     # exit()
@@ -1032,6 +1052,7 @@ class FlowProblem:
             else:
                 bulk_model = BulkFields(**bulk_conductivity)
         return FlowProblem("fine", fr_range, fractures, bulk_model, config_dict)
+
 
     @staticmethod
     def calculate_cov(marginal_distrs):
@@ -1319,6 +1340,8 @@ class FlowProblem:
         # print("center_cond_tn_field[1] ", center_cond_tn_field[1])
         # print("mesh_centers_eids[0] ", mesh_centers_eids[0])
 
+        #print("center cond tn field ", center_cond_tn_field)
+
         grid_fine = np.array(center_cond_tn_field[0])[:, :2]
         values = np.array(center_cond_tn_field[1])[:, [0,1,4]]
         grid_hom = np.array(mesh_centers_eids[0])[:, :2]
@@ -1347,40 +1370,6 @@ class FlowProblem:
             if np.alltrue(row == 0):
                 v = [mean_val, 0, mean_val]
                 value_hom[index] = v
-
-        # value_hom = sc_interpolate.griddata(grid_fine, values, grid_hom, method=mode)
-        #
-        # fig, axs = plt.subplots(3)
-        # for i, i_type in enumerate(['cubic', 'nearest', 'linear']):  # , cubic
-        #
-        #     grid_z = sc_interpolate.griddata(xy, values, (grid_hom[:, 0], grid_hom[:, 1]), method=i_type)
-        #
-        #     print("grid z ", grid_z)
-        #
-        #     # check if there is a nan in the z grid:
-        #     axs[i].imshow(grid_z)
-        #     axs[i].set_title(i_type)
-        #
-        # #plt.tight_layout()
-        # plt.show()
-        #
-        #
-        # exit()
-
-        # if np.any(np.isnan(value_hom)):
-        #     print("nearest ")
-        #     value_hom = sc_interpolate.griddata(grid_fine, values, grid_hom, method='nearest')
-
-        #print("value hom ", value_hom)
-        #exit()
-
-        #grid_hom = sc_interpolate.griddata(center_cond_tn_field[0], center_cond_tn_field[1], mesh_centers_eids[0], method='linear')
-
-        # print("center cond tn field ", center_cond_tn_field)
-        # print("self.mesh.nodes ", self.mesh.nodes)
-        #
-        # print("grid hom ", grid_hom)
-        # exit()
 
         interp_data = [mesh_centers_eids, value_hom]
 
