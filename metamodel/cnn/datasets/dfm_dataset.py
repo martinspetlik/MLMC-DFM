@@ -1,6 +1,8 @@
 import os
 import re
 import copy
+import shutil
+
 import torch
 import sklearn
 import pandas as pd
@@ -60,9 +62,10 @@ class DFMDataset(Dataset):
                 fractures_file = os.path.join(sample_dir, self._fracture_file_name)
                 output_file = os.path.join(sample_dir, self._output_file_name)
 
-                if os.path.exists(bulk_file) and os.path.exists(output_file):
+                if os.path.exists(bulk_file):
                     self._bulk_file_paths.append(bulk_file)
-                    self._output_file_paths.append(output_file)
+                    if os.path.exists(output_file):
+                        self._output_file_paths.append(output_file)
                     if os.path.exists(fractures_file):
                         self._fracture_file_paths.append(fractures_file)
                 else:
@@ -72,12 +75,15 @@ class DFMDataset(Dataset):
         return len(self._bulk_file_paths)
 
     def __getitem__(self, idx):
+        output_path = []
         fractures_path = []
         bulk_path = self._bulk_file_paths[idx]
 
         if len(self._fracture_file_paths) > 0:
             fractures_path = self._fracture_file_paths[idx]
-        output_path = self._output_file_paths[idx]
+
+        if len(self._output_file_paths) > 0:
+            output_path = self._output_file_paths[idx]
 
         if isinstance(bulk_path, (list, np.ndarray)):
             new_dataset= copy.deepcopy(self)
@@ -92,7 +98,12 @@ class DFMDataset(Dataset):
             fractures_features = np.load(fractures_path)["data"]
         else:
             fractures_features = None
-        output_features = np.load(output_path, allow_pickle=True)
+
+        if len(output_path) > 0:
+            output_features = np.load(output_path, allow_pickle=True)
+        else:
+            output_features = np.array([])
+
         if self._two_dim:
             indices = [0,1,3]
             bulk_features = bulk_features[indices, ...]
@@ -100,7 +111,8 @@ class DFMDataset(Dataset):
                 fractures_features = fractures_features[indices, ...]
 
         if self._two_dim and not self._vel_avg:
-            output_features = output_features[indices, ...]
+            if len(output_features) > 0:
+                output_features = output_features[indices, ...]
 
         bulk_features_shape = bulk_features.shape
 
@@ -125,23 +137,32 @@ class DFMDataset(Dataset):
 
         if self._input_channels is not None:
             final_features = final_features[self._input_channels]
-        if self._output_channels is not None:
+        if self._output_channels is not None and len(output_features) > 0:
             output_features = output_features[self._output_channels]
 
         if self.input_transform is not None:
             final_features = self.input_transform(final_features)
-        if self.output_transform is not None:
+        if self.output_transform is not None and len(output_features) > 0:
             reshaped_output = torch.reshape(output_features, (*output_features.shape, 1, 1))
             output_features = np.squeeze(self.output_transform(reshaped_output))
 
-        DFMDataset._check_nans(final_features, str_err="Input features contains NaN values, {}".format(bulk_path))
-        DFMDataset._check_nans(output_features, str_err="Output features contains NaN values, {}".format(output_path))
+        DFMDataset._check_nans(final_features, str_err="Input features contains NaN values, {}".format(bulk_path), file=bulk_path)
+
+        if len(output_features) > 0:
+            DFMDataset._check_nans(output_features, str_err="Output features contains NaN values, {}".format(output_path), file=output_path)
+
+        # if output_features is None:
+        #     output_features = torch.empty(1, dtype=None)
+        #     print("output features ", output_features)
 
         return final_features, output_features
 
     @staticmethod
-    def _check_nans(final_features, str_err="Data contains NaN values"):
+    def _check_nans(final_features, str_err="Data contains NaN values", file=None):
         has_nan = torch.any(torch.isnan(final_features))
 
         if has_nan:
+            # print("str err ", str_err)
+            # print("file ", os.path.dirname(file))
+            # shutil.rmtree(os.path.dirname(file))
             raise ValueError(str_err)
