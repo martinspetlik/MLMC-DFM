@@ -671,11 +671,14 @@ class DFMSim(Simulation):
         # if coarse_step == 0:
         #     print("config fine", config["fine"])
         #     exit()
+        gen_hom_samples = False
+        if "generate_hom_samples" in config["sim_config"] and config["sim_config"]["generate_hom_samples"]:
+            gen_hom_samples = True
 
         ####################
         ### fine problem ###
         ####################
-        if config["sim_config"]["use_larger_domain"]:
+        if "use_larger_domain" in config["sim_config"] and config["sim_config"]["use_larger_domain"]:
             orig_domain_box = config["sim_config"]["geometry"]["domain_box"]
             sub_domain_box = config["sim_config"]["geometry"]["subdomain_box"]
             config["sim_config"]["geometry"]["domain_box"] = [orig_domain_box[0] + 2*sub_domain_box[0], orig_domain_box[1]+ 2*sub_domain_box[1]]
@@ -724,50 +727,51 @@ class DFMSim(Simulation):
                 fine_flow.interpolate_fields(center_cond_field, mode="linear")
             else:
                 fine_flow.make_fields()
+
+            config["center_cond_field"] = fine_flow._center_cond
             times['make_fields'] = time.time() - make_fields_start
 
         #fine_flow.run() # @TODO replace fine_flow.run by DFMSim._run_sample()
         #print("run samples ")
-        fine_res, status = DFMSim._run_sample(fine_flow, config)
-        fine_res = fine_res[0]
 
-        #print("fine res ", fine_res)
 
-        #config["fine_flow"] = fine_flow
-        config["center_cond_field"] = fine_flow._center_cond
+        if not gen_hom_samples:
 
-        done = []
-        status, p_loads, outer_reg_names = DFMSim._run_homogenization_sample(fine_flow, config)
-        done.append(fine_flow)
-        cond_tn, diff = fine_flow.effective_tensor_from_bulk(p_loads, outer_reg_names, fine_flow.basename)
+            fine_res, status = DFMSim._run_sample(fine_flow, config)
+            fine_res = fine_res[0]
 
-        if os.path.exists("flow_fields.pvd"):
-            os.remove("flow_fields.pvd")
-        if os.path.exists("flow_fields"):
-            shutil.rmtree("flow_fields")
+            done = []
+            status, p_loads, outer_reg_names = DFMSim._run_homogenization_sample(fine_flow, config)
+            done.append(fine_flow)
+            cond_tn, diff = fine_flow.effective_tensor_from_bulk(p_loads, outer_reg_names, fine_flow.basename)
 
-        status, p_loads, outer_reg_names = DFMSim._run_homogenization_sample(fine_flow, config, format="vtk")
-        DFMSim.make_summary(done)
+            if os.path.exists("flow_fields.pvd"):
+                os.remove("flow_fields.pvd")
+            if os.path.exists("flow_fields"):
+                shutil.rmtree("flow_fields")
 
-        ff_fine_vtk = os.path.join(os.getcwd(), "flow_field_fine_vtk")
-        if os.path.exists(ff_fine_vtk):
-            shutil.rmtree(ff_fine_vtk)
-        os.mkdir(ff_fine_vtk)
+            status, p_loads, outer_reg_names = DFMSim._run_homogenization_sample(fine_flow, config, format="vtk")
+            DFMSim.make_summary(done)
 
-        if os.path.exists("flow_fields.msh"):
-            shutil.move("flow_fields.msh", "flow_fields_fine.msh")
+            ff_fine_vtk = os.path.join(os.getcwd(), "flow_field_fine_vtk")
+            if os.path.exists(ff_fine_vtk):
+                shutil.rmtree(ff_fine_vtk)
+            os.mkdir(ff_fine_vtk)
 
-        if os.path.exists("flow_fields.pvd"):
-            shutil.move("flow_fields.pvd", ff_fine_vtk)
-            # shutil.move("flow_fields.pvd", "flow_fields_coarse_vtk.pvd")
-        if os.path.exists("flow_fields"):
-            shutil.move("flow_fields", ff_fine_vtk)
-        # if os.path.exists("flow_fields.pvd"):
-        #     shutil.move("flow_fields.pvd", "flow_fields_fine_vtk.pvd")
-        # if os.path.exists("flow_fields"):
-        #     shutil.move("flow_fields", "flow_fields_fine_vtk")
-        if os.path.exists("summary.yaml"):
-            shutil.move("summary.yaml", "summary_fine.yaml")
+            if os.path.exists("flow_fields.msh"):
+                shutil.move("flow_fields.msh", "flow_fields_fine.msh")
+
+            if os.path.exists("flow_fields.pvd"):
+                shutil.move("flow_fields.pvd", ff_fine_vtk)
+                # shutil.move("flow_fields.pvd", "flow_fields_coarse_vtk.pvd")
+            if os.path.exists("flow_fields"):
+                shutil.move("flow_fields", ff_fine_vtk)
+            # if os.path.exists("flow_fields.pvd"):
+            #     shutil.move("flow_fields.pvd", "flow_fields_fine_vtk.pvd")
+            # if os.path.exists("flow_fields"):
+            #     shutil.move("flow_fields", "flow_fields_fine_vtk")
+            if os.path.exists("summary.yaml"):
+                shutil.move("summary.yaml", "summary_fine.yaml")
 
 
 
@@ -792,95 +796,44 @@ class DFMSim(Simulation):
                 config["sim_config"]["geometry"]["domain_box"] = hom_domain_box
             cond_tensors, pred_cond_tensors = DFMSim.homogenization(copy.deepcopy(config))
 
-            #print("cond tensors ", cond_tensors)
-            #print("pred cond tensors ", pred_cond_tensors)
-            DFMSim._save_tensors(cond_tensors, file=DFMSim.COND_TN_FILE)
-            DFMSim._save_tensors(pred_cond_tensors, file=DFMSim.PRED_COND_TN_FILE)
+            if not gen_hom_samples:
+                #print("cond tensors ", cond_tensors)
+                #print("pred cond tensors ", pred_cond_tensors)
+                DFMSim._save_tensors(cond_tensors, file=DFMSim.COND_TN_FILE)
+                DFMSim._save_tensors(pred_cond_tensors, file=DFMSim.PRED_COND_TN_FILE)
 
-            cond_tn_pop = os.path.join(DFMSim.COMMON_FILES.format(fine_step), DFMSim.COND_TN_POP_FILE)
-            # print("cond tn pop ", cond_tn_pop)
-            if os.path.exists(cond_tn_pop):
-                config["fine"]["cond_tn_pop_file"] = cond_tn_pop
+                cond_tn_pop = os.path.join(DFMSim.COMMON_FILES.format(fine_step), DFMSim.COND_TN_POP_FILE)
+                # print("cond tn pop ", cond_tn_pop)
+                if os.path.exists(cond_tn_pop):
+                    config["fine"]["cond_tn_pop_file"] = cond_tn_pop
 
-            config["cond_tns_yaml_file"] = os.path.abspath(DFMSim.COND_TN_FILE)
-            config["pred_cond_tns_yaml_file"] = os.path.abspath(DFMSim.PRED_COND_TN_FILE)
+                config["cond_tns_yaml_file"] = os.path.abspath(DFMSim.COND_TN_FILE)
+                config["pred_cond_tns_yaml_file"] = os.path.abspath(DFMSim.PRED_COND_TN_FILE)
 
-            ######################
-            ### coarse problem ###
-            ######################
-            config["sim_config"]["geometry"]["domain_box"] = orig_domain_box
-            #coarse_ref = FlowProblem.make_microscale((config["fine"]["step"], config["coarse"]["step"]), fractures, fine_flow, config)
-            # coarse_ref.pressure_loads = p_loads
-            # coarse_ref.reg_to_group = fine_flow.reg_to_group
-            # coarse_ref.regions = fine_flow.regions
-            #print("coarse problem ")
+                ######################
+                ### coarse problem ###
+                ######################
+                config["sim_config"]["geometry"]["domain_box"] = orig_domain_box
+                #coarse_ref = FlowProblem.make_microscale((config["fine"]["step"], config["coarse"]["step"]), fractures, fine_flow, config)
+                # coarse_ref.pressure_loads = p_loads
+                # coarse_ref.reg_to_group = fine_flow.reg_to_group
+                # coarse_ref.regions = fine_flow.regions
+                #print("coarse problem ")
 
-            coarse_flow = FlowProblem.make_coarse((config["coarse"]["step"], config["sim_config"]["geometry"]["fr_max_size"]), fractures, config)
-            coarse_flow.fr_range = [config["coarse"]["step"], coarse_flow.fr_range[1]]
-            coarse_flow.make_mesh()
-            coarse_flow.make_fields()
-            # print("coarse flow ", coarse_flow)
-            # print("config ", config)
-
-            coarse_res, status = DFMSim._run_sample(coarse_flow, config)
-            print("coarse res ", coarse_res)
-            print("status ", status)
-            coarse_res = coarse_res[0]
-
-            if os.path.exists("flow_fields"):
-                shutil.rmtree("flow_fields")
-
-            done = []
-            status, p_loads, outer_reg_names = DFMSim._run_homogenization_sample(coarse_flow, config)
-            done.append(coarse_flow)
-            cond_tn, diff = coarse_flow.effective_tensor_from_bulk(p_loads, outer_reg_names, coarse_flow.basename)
-
-            if os.path.exists("flow_fields.pvd"):
-                os.remove("flow_fields.pvd")
-            if os.path.exists("flow_fields"):
-                shutil.rmtree("flow_fields")
-
-            status, p_loads, outer_reg_names = DFMSim._run_homogenization_sample(coarse_flow, config, format="vtk")
-
-            DFMSim.make_summary(done)
-            if os.path.exists("flow_fields.msh"):
-                shutil.move("flow_fields.msh", "flow_fields_coarse.msh")
-
-            ff_coarse_vtk = os.path.join(os.getcwd(), "flow_field_coarse_vtk")
-            if os.path.exists(ff_coarse_vtk):
-                shutil.rmtree(ff_coarse_vtk)
-            os.mkdir(ff_coarse_vtk)
-
-            if os.path.exists("flow_fields.pvd"):
-                shutil.move("flow_fields.pvd", ff_coarse_vtk)
-                #shutil.move("flow_fields.pvd", "flow_fields_coarse_vtk.pvd")
-            if os.path.exists("flow_fields"):
-                shutil.move("flow_fields", ff_coarse_vtk)
-            if os.path.exists("summary.yaml"):
-                shutil.move("summary.yaml", "summary_coarse.yaml")
-
-
-            ############################################
-            ## Coarse sample - predicted cond tensors ##
-            ############################################
-            if len(pred_cond_tensors) > 0:
-                pred_coarse_dir = os.path.join(os.getcwd(), "pred_coarse")
-                os.mkdir(pred_coarse_dir)
-                os.chdir(pred_coarse_dir)
-                # print("os.getcwd() ", os.getcwd())
-                # exit()
-                config["back_up_cond_tns_yaml_file"] = config["cond_tns_yaml_file"]
-                config["cond_tns_yaml_file"] = config["pred_cond_tns_yaml_file"]
-                coarse_flow = FlowProblem.make_coarse(
-                    (config["coarse"]["step"], config["sim_config"]["geometry"]["fr_max_size"]), fractures, config)
+                coarse_flow = FlowProblem.make_coarse((config["coarse"]["step"], config["sim_config"]["geometry"]["fr_max_size"]), fractures, config)
                 coarse_flow.fr_range = [config["coarse"]["step"], coarse_flow.fr_range[1]]
                 coarse_flow.make_mesh()
                 coarse_flow.make_fields()
-                done = []
-                # fine_flow.run() # @TODO replace fine_flow.run by DFMSim._run_sample()
-                # print("run samples ")
+                # print("coarse flow ", coarse_flow)
+                # print("config ", config)
+
                 coarse_res, status = DFMSim._run_sample(coarse_flow, config)
+                print("coarse res ", coarse_res)
+                print("status ", status)
                 coarse_res = coarse_res[0]
+
+                if os.path.exists("flow_fields"):
+                    shutil.rmtree("flow_fields")
 
                 done = []
                 status, p_loads, outer_reg_names = DFMSim._run_homogenization_sample(coarse_flow, config)
@@ -895,6 +848,8 @@ class DFMSim(Simulation):
                 status, p_loads, outer_reg_names = DFMSim._run_homogenization_sample(coarse_flow, config, format="vtk")
 
                 DFMSim.make_summary(done)
+                if os.path.exists("flow_fields.msh"):
+                    shutil.move("flow_fields.msh", "flow_fields_coarse.msh")
 
                 ff_coarse_vtk = os.path.join(os.getcwd(), "flow_field_coarse_vtk")
                 if os.path.exists(ff_coarse_vtk):
@@ -903,14 +858,64 @@ class DFMSim(Simulation):
 
                 if os.path.exists("flow_fields.pvd"):
                     shutil.move("flow_fields.pvd", ff_coarse_vtk)
-                    # shutil.move("flow_fields.pvd", "flow_fields_coarse_vtk.pvd")
+                    #shutil.move("flow_fields.pvd", "flow_fields_coarse_vtk.pvd")
                 if os.path.exists("flow_fields"):
                     shutil.move("flow_fields", ff_coarse_vtk)
                 if os.path.exists("summary.yaml"):
                     shutil.move("summary.yaml", "summary_coarse.yaml")
 
-                if os.path.exists("flow_fields.msh"):
-                    shutil.move("flow_fields.msh", "flow_fields_coarse.msh")
+
+                ############################################
+                ## Coarse sample - predicted cond tensors ##
+                ############################################
+                if len(pred_cond_tensors) > 0:
+                    pred_coarse_dir = os.path.join(os.getcwd(), "pred_coarse")
+                    os.mkdir(pred_coarse_dir)
+                    os.chdir(pred_coarse_dir)
+                    # print("os.getcwd() ", os.getcwd())
+                    # exit()
+                    config["back_up_cond_tns_yaml_file"] = config["cond_tns_yaml_file"]
+                    config["cond_tns_yaml_file"] = config["pred_cond_tns_yaml_file"]
+                    coarse_flow = FlowProblem.make_coarse(
+                        (config["coarse"]["step"], config["sim_config"]["geometry"]["fr_max_size"]), fractures, config)
+                    coarse_flow.fr_range = [config["coarse"]["step"], coarse_flow.fr_range[1]]
+                    coarse_flow.make_mesh()
+                    coarse_flow.make_fields()
+                    done = []
+                    # fine_flow.run() # @TODO replace fine_flow.run by DFMSim._run_sample()
+                    # print("run samples ")
+                    coarse_res, status = DFMSim._run_sample(coarse_flow, config)
+                    coarse_res = coarse_res[0]
+
+                    done = []
+                    status, p_loads, outer_reg_names = DFMSim._run_homogenization_sample(coarse_flow, config)
+                    done.append(coarse_flow)
+                    cond_tn, diff = coarse_flow.effective_tensor_from_bulk(p_loads, outer_reg_names, coarse_flow.basename)
+
+                    if os.path.exists("flow_fields.pvd"):
+                        os.remove("flow_fields.pvd")
+                    if os.path.exists("flow_fields"):
+                        shutil.rmtree("flow_fields")
+
+                    status, p_loads, outer_reg_names = DFMSim._run_homogenization_sample(coarse_flow, config, format="vtk")
+
+                    DFMSim.make_summary(done)
+
+                    ff_coarse_vtk = os.path.join(os.getcwd(), "flow_field_coarse_vtk")
+                    if os.path.exists(ff_coarse_vtk):
+                        shutil.rmtree(ff_coarse_vtk)
+                    os.mkdir(ff_coarse_vtk)
+
+                    if os.path.exists("flow_fields.pvd"):
+                        shutil.move("flow_fields.pvd", ff_coarse_vtk)
+                        # shutil.move("flow_fields.pvd", "flow_fields_coarse_vtk.pvd")
+                    if os.path.exists("flow_fields"):
+                        shutil.move("flow_fields", ff_coarse_vtk)
+                    if os.path.exists("summary.yaml"):
+                        shutil.move("summary.yaml", "summary_coarse.yaml")
+
+                    if os.path.exists("flow_fields.msh"):
+                        shutil.move("flow_fields.msh", "flow_fields_coarse.msh")
 
         return fine_res, coarse_res, times
 
@@ -998,8 +1003,8 @@ class DFMSim(Simulation):
         else:
             substitute_placeholders(os.path.join(common_files_dir, DFMSim.YAML_TEMPLATE_H), in_f, params)
 
-        #flow_args = ["docker", "run", "-v", "{}:{}".format(os.getcwd(), os.getcwd()), *config["flow123d"]]
-        flow_args = ["singularity", "exec", "/storage/liberec3-tul/home/martin_spetlik/flow_3_1_0.sif", "flow123d"]
+        flow_args = ["docker", "run", "-v", "{}:{}".format(os.getcwd(), os.getcwd()), *config["flow123d"]]
+        #flow_args = ["singularity", "exec", "/storage/liberec3-tul/home/martin_spetlik/flow_3_1_0.sif", "flow123d"]
 
         flow_args.extend(['--output_dir', out_dir, os.path.join(out_dir, in_f)])
 
@@ -1057,8 +1062,8 @@ class DFMSim(Simulation):
         common_files_dir = config["fine"]["common_files_dir"]
         #print("yaml file ", os.path.join(common_files_dir, DFMSim.YAML_TEMPLATE))
         substitute_placeholders(os.path.join(common_files_dir, DFMSim.YAML_TEMPLATE), in_f, params)
-        #flow_args = ["docker", "run", "-v", "{}:{}".format(os.getcwd(), os.getcwd()), *config["flow123d"]]
-        flow_args = ["singularity", "exec", "/storage/liberec3-tul/home/martin_spetlik/flow_3_1_0.sif", "flow123d"]
+        flow_args = ["docker", "run", "-v", "{}:{}".format(os.getcwd(), os.getcwd()), *config["flow123d"]]
+        #flow_args = ["singularity", "exec", "/storage/liberec3-tul/home/martin_spetlik/flow_3_1_0.sif", "flow123d"]
 
         flow_args.extend(['--output_dir', out_dir, os.path.join(out_dir, in_f)])
 
