@@ -1047,7 +1047,7 @@ class FlowProblem:
 
             #print("BULKFIelds bulk_conductivity ", bulk_conductivity)
             if "gstools" in config_dict["sim_config"] and config_dict["sim_config"]["gstools"]:
-                print("**bulk_conductivity ", bulk_conductivity)
+                #print("**bulk_conductivity ", bulk_conductivity)
                 bulk_model = BulkFieldsGSTools(**bulk_conductivity)
             else:
                 bulk_model = BulkFields(**bulk_conductivity)
@@ -1637,7 +1637,7 @@ class FlowProblem:
         # print("bulk regions ", bulk_regions)
         # print("self.regions ", self.regions)
         # print("self.reg_to_group ", self.reg_to_group)
-        print("self.pressure_loads ", pressure_loads)
+        #print("self.pressure_loads ", pressure_loads)
 
         #compute_effective_cond.effective_tensor_from_bulk(self.regions, bulk_regions, self.pressure_loads, os.path.join(self.basename, "flow_fields.msh"))
         #print("bulk regions ", bulk_regions)
@@ -1723,7 +1723,7 @@ class FlowProblem:
         flux_response /= area[:, :, None]
         cond_tensors = {}
         print("Fitting tensors ...")
-        print("flux response ", flux_response)
+        #print("flux response ", flux_response)
 
         #print("groud_idx ", group_idx.items())
         for group_id, i_group in group_idx.items():

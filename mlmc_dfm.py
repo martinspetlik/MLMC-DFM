@@ -1,6 +1,7 @@
 import os
 import sys
 import numpy as np
+import argparse
 #import mlmc.tool.simple_distribution
 from mlmc.sampler import Sampler
 from mlmc.sample_storage_hdf import SampleStorageHDF
@@ -20,9 +21,24 @@ class ProcessSimple:
     # @TODO: generate more samples, with new seed
 
     def __init__(self):
-        args = ProcessBase.get_arguments(sys.argv[1:])
+        parser = argparse.ArgumentParser()
+
+        parser.add_argument('command', choices=['run', 'collect', 'renew'],
+                            help='run - create new execution,'
+                                 'collect - keep collected, append existing HDF file'
+                                 'renew - renew failed samples, run new samples with failed sample ids (which determine random seed)')
+        parser.add_argument('work_dir', help='Work directory')
+        parser.add_argument('scratch_dir', help='Scratch directory')
+        parser.add_argument("-c", "--clean", default=False, action='store_true',
+                            help="Clean before run, used only with 'run' command")
+        parser.add_argument("-d", "--debug", default=False, action='store_true',
+                            help="Keep sample directories")
+
+        args = parser.parse_args(sys.argv[1:])
+
 
         self.work_dir = os.path.abspath(args.work_dir)
+        self.scratch_dir = os.path.abspath(args.scratch_dir)
         # Add samples to existing ones
         self.clean = args.clean
         # Remove HDF5 file, start from scratch
@@ -33,13 +49,13 @@ class ProcessSimple:
         self.n_levels = 2
         self.n_moments = 25
         # Number of MLMC levels
+
         # step_range = [0.055, 0.0035]
+        #step_range = [0.809, 0.35] # Used for tested data of CNNs
         #step_range = [0.809, 0.35]
         step_range = [10.0, 4.325]
-        step_range = [25.0, 10.0]
-        #step_range = [10, 1] # Used for tested data of CNNs
-        #step_range = [100, 10]
-        #step_range = [100, 1]
+        #step_range = [100, 25]
+        # step_range = [0.1, 0.055]
         # step   - elements
         # 0.1    - 262
         # 0.08   - 478
@@ -154,10 +170,12 @@ class ProcessSimple:
             sim_config_dict = yaml.load(f, Loader=yaml.FullLoader)
             print("sim_config_dict ", sim_config_dict)
 
+        
         sim_config_dict['fields_params'] = dict(model='exp', corr_length=0.1, sigma=1, mode_no=10000)
         sim_config_dict['field_template'] = "!FieldFE {mesh_data_file: \"$INPUT_DIR$/%s\", field_name: %s}"
         sim_config_dict['env'] = dict(flow123d=self.flow123d, gmsh=self.gmsh, gmsh_version=1)  # The Environment.
         sim_config_dict['work_dir'] = self.work_dir
+        sim_config_dict['scratch_dir'] = self.scratch_dir
         sim_config_dict['yaml_file'] = os.path.join(self.work_dir, '01_conductivity.yaml')
         sim_config_dict['yaml_file_homogenization'] = os.path.join(self.work_dir, 'flow_templ.yaml')
         sim_config_dict['yaml_file_homogenization_vtk'] = os.path.join(self.work_dir, 'flow_templ_vtk.yaml')

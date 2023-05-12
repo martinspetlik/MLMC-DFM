@@ -12,16 +12,16 @@ import torch.optim as optim
 from metamodel.cnn.models.net1 import Net1
 from metamodel.cnn.models.trials.net_optuna_2 import Net
 from metamodel.cnn.datasets.dfm_dataset import DFMDataset
-from torch.utils.tensorboard import SummaryWriter
+#from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
 from metamodel.cnn.visualization.visualize_tensor import plot_tensors
 from metamodel.cnn.visualization.visualize_data import plot_target_prediction, plot_train_valid_loss
 from metamodel.cnn.models.auxiliary_functions import exp_data, get_eigendecomp, get_mse_nrmse_r2, get_mean_std, log_data
 from metamodel.cnn.models.train_pure_cnn_optuna import prepare_dataset
-from sklearn.isotonic import IsotonicRegression
-from statsmodels.regression.quantile_regression import QuantReg
-from sklearn.linear_model import LogisticRegression
-from sklearn.calibration import CalibratedClassifierCV
+#from sklearn.isotonic import IsotonicRegression
+#from statsmodels.regression.quantile_regression import QuantReg
+#from sklearn.linear_model import LogisticRegression
+#from sklearn.calibration import CalibratedClassifierCV
 
 
 def get_calibrator():
@@ -317,7 +317,10 @@ def load_models(args, study):
                                                                    **study.best_trial.user_attrs["optimizer_kwargs"])
 
         print("model path ", model_path)
-        checkpoint = torch.load(model_path)
+        if not torch.cuda.is_available():
+            checkpoint = torch.load(model_path, map_location=torch.device('cpu'))
+        else:
+            checkpoint = torch.load(model_path)
         train_loss = checkpoint['train_loss']
         valid_loss = checkpoint['valid_loss']
         #print("checkpoint ", checkpoint)

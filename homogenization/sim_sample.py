@@ -17,7 +17,7 @@ from mlmc.quantity.quantity_spec import QuantitySpec
 #from mlmc.random import correlated_field as cf
 import homogenization.fracture as fracture
 from homogenization.both_sample import FlowProblem, BothSample
-from metamodel.cnn.datasets import create_dataset
+#from metamodel.cnn.datasets import create_dataset
 from metamodel.cnn.postprocess.optuna_results import load_study, load_models, get_saved_model_path, get_inverse_transform
 from metamodel.cnn.datasets.dfm_dataset import DFMDataset
 
@@ -482,7 +482,11 @@ class DFMSim(Simulation):
                         model_path = get_saved_model_path(nn_path, study.best_trial)
                         model_kwargs = study.best_trial.user_attrs["model_kwargs"]
                         DFMSim.model = study.best_trial.user_attrs["model_class"](**model_kwargs)
-                        DFMSim.checkpoint = torch.load(model_path)
+                        if not torch.cuda.is_available():
+                            DFMSim.checkpoint = torch.load(model_path, map_location=torch.device('cpu'))
+                        else:
+                            DFMSim.checkpoint = torch.load(model_path)
+                        #DFMSim.checkpoint = torch.load(model_path)
 
                         DFMSim.inverse_transform = get_inverse_transform(study)
 
@@ -732,8 +736,6 @@ class DFMSim(Simulation):
         #config["fine_flow"] = fine_flow
         config["center_cond_field"] = fine_flow._center_cond
 
-
-
         done = []
         status, p_loads, outer_reg_names = DFMSim._run_homogenization_sample(fine_flow, config)
         done.append(fine_flow)
@@ -745,6 +747,7 @@ class DFMSim(Simulation):
             shutil.rmtree("flow_fields")
 
         status, p_loads, outer_reg_names = DFMSim._run_homogenization_sample(fine_flow, config, format="vtk")
+        DFMSim.make_summary(done)
 
         ff_fine_vtk = os.path.join(os.getcwd(), "flow_field_fine_vtk")
         if os.path.exists(ff_fine_vtk):
@@ -765,7 +768,7 @@ class DFMSim(Simulation):
         #     shutil.move("flow_fields", "flow_fields_fine_vtk")
         if os.path.exists("summary.yaml"):
             shutil.move("summary.yaml", "summary_fine.yaml")
-        DFMSim.make_summary(done)
+
 
 
         coarse_res = 0
@@ -991,12 +994,12 @@ class DFMSim(Simulation):
 
         if format == "vtk":
             substitute_placeholders(os.path.join(common_files_dir, DFMSim.YAML_TEMPLATE_H_VTK), in_f, params)
-            print("os.path.join(common_files_dir, DFMSim.YAML_TEMPLATE_H_VTK) ", os.path.join(common_files_dir, DFMSim.YAML_TEMPLATE_H_VTK))
+            #print("os.path.join(common_files_dir, DFMSim.YAML_TEMPLATE_H_VTK) ", os.path.join(common_files_dir, DFMSim.YAML_TEMPLATE_H_VTK))
         else:
             substitute_placeholders(os.path.join(common_files_dir, DFMSim.YAML_TEMPLATE_H), in_f, params)
 
-        flow_args = ["docker", "run", "-v", "{}:{}".format(os.getcwd(), os.getcwd()), *config["flow123d"]]
-        #flow_args = ["singularity", "exec", "/storage/liberec3-tul/home/martin_spetlik/flow_3_1_0.sif", "flow123d"]
+        #flow_args = ["docker", "run", "-v", "{}:{}".format(os.getcwd(), os.getcwd()), *config["flow123d"]]
+        flow_args = ["singularity", "exec", "/storage/liberec3-tul/home/martin_spetlik/flow_3_1_0.sif", "flow123d"]
 
         flow_args.extend(['--output_dir', out_dir, os.path.join(out_dir, in_f)])
 
@@ -1054,8 +1057,8 @@ class DFMSim(Simulation):
         common_files_dir = config["fine"]["common_files_dir"]
         #print("yaml file ", os.path.join(common_files_dir, DFMSim.YAML_TEMPLATE))
         substitute_placeholders(os.path.join(common_files_dir, DFMSim.YAML_TEMPLATE), in_f, params)
-        flow_args = ["docker", "run", "-v", "{}:{}".format(os.getcwd(), os.getcwd()), *config["flow123d"]]
-        #flow_args = ["singularity", "exec", "/storage/liberec3-tul/home/martin_spetlik/flow_3_1_0.sif", "flow123d"]
+        #flow_args = ["docker", "run", "-v", "{}:{}".format(os.getcwd(), os.getcwd()), *config["flow123d"]]
+        flow_args = ["singularity", "exec", "/storage/liberec3-tul/home/martin_spetlik/flow_3_1_0.sif", "flow123d"]
 
         flow_args.extend(['--output_dir', out_dir, os.path.join(out_dir, in_f)])
 
