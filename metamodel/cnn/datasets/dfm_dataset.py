@@ -4,7 +4,7 @@ import copy
 import shutil
 
 import torch
-import sklearn
+#import sklearn
 import pandas as pd
 #from skimage import io, transform
 import numpy as np
