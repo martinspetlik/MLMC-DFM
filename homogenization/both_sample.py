@@ -796,11 +796,13 @@ def write_fields(mesh, basename, bulk_model, fracture_model, elid_to_fr, elids_s
                  positions=None, input_tensors=None, center_cond_tn_field=None, interp_data=None):
     elem_ids = []
     cond_tn_field = []
+    cond_tn_field_bulk = []
     cs_field = []
     fracture_cs = []
     fracture_len = []
     el_cond = {}
     centers = []
+    centers_bulk = []
 
     # rotation_matrix = np.array([[0, 1, 0],
     #                             [-1, 0, 0],
@@ -945,10 +947,16 @@ def write_fields(mesh, basename, bulk_model, fracture_model, elid_to_fr, elids_s
             el_cond[el_id] = cond_tn
 
         cs_field.append(np.array(cs))
-        if center_cond_tn_field is not None or interp_data is not None:
-            cond_tn_field.append(cond_tn_flatten)
-        else:
+        if n_nodes == 2:
             cond_tn_field.append(tensor_3d_flatten(cond_tn))
+        else:
+            if center_cond_tn_field is not None or interp_data is not None:
+                cond_tn_field.append(cond_tn_flatten)
+            else:
+                cond_tn_field.append(tensor_3d_flatten(cond_tn))
+            centers_bulk.append(center)
+            cond_tn_field_bulk.append(cond_tn_field[-1])
+
         centers.append(center)
 
     # print("centers ", centers)
@@ -959,7 +967,7 @@ def write_fields(mesh, basename, bulk_model, fracture_model, elid_to_fr, elids_s
     # print("all_cond_tn ", all_cond_tn)
     # print("all_ell_ids ", all_ele_ids)
     # exit()
-    # print("cond_tn_field ", cond_tn_field)
+    #print("cond_tn_field ", cond_tn_field)
     # cond_tn_field_arr = np.array(cond_tn_field)
     # print("cond_tn_field_arr ", cond_tn_field_arr.shape)
     # np.reshape(cond_tn_field_arr, ())
@@ -982,7 +990,7 @@ def write_fields(mesh, basename, bulk_model, fracture_model, elid_to_fr, elids_s
 
     # print("fracture_cs ", fracture_cs)
     # exit()
-    center_cond = (centers, cond_tn_field)
+    center_cond = (centers_bulk, cond_tn_field_bulk)
     return elem_ids, cs_field, cond_tn_field, fracture_cs, fracture_len, center_cond
 
 
@@ -1069,10 +1077,6 @@ class FlowProblem:
         cov[1, 0] = cov[0, 1] = corr_coeff * np.sqrt(cov[0,0] * cov[1,1])
 
         return means, cov
-
-
-
-
 
 
     # @classmethod
@@ -1256,7 +1260,7 @@ class FlowProblem:
         #self.fracture_lines = self.fractures.get_lines(self.fr_range)
         self.fracture_lines = self.fractures.get_lines(square_fr_range)
         # print("fracture lines ", self.fracture_lines)
-        # print("len fracture lines ", len(self.fracture_lines))
+        #print("len fracture lines ", len(self.fracture_lines))
         # print("list fractures ", list(self.fracture_lines.values()))
 
         pd, fr_regions = self.add_fractures(pd, self.fracture_lines, eid=0)
@@ -1297,7 +1301,7 @@ class FlowProblem:
 
         #print("self. skip decomposition ", self.skip_decomposition)
 
-        print("self regions ", self.regions)
+        #print("self regions ", self.regions)
         if not self.skip_decomposition:
             self.make_fracture_network()
             gmsh_executable = self.config_dict["sim_config"]["gmsh_executable"]

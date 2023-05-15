@@ -433,22 +433,30 @@ class DFMSim(Simulation):
                 if "center_larger_cond_field" in config:
                     cond_fields = config["center_larger_cond_field"]
 
-                center_cond_field = DFMSim.eliminate_far_points(outer_polygon,
-                                                                cond_fields,
-                                                                fine_step=config["fine"]["step"])
-                fine_flow.make_mesh()
-                fine_flow.interpolate_fields(center_cond_field, mode="linear")
-                #fine_flow.make_fields()
-                done = []
-                # exit()
-                # fine_flow.run() # @TODO replace fine_flow.run by DFMSim._run_sample()
-                #print("run samples ")
-                status, p_loads, outer_reg_names = DFMSim._run_homogenization_sample(fine_flow, config)
+                print("=== HOMOGENIZATION SAMPLE ===")
 
-                done.append(fine_flow)
-                cond_tn, diff = fine_flow.effective_tensor_from_bulk(p_loads, outer_reg_names, fine_flow.basename)
-                DFMSim.make_summary(done)
-                percentage_sym_tn_diff.append(diff)
+                try:
+                    center_cond_field = DFMSim.eliminate_far_points(outer_polygon,
+                                                                    cond_fields,
+                                                                    fine_step=config["fine"]["step"])
+                    fine_flow.make_mesh()
+                    fine_flow.interpolate_fields(center_cond_field, mode="linear")
+                    #fine_flow.make_fields()
+                    done = []
+                    # exit()
+                    # fine_flow.run() # @TODO replace fine_flow.run by DFMSim._run_sample()
+                    #print("run samples ")
+                    status, p_loads, outer_reg_names = DFMSim._run_homogenization_sample(fine_flow, config)
+
+                    done.append(fine_flow)
+                    cond_tn, diff = fine_flow.effective_tensor_from_bulk(p_loads, outer_reg_names, fine_flow.basename)
+                    DFMSim.make_summary(done)
+                    percentage_sym_tn_diff.append(diff)
+
+                except Exception as e:
+                    print(str(e))
+
+                #exit()
 
                 pred_cond_tn = None
                 ######################
@@ -707,6 +715,8 @@ class DFMSim(Simulation):
         #print("fine_flow.fr_range ", fine_flow.fr_range)
 
         make_mesh_start = time.time()
+
+        print("=== COARSE PROBLEM ===")
 
         if config["sim_config"]["geometry"]["n_subdomains"] == 1:
             mesh_file = "/home/martin/Desktop/mesh_fine.msh"
