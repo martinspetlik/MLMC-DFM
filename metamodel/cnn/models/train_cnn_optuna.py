@@ -26,7 +26,7 @@ from metamodel.cnn.datasets.dfm_dataset import DFMDataset
 from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
 from metamodel.cnn.models.auxiliary_functions import get_mean_std, log_data, check_shapes, get_loss_fn
-from metamodel.cnn.models.train_pure_cnn_optuna import train_one_epoch, prepare_dataset, validate, load_trials_config,\
+from metamodel.cnn.models.train_pure_cnn_optuna import train_one_epoch, prepare_sub_datasets, prepare_dataset, validate, load_trials_config,\
     get_trained_layers, save_output_dataset
 #from metamodel.cnn.visualization.visualize_data import plot_samples
 
@@ -71,6 +71,10 @@ def objective(trial, trials_config, train_loader, validation_loader):
     if "fc_dropout_indices" in trials_config:
         fc_dropout_indices = trial.suggest_categorical("fc_dropout_indices", trials_config["fc_dropout_indices"])
 
+    if "bias_reduction_layer_indices" in trials_config:
+        bias_reduction_layer_indices = trial.suggest_categorical("bias_reduction_layer_indices",
+                                                                 trials_config["bias_reduction_layer_indices"])
+
     if "cnn_dropout_ratios" in trials_config:
         cnn_dropout_ratios = trial.suggest_categorical("cnn_dropout_ratios", trials_config["cnn_dropout_ratios"])
 
@@ -84,9 +88,16 @@ def objective(trial, trials_config, train_loader, validation_loader):
         if "n_test_samples" in trials_config and trials_config["n_test_samples"] is not None:
             config["n_test_samples"] = trials_config["n_test_samples"]
 
+        if "sub_datasets" in config and len(config["sub_datasets"]) > 0:
+            train_set, validation_set, test_set = prepare_sub_datasets(study, config, data_dir=data_dir,
+                                                                       serialize_path=output_dir)
+        else:
+            train_set, validation_set, test_set = prepare_dataset(study, config, data_dir=data_dir,
+                                                                  serialize_path=output_dir)
 
-        train_set, validation_set, test_set = prepare_dataset(study, config, data_dir=data_dir,
-                                                              serialize_path=output_dir)
+        print("len(trainset): {}, len(valset): {}, len(testset): {}".format(len(train_set), len(validation_set),
+                                                                            len(test_set)))
+
         train_loader = torch.utils.data.DataLoader(train_set, batch_size=config["batch_size_train"], shuffle=True)
         validation_loader = torch.utils.data.DataLoader(validation_set, batch_size=config["batch_size_test"],
                                                         shuffle=False)
@@ -152,6 +163,7 @@ def objective(trial, trials_config, train_loader, validation_loader):
                     "use_fc_dropout": use_fc_dropout if "use_fc_dropout" in trials_config else False,
                     "cnn_dropout_indices": cnn_dropout_indices if "cnn_dropout_indices" in trials_config else [],
                     "fc_dropout_indices": fc_dropout_indices if "fc_dropout_indices" in trials_config else [],
+                    "bias_reduction_layer_indices": bias_reduction_layer_indices if "bias_reduction_layer_indices" in trials_config else [],
                     "cnn_dropout_ratios": cnn_dropout_ratios if "cnn_dropout_ratios" in trials_config else [],
                     "fc_dropout_ratios": fc_dropout_ratios if "fc_dropout_ratios" in trials_config else [],
                     }
@@ -213,6 +225,7 @@ def objective(trial, trials_config, train_loader, validation_loader):
     trial.set_user_attr("model_kwargs", model_kwargs)
     trial.set_user_attr("optimizer_kwargs", optimizer_kwargs)
     trial.set_user_attr("loss_fn", loss_fn)
+    trial.set_user_attr("trials_config", trials_config)
 
     # Training of the model
     start_time = time.time()
@@ -341,7 +354,8 @@ if __name__ == '__main__':
               "fractures_sep": trials_config["fractures_sep"] if "fractures_sep" in trials_config else False,
               "vel_avg": trials_config["vel_avg"] if "vel_avg" in trials_config else False,
               "seed": trials_config["random_seed"] if "random_seed" in trials_config else 12345,
-              "output_dir": output_dir
+              "output_dir": output_dir,
+              "sub_datasets": trials_config["sub_datasets"] if "sub_datasets" in trials_config else {}
               }
 
     if "input_transform" in trials_config:
@@ -382,11 +396,11 @@ if __name__ == '__main__':
     # Datasets and data loaders
     # ================================
     train_loader, validation_loader = None, None
-    if "n_train_samples" not in config or not isinstance(config["n_train_samples"], (list, np.ndarray)):
-        train_set, validation_set, test_set = prepare_dataset(study, config, data_dir=data_dir, serialize_path=output_dir)
-        train_loader = torch.utils.data.DataLoader(train_set, batch_size=config["batch_size_train"], shuffle=True)
-        validation_loader = torch.utils.data.DataLoader(validation_set, batch_size=config["batch_size_train"], shuffle=False)
-        test_loader = torch.utils.data.DataLoader(test_set, batch_size=config["batch_size_test"], shuffle=False)
+    # if "n_train_samples" not in config or not isinstance(config["n_train_samples"], (list, np.ndarray)):
+    #     train_set, validation_set, test_set = prepare_dataset(study, config, data_dir=data_dir, serialize_path=output_dir)
+    #     train_loader = torch.utils.data.DataLoader(train_set, batch_size=config["batch_size_train"], shuffle=True)
+    #     validation_loader = torch.utils.data.DataLoader(validation_set, batch_size=config["batch_size_train"], shuffle=False)
+    #     test_loader = torch.utils.data.DataLoader(test_set, batch_size=config["batch_size_test"], shuffle=False)
 
     def obj_func(trial):
         return objective(trial, trials_config, train_loader, validation_loader)

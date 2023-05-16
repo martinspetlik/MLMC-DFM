@@ -3,6 +3,7 @@ import sys
 import argparse
 import logging
 import joblib
+import copy
 import torch
 import torchvision
 import torch.nn as nn
@@ -349,7 +350,45 @@ def features_transform(config, data_dir, output_file_name, input_transform_list,
     return input_transform_list, output_transform_list
 
 
-def prepare_dataset(study, config, data_dir, serialize_path=None):
+def _append_dataset(dataset_1, dataset_2):
+    dataset_1._bulk_file_paths.extend(dataset_2._bulk_file_paths)
+    dataset_1._fracture_file_paths.extend(dataset_2._fracture_file_paths)
+    dataset_1._output_file_paths.extend(dataset_2._output_file_paths)
+
+def prepare_sub_datasets(study, config, data_dir, serialize_path=None):
+
+    complete_train_set, complete_val_set, complete_test_set = None, None, None
+    for key, dset_config in config["sub_datasets"].items():
+        prepare_dset_config = copy.deepcopy(config)
+        prepare_dset_config["log_input"] = dset_config["log_input"]
+        prepare_dset_config["normalize_input"] = dset_config["normalize_input"]
+        prepare_dset_config["log_output"] = dset_config["log_output"]
+        prepare_dset_config["normalize_output"] = dset_config["normalize_output"]
+        prepare_dset_config["n_train_samples"] = dset_config["n_train_samples"]
+        prepare_dset_config["n_test_samples"] = dset_config["n_test_samples"]
+        prepare_dset_config["val_samples_ratio"] = dset_config["val_samples_ratio"]
+        sub_train_set, sub_val_set, sub_test_set = prepare_dataset(study, prepare_dset_config, dset_config['dataset_path'])
+
+        if complete_train_set is None:
+            complete_train_set = sub_train_set
+            complete_val_set = sub_val_set
+            complete_test_set = sub_test_set
+        else:
+            _append_dataset(complete_train_set, sub_train_set)
+            _append_dataset(complete_val_set, sub_val_set)
+            _append_dataset(complete_test_set, sub_test_set)
+
+    data_input_transform, data_output_transform = prepare_dataset(study, config, data_dir, train_dataset=complete_train_set)
+    complete_train_set.input_transform = data_input_transform
+    complete_train_set.output_transform = data_output_transform
+    complete_val_set.input_transform = data_input_transform
+    complete_val_set.output_transform = data_output_transform
+    complete_test_set.input_transform = data_input_transform
+    complete_test_set.output_transform = data_output_transform
+    return complete_train_set, complete_val_set, complete_test_set
+
+
+def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=None):
     output_file_name = "output_tensor.npy"
     if "vel_avg" in config and config["vel_avg"]:
         output_file_name = "output_vel_avg.npy"
@@ -390,19 +429,22 @@ def prepare_dataset(study, config, data_dir, serialize_path=None):
     input_transform = transforms.Compose(input_transform_list)
     output_transform = transforms.Compose(output_transform_list)
 
-
     if config["normalize_input"] or config["normalize_output"]:
-        #print("output transform ", output_transform)
-        dataset_for_mean_std = DFMDataset(data_dir=data_dir,
-                                          output_file_name=output_file_name,
-                                          input_transform=input_transform,
-                                          output_transform=output_transform,
-                                          two_dim=True,
-                                          input_channels=config["input_channels"] if "input_channels" in config else None,
-                                          output_channels=config["output_channels"] if "output_channels" in config else None,
-                                          fractures_sep=config["fractures_sep"] if "fractures_sep" in config else False,
-                                          vel_avg=config["vel_avg"] if "vel_avg" in config else False
-                                          )
+        if train_dataset is not None:
+            dataset_for_mean_std = train_dataset
+            dataset_for_mean_std.input_transform = input_transform
+            dataset_for_mean_std.output_transform = output_transform
+        else:
+            dataset_for_mean_std = DFMDataset(data_dir=data_dir,
+                                              output_file_name=output_file_name,
+                                              input_transform=input_transform,
+                                              output_transform=output_transform,
+                                              two_dim=True,
+                                              input_channels=config["input_channels"] if "input_channels" in config else None,
+                                              output_channels=config["output_channels"] if "output_channels" in config else None,
+                                              fractures_sep=config["fractures_sep"] if "fractures_sep" in config else False,
+                                              vel_avg=config["vel_avg"] if "vel_avg" in config else False
+                                              )
         dataset_for_mean_std.shuffle(seed=config["seed"])
 
         if n_train_samples is None:
@@ -413,20 +455,19 @@ def prepare_dataset(study, config, data_dir, serialize_path=None):
         train_val_set = dataset_for_mean_std[:n_train_samples]
         train_set = train_val_set[:-int(n_train_samples * config["val_samples_ratio"])]
 
-        train_loader_mean_std = torch.utils.data.DataLoader(train_val_set, batch_size=config["batch_size_train"], shuffle=False)
+        train_loader_mean_std = torch.utils.data.DataLoader(train_set, batch_size=config["batch_size_train"], shuffle=False)
         input_mean, input_std, output_mean, output_std = get_mean_std(train_loader_mean_std)
-
         print("input mean: {}, std:{}, output mean: {}, std: {}".format(input_mean, input_std, output_mean, output_std))
-        #exit()
+
 
     # =======================
     # data transforms
     # =======================
     input_transformations = []
     output_transformations = []
-
-    input_transformations, output_transformations = features_transform(config, data_dir, output_file_name, input_transformations,
-                                                                       output_transformations, train_set)
+    if "input_transform" in config or "output_transform" in config:
+        input_transformations, output_transformations = features_transform(config, data_dir, output_file_name, input_transformations,
+                                                                           output_transformations, train_set)
 
     data_input_transform, data_output_transform = None, None
     # Standardize input
@@ -458,6 +499,10 @@ def prepare_dataset(study, config, data_dir, serialize_path=None):
     if len(output_transformations) > 0:
         data_output_transform = transforms.Compose(output_transformations)
 
+
+    if train_dataset is not None:
+        return data_input_transform, data_output_transform
+
     # ============================
     # Datasets and data loaders
     # ============================
@@ -471,7 +516,6 @@ def prepare_dataset(study, config, data_dir, serialize_path=None):
                          vel_avg=config["vel_avg"] if "vel_avg" in config else False
                          )
     dataset.shuffle(config["seed"])
-    print("len dataset ", len(dataset))
 
     if n_train_samples is None:
         n_train_samples = int(len(dataset) * config["train_samples_ratio"])
@@ -487,11 +531,6 @@ def prepare_dataset(study, config, data_dir, serialize_path=None):
         test_set = dataset[-n_test_samples:]
     else:
         test_set = dataset[n_train_samples:]
-
-
-    print("len(trainset): {}, len(valset): {}, len(testset): {}".format(len(train_set), len(validation_set),
-                                                                        len(test_set)))
-
 
     # Save data to numpy array
     # train_loader = torch.utils.data.DataLoader(train_set, batch_size=1, shuffle=True)
