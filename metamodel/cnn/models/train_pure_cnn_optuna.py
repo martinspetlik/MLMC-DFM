@@ -154,9 +154,6 @@ def save_output_dataset(model, data_loader, study, output_data_dir, sample_id=0,
         std = 1/study.user_attrs["output_std"]
         zeros_mean = np.zeros(len(study.user_attrs["output_mean"]))
 
-        print("output_mean ", study.user_attrs["output_mean"])
-        print("output_std ",  study.user_attrs["output_std"])
-
         ones_std = np.ones(len(zeros_mean))
         mean = -study.user_attrs["output_mean"]
 
@@ -355,8 +352,8 @@ def _append_dataset(dataset_1, dataset_2):
     dataset_1._fracture_file_paths.extend(dataset_2._fracture_file_paths)
     dataset_1._output_file_paths.extend(dataset_2._output_file_paths)
 
-def prepare_sub_datasets(study, config, data_dir, serialize_path=None):
 
+def prepare_sub_datasets(study, config, data_dir, serialize_path=None):
     complete_train_set, complete_val_set, complete_test_set = None, None, None
     for key, dset_config in config["sub_datasets"].items():
         prepare_dset_config = copy.deepcopy(config)
@@ -385,6 +382,19 @@ def prepare_sub_datasets(study, config, data_dir, serialize_path=None):
     complete_val_set.output_transform = data_output_transform
     complete_test_set.input_transform = data_input_transform
     complete_test_set.output_transform = data_output_transform
+
+    dataset = copy.deepcopy(complete_train_set)
+    _append_dataset(dataset, complete_val_set)
+    _append_dataset(dataset, complete_test_set)
+
+    if serialize_path is not None:
+        joblib.dump(dataset, os.path.join(serialize_path, "dataset.pkl"))
+
+    if study is not None:
+        study.set_user_attr("n_train_samples", len(complete_train_set))
+        study.set_user_attr("n_val_samples", len(complete_val_set))
+        study.set_user_attr("n_test_samples", len(complete_test_set))
+
     return complete_train_set, complete_val_set, complete_test_set
 
 
@@ -459,7 +469,6 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
         input_mean, input_std, output_mean, output_std = get_mean_std(train_loader_mean_std)
         print("input mean: {}, std:{}, output mean: {}, std: {}".format(input_mean, input_std, output_mean, output_std))
 
-
     # =======================
     # data transforms
     # =======================
@@ -499,38 +508,35 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
     if len(output_transformations) > 0:
         data_output_transform = transforms.Compose(output_transformations)
 
+    if train_dataset is None:
+        # ============================
+        # Datasets and data loaders
+        # ============================
+        dataset = DFMDataset(data_dir=data_dir,
+                             output_file_name=output_file_name,
+                             input_transform=data_input_transform,
+                             output_transform=data_output_transform,
+                             input_channels=config["input_channels"] if "input_channels" in config else None,
+                             output_channels=config["output_channels"] if "output_channels" in config else None,
+                             fractures_sep=config["fractures_sep"] if "fractures_sep" in config else False,
+                             vel_avg=config["vel_avg"] if "vel_avg" in config else False
+                             )
+        dataset.shuffle(config["seed"])
 
-    if train_dataset is not None:
-        return data_input_transform, data_output_transform
+        if n_train_samples is None:
+            n_train_samples = int(len(dataset) * config["train_samples_ratio"])
 
-    # ============================
-    # Datasets and data loaders
-    # ============================
-    dataset = DFMDataset(data_dir=data_dir,
-                         output_file_name=output_file_name,
-                         input_transform=data_input_transform,
-                         output_transform=data_output_transform,
-                         input_channels=config["input_channels"] if "input_channels" in config else None,
-                         output_channels=config["output_channels"] if "output_channels" in config else None,
-                         fractures_sep=config["fractures_sep"] if "fractures_sep" in config else False,
-                         vel_avg=config["vel_avg"] if "vel_avg" in config else False
-                         )
-    dataset.shuffle(config["seed"])
+        n_train_samples = np.min([n_train_samples, int(len(dataset) * config["train_samples_ratio"])])
 
-    if n_train_samples is None:
-        n_train_samples = int(len(dataset) * config["train_samples_ratio"])
+        train_val_set = dataset[:n_train_samples]
+        train_set = train_val_set[:-int(n_train_samples * config["val_samples_ratio"])]
+        validation_set = train_val_set[-int(n_train_samples * config["val_samples_ratio"]):]
 
-    n_train_samples = np.min([n_train_samples, int(len(dataset) * config["train_samples_ratio"])])
-
-    train_val_set = dataset[:n_train_samples]
-    train_set = train_val_set[:-int(n_train_samples * config["val_samples_ratio"])]
-    validation_set = train_val_set[-int(n_train_samples * config["val_samples_ratio"]):]
-
-    if "n_test_samples" in config and config["n_test_samples"] is not None:
-        n_test_samples = config["n_test_samples"]
-        test_set = dataset[-n_test_samples:]
-    else:
-        test_set = dataset[n_train_samples:]
+        if "n_test_samples" in config and config["n_test_samples"] is not None:
+            n_test_samples = config["n_test_samples"]
+            test_set = dataset[-n_test_samples:]
+        else:
+            test_set = dataset[n_train_samples:]
 
     # Save data to numpy array
     # train_loader = torch.utils.data.DataLoader(train_set, batch_size=1, shuffle=True)
@@ -548,9 +554,10 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
     #         npaa_out.append(output)
 
     if study is not None:
-        study.set_user_attr("n_train_samples", len(train_set))
-        study.set_user_attr("n_val_samples", len(validation_set))
-        study.set_user_attr("n_test_samples", len(test_set))
+        if train_dataset is None:
+            study.set_user_attr("n_train_samples", len(train_set))
+            study.set_user_attr("n_val_samples", len(validation_set))
+            study.set_user_attr("n_test_samples", len(test_set))
 
         if "normalize_input_indices" in config:
             study.set_user_attr("normalize_input_indices", config["normalize_input_indices"])
@@ -571,6 +578,9 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
         study.set_user_attr("output_log", config["log_output"])
         study.set_user_attr("output_mean", output_mean)
         study.set_user_attr("output_std", output_std)
+
+    if train_dataset is not None:
+        return data_input_transform, data_output_transform
 
     if serialize_path is not None:
         joblib.dump(dataset, os.path.join(serialize_path, "dataset.pkl"))
