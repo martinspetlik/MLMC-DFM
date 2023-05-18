@@ -621,6 +621,8 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
         study.set_user_attr("output_mean", output_mean)
         study.set_user_attr("output_std", output_std)
 
+        study.set_user_attr("output_quantiles", output_quantiles)
+
     if train_dataset is not None:
         return data_input_transform, data_output_transform
 
