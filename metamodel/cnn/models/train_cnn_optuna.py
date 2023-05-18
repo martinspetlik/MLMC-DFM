@@ -163,11 +163,12 @@ def objective(trial, trials_config, train_loader, validation_loader):
                     "use_fc_dropout": use_fc_dropout if "use_fc_dropout" in trials_config else False,
                     "cnn_dropout_indices": cnn_dropout_indices if "cnn_dropout_indices" in trials_config else [],
                     "fc_dropout_indices": fc_dropout_indices if "fc_dropout_indices" in trials_config else [],
-                    "bias_reduction_layer_indices": bias_reduction_layer_indices if "bias_reduction_layer_indices" in trials_config else [],
                     "cnn_dropout_ratios": cnn_dropout_ratios if "cnn_dropout_ratios" in trials_config else [],
                     "fc_dropout_ratios": fc_dropout_ratios if "fc_dropout_ratios" in trials_config else [],
                     }
 
+    if "bias_reduction_layer_indices" in trials_config:
+        model_kwargs["bias_reduction_layer_indices"] = bias_reduction_layer_indices
     if "vit_params" in trials_config:
         model_kwargs["vit_params"] = vit_params
     if "input_channels" in trials_config:
