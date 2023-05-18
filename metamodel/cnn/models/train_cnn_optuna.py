@@ -284,7 +284,7 @@ def objective(trial, trials_config, train_loader, validation_loader):
             avg_loss_list.append(avg_loss)
             avg_vloss_list.append(avg_vloss)
 
-            #print("epoch: {}, loss train: {}, val: {}".format(epoch, avg_loss, avg_vloss))
+            print("epoch: {}, loss train: {}, val: {}".format(epoch, avg_loss, avg_vloss))
 
             if avg_vloss < best_vloss:
                 best_vloss = avg_vloss
@@ -360,6 +360,10 @@ if __name__ == '__main__':
 
     if "input_transform" in trials_config:
         config["input_transform"] = trials_config["input_transform"]
+    if "output_transform" in trials_config:
+        config["output_transform"] = trials_config["output_transform"]
+    if "output_iqr_scale" in trials_config:
+        config["output_iqr_scale"] = trials_config["output_iqr_scale"]
     if "normalize_input_indices" in trials_config:
         config["normalize_input_indices"] = trials_config["normalize_input_indices"]
     if "normalize_output_indices" in trials_config:

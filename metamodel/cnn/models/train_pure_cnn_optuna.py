@@ -338,8 +338,8 @@ def features_transform(config, data_dir, output_file_name, input_transform_list,
 
     if "output_transform" in config:
         quantile_trfs_out = quantile_transform_fit(output_data,
-                                                   indices=config["input_transform"]["indices"],
-                                                   transform_type=config["input_transform"]["type"])
+                                                   indices=config["output_transform"]["indices"],
+                                                   transform_type=config["output_transform"]["type"])
         joblib.dump(quantile_trfs_out, os.path.join(config["output_dir"], "output_transform.pkl"))
         quantile_trf_obj.quantile_trfs_out = quantile_trfs_out
         output_transform_list.append(transforms.Lambda(quantile_trf_obj.quantile_transform_out))
@@ -466,8 +466,32 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
         train_set = train_val_set[:-int(n_train_samples * config["val_samples_ratio"])]
 
         train_loader_mean_std = torch.utils.data.DataLoader(train_set, batch_size=config["batch_size_train"], shuffle=False)
-        input_mean, input_std, output_mean, output_std = get_mean_std(train_loader_mean_std)
+        iqr = []
+        if "output_iqr_scale" in config:
+            iqr = config["output_iqr_scale"]
+        input_mean, input_std, output_mean, output_std, output_quantiles = get_mean_std(train_loader_mean_std, output_iqr=iqr)
         print("input mean: {}, std:{}, output mean: {}, std: {}".format(input_mean, input_std, output_mean, output_std))
+        print("output qunatiles: {}".format(output_quantiles))
+
+        # validation_set = train_val_set[-int(n_train_samples * config["val_samples_ratio"]):]
+        #
+        # if "n_test_samples" in config and config["n_test_samples"] is not None:
+        #     n_test_samples = config["n_test_samples"]
+        #     test_set = dataset_for_mean_std[-n_test_samples:]
+        # else:
+        #     test_set = dataset_for_mean_std[n_train_samples:]
+        #
+        # train_loader_mean_std = torch.utils.data.DataLoader(validation_set, batch_size=config["batch_size_train"], shuffle=False)
+        # v_input_mean, v_input_std, v_output_mean, v_output_std, quantiles = get_mean_std(train_loader_mean_std, output_iqr=iqr)
+        # print("VAL SET input mean: {}, std:{}, output mean: {}, std: {}".format(v_input_mean, v_input_std, v_output_mean, v_output_std))
+        # print("VAL SET output quantiles: {}".format(quantiles))
+        #
+        # train_loader_mean_std = torch.utils.data.DataLoader(test_set, batch_size=config["batch_size_train"], shuffle=False)
+        # t_input_mean, t_input_std, t_output_mean, t_output_std, t_quantiles = get_mean_std(train_loader_mean_std, output_iqr=iqr)
+        # print("TEST SET input mean: {}, std:{}, output mean: {}, std: {}".format(t_input_mean, t_input_std, t_output_mean, t_output_std))
+        # print("TEST SET output quantiles: {}".format(t_quantiles))
+
+        #input_mean, input_std, output_mean, output_std = v_input_mean, v_input_std, v_output_mean, v_output_std
 
     # =======================
     # data transforms
@@ -503,6 +527,7 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
             data_normalizer.input_indices = config["normalize_output_indices"]
         data_normalizer.output_mean = output_mean
         data_normalizer.output_std = output_std
+        data_normalizer.output_quantiles = output_quantiles
         output_transformations.append(data_normalizer.normalize_output)
 
     if len(output_transformations) > 0:
@@ -537,6 +562,23 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
             test_set = dataset[-n_test_samples:]
         else:
             test_set = dataset[n_train_samples:]
+
+        # train_loader_mean_std = torch.utils.data.DataLoader(train_set, batch_size=config["batch_size_train"],
+        #                                                     shuffle=False)
+        # input_mean, input_std, output_mean, output_std, _ = get_mean_std(train_loader_mean_std)
+        # print("TRAIN SET input mean: {}, std:{}, output mean: {}, std: {}".format(input_mean, input_std, output_mean, output_std))
+        #
+        # train_loader_mean_std = torch.utils.data.DataLoader(validation_set, batch_size=config["batch_size_train"],
+        #                                                     shuffle=False)
+        # input_mean, input_std, output_mean, output_std, _ = get_mean_std(train_loader_mean_std)
+        # print("VAL SET input mean: {}, std:{}, output mean: {}, std: {}".format(input_mean, input_std, output_mean,
+        #                                                                           output_std))
+        #
+        # train_loader_mean_std = torch.utils.data.DataLoader(test_set, batch_size=config["batch_size_train"],
+        #                                                     shuffle=False)
+        # input_mean, input_std, output_mean, output_std, _ = get_mean_std(train_loader_mean_std)
+        # print("TEST SET input mean: {}, std:{}, output mean: {}, std: {}".format(input_mean, input_std, output_mean,
+        #                                                                           output_std))
 
     # Save data to numpy array
     # train_loader = torch.utils.data.DataLoader(train_set, batch_size=1, shuffle=True)

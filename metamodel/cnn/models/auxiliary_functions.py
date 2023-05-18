@@ -25,6 +25,7 @@ class NormalizeData():
         self.output_mean = [0, 0, 0]
         self.input_std = [1, 1, 1]
         self.output_std = [1,1,1]
+        self.output_quantiles = []
 
     def normalize_input(self, data):
         output_data = torch.empty((data.shape))
@@ -40,7 +41,10 @@ class NormalizeData():
         output_data = torch.empty((data.shape))
         for i in range(data.shape[0]):
             if i in self.output_indices:
-                output_data[i][...] = (data[i] - self.output_mean[i]) /self.output_std[i]
+                if len(self.output_quantiles) > 0:
+                    output_data[i][...] =(data[i] - self.output_quantiles[1, i]) / (self.output_quantiles[2, i] - self.output_quantiles[0, i])
+                else:
+                    output_data[i][...] = (data[i] - self.output_mean[i]) /self.output_std[i]
             else:
                 output_data[i][...] = data[i]
 
@@ -151,12 +155,14 @@ def exp_data(data):
     return output_data
 
 
-def get_mean_std(data_loader):
+def get_mean_std(data_loader, output_iqr=[]):
     channels_sum = None
     channels_sqrd_sum = None
     output_channels_sum = None
     output_channels_sqrd_sum = None
     num_batches = 0
+    output_data_list = []
+    quantiles = []
     for input, output in data_loader:
         if channels_sum is None:
             channels_sum = list(np.zeros(input.shape[1]))
@@ -164,11 +170,18 @@ def get_mean_std(data_loader):
             output_channels_sum = list(np.zeros(output.shape[1]))
             output_channels_sqrd_sum = list(np.zeros(output.shape[1]))
 
+        if len(output_iqr) > 0:
+            output_data_list.extend(output.numpy())
+
         channels_sum += (torch.nanmean(input, dim=[0, 2, 3])).numpy()
         channels_sqrd_sum += (torch.nanmean(input ** 2, dim=[0, 2, 3])).numpy()
         output_channels_sum += (torch.nanmean(output, dim=[0])).numpy()
         output_channels_sqrd_sum += (torch.nanmean(output ** 2, dim=[0])).numpy()
         num_batches += 1
+
+    if len(output_iqr) > 0:
+        output_data = np.array(output_data_list)
+        quantiles = np.quantile(output_data, output_iqr, axis=0)
 
     mean = channels_sum / num_batches
     std = (channels_sqrd_sum / num_batches - mean ** 2) ** 0.5
@@ -176,7 +189,8 @@ def get_mean_std(data_loader):
     output_mean = output_channels_sum / num_batches
     output_std = (output_channels_sqrd_sum / num_batches - output_mean ** 2) ** 0.5
 
-    return mean, std, output_mean, output_std
+    return mean, std, output_mean, output_std, quantiles
+    #return mean, std, output_mean, output_std
 
 
 def reshape_to_tensors(tn_array, dim=2):
