@@ -407,6 +407,7 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
     # Get mean and std for each channel
     # ===================================
     input_mean, output_mean, input_std, output_std = 0, 0, 1, 1
+    output_quantiles = []
     data_normalizer = NormalizeData()
 
     n_train_samples = None
