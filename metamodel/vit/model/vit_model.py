@@ -6,10 +6,10 @@ import torch.nn.functional as F
 class ViTRegressor(nn.Module):
     def __init__(self, trial=None, n_conv_layers=3, max_channel=3, pool=None, kernel_size=3, stride=1, pool_size=2,
                  pool_stride=2, use_batch_norm=True, n_hidden_layers=1, max_hidden_neurons=520,
-                 hidden_activation=F.relu, input_size=256, input_channel=3, conv_layer_obj=[], pool_indices=[],
+                 hidden_activation=F.relu, cnn_activation=F.relu, input_size=256, input_channel=3, conv_layer_obj=[], pool_indices=[],
                  use_cnn_dropout=False, use_fc_dropout=False, cnn_dropout_indices=[], fc_dropout_indices=[],
                  cnn_dropout_ratios=[], fc_dropout_ratios=[], n_output_neurons=3,
-                 output_layer=True, output_bias=False, patch_size=16, vit_params={}):
+                 output_layer=True, output_bias=False, patch_size=16, vit_params={}, global_pool=None, bias_reduction_layer_indices=[]):
         super().__init__()
         self._name = "ViTRegressor"
 
@@ -26,6 +26,7 @@ class ViTRegressor(nn.Module):
 
         self._use_batch_norm = use_batch_norm
         self._hidden_activation = hidden_activation
+        self._cnn_activation = cnn_activation
         self._batch_norms = nn.ModuleList()
         self._conv_layer_obj = conv_layer_obj
         self._pool_indices = pool_indices
@@ -172,23 +173,23 @@ class ViTRegressor(nn.Module):
                     if self._use_cnn_dropout and '{}'.format(i) in self._cnn_dropouts:
                         conv_dropout = self._cnn_dropouts['{}'.format(i)]
 
-                        x = F.relu(pool(conv_dropout(self._batch_norms[i](conv_i(x))),
+                        x = self._cnn_activation(pool(conv_dropout(self._batch_norms[i](conv_i(x))),
                                         kernel_size=self._pool_size, stride=self._pool_stride))
                     else:
-                        x = F.relu(pool(self._batch_norms[i](conv_i(x)),
+                        x = self._cnn_activation(pool(self._batch_norms[i](conv_i(x)),
                                         kernel_size=self._pool_size, stride=self._pool_stride))
                 else:
-                    x = F.relu(self._batch_norms[i](conv_i(x)))
+                    x = self._cnn_activation(self._batch_norms[i](conv_i(x)))
             else:
                 if self._pool is not None and i in self._pool_indices:
                     if self._use_cnn_dropout and '{}'.format(i) in self._cnn_dropouts:
                         conv_dropout = self._cnn_dropouts['{}'.format(i)]
-                        x = F.relu(pool(conv_dropout(conv_i(x)),
+                        x = self._cnn_activation(pool(conv_dropout(conv_i(x)),
                                         kernel_size=self._pool_size, stride=self._pool_stride))
                     else:
-                        x = F.relu(pool(conv_i(x), kernel_size=self._pool_size, stride=self._pool_stride))
+                        x = self._cnn_activation(pool(conv_i(x), kernel_size=self._pool_size, stride=self._pool_stride))
                 else:
-                    x = F.relu(conv_i(x))
+                    x = self._cnn_activation(conv_i(x))
 
         #print("x cnn embeding shape ", x.shape)
 
