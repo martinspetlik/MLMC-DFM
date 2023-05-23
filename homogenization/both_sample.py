@@ -236,6 +236,8 @@ class BulkFieldsGSTools(BulkBase):
     corr_lengths_x: Optional[List[float]]  # [15, 0, 0]
     corr_lengths_y: Optional[List[float]]  # = [3, 0, 0]
     anis_angles: Optional[List[float]]  # = [0, 0, 0]
+    anisotropy: float = None
+    rotation: float = None
     mode_no: int = 10000
     angle_var = 1
     _rf_sample = None
@@ -361,16 +363,15 @@ class BulkFieldsGSTools(BulkBase):
 
             data_srf_angle_vec = np.stack([self._rf_sample["angle_x"],  self._rf_sample["angle_y"]])
 
-            #print("data srf angle vec shape ", data_srf_angle_vec.shape)
+            if self.anisotropy is not None and self.rotation is not None:
+                c, s = np.cos(self.rotation), np.sin(self.rotation)
+                rot_mat_anis = np.array([[c, -s], [s, c]])
+                data_srf_angle_vec[0, ...] *= self.anisotropy
+                data_srf_angle_vec = rot_mat_anis @ data_srf_angle_vec
 
             cos_sin_angle = data_srf_angle_vec / np.linalg.norm(data_srf_angle_vec, axis=0)
             angle = np.arctan2(cos_sin_angle[1, :], cos_sin_angle[0, :])
-
             self._rf_sample["angle"] = angle
-            # print("self rf sample ", self._rf_sample)
-            # exit()
-            # print("angle.shape ", angle.shape)
-            # exit()
 
             xv = self._mesh_data['points'][:, 0]
             yv = self._mesh_data['points'][:, 1]
@@ -497,6 +498,7 @@ class BulkFieldsGSTools(BulkBase):
         k_yy = self._rf_sample["k_yy"][ele_idx][0]
 
         unrotated_tn = np.diag(np.power(10, np.array([k_xx, k_yy])))
+
 
         angle = self._rf_sample["angle"][ele_idx][0]
         c, s = np.cos(angle), np.sin(angle)
