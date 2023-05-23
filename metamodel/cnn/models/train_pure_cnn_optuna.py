@@ -372,19 +372,22 @@ def prepare_sub_datasets(study, config, data_dir, serialize_path=None):
             complete_test_set = sub_test_set
         else:
             _append_dataset(complete_train_set, sub_train_set)
-            _append_dataset(complete_val_set, sub_val_set)
+            if len(sub_val_set) > 0:
+                _append_dataset(complete_val_set, sub_val_set)
             _append_dataset(complete_test_set, sub_test_set)
 
     data_input_transform, data_output_transform = prepare_dataset(study, config, data_dir, train_dataset=complete_train_set)
     complete_train_set.input_transform = data_input_transform
     complete_train_set.output_transform = data_output_transform
-    complete_val_set.input_transform = data_input_transform
-    complete_val_set.output_transform = data_output_transform
+    if len(complete_val_set) > 0:
+        complete_val_set.input_transform = data_input_transform
+        complete_val_set.output_transform = data_output_transform
     complete_test_set.input_transform = data_input_transform
     complete_test_set.output_transform = data_output_transform
 
     dataset = copy.deepcopy(complete_train_set)
-    _append_dataset(dataset, complete_val_set)
+    if len(complete_val_set) > 0:
+        _append_dataset(dataset, complete_val_set)
     _append_dataset(dataset, complete_test_set)
 
     if serialize_path is not None:
