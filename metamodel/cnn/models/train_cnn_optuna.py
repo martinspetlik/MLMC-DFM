@@ -276,7 +276,10 @@ def objective(trial, trials_config, train_loader, validation_loader):
                 avg_loss = train_one_epoch(model, optimizer, train_loader, config, loss_fn=loss_fn, use_cuda=use_cuda)  # Train the model
 
             model.train(False)
-            avg_vloss = validate(model, validation_loader, loss_fn=loss_fn, use_cuda=use_cuda)   # Evaluate the model
+            if len(validation_set) == 0:
+                avg_vloss = avg_loss
+            else:
+                avg_vloss = validate(model, validation_loader, loss_fn=loss_fn, use_cuda=use_cuda)   # Evaluate the model
 
             if scheduler is not None:
                 scheduler.step(avg_vloss)

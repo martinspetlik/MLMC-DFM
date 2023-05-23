@@ -464,7 +464,10 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
         n_train_samples = np.min([n_train_samples, int(len(dataset_for_mean_std) * config["train_samples_ratio"])])
 
         train_val_set = dataset_for_mean_std[:n_train_samples]
-        train_set = train_val_set[:-int(n_train_samples * config["val_samples_ratio"])]
+        if config["val_samples_ratio"] == 0:
+            train_set = train_val_set
+        else:
+            train_set = train_val_set[:-int(n_train_samples * config["val_samples_ratio"])]
 
         train_loader_mean_std = torch.utils.data.DataLoader(train_set, batch_size=config["batch_size_train"], shuffle=False)
         iqr = []
@@ -555,8 +558,12 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
         n_train_samples = np.min([n_train_samples, int(len(dataset) * config["train_samples_ratio"])])
 
         train_val_set = dataset[:n_train_samples]
-        train_set = train_val_set[:-int(n_train_samples * config["val_samples_ratio"])]
-        validation_set = train_val_set[-int(n_train_samples * config["val_samples_ratio"]):]
+        if config["val_samples_ratio"] == 0.0:
+            train_set = train_val_set
+            validation_set = []
+        else:
+            train_set = train_val_set[:-int(n_train_samples * config["val_samples_ratio"])]
+            validation_set = train_val_set[-int(n_train_samples * config["val_samples_ratio"]):]
 
         if "n_test_samples" in config and config["n_test_samples"] is not None:
             n_test_samples = config["n_test_samples"]

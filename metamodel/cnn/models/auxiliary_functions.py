@@ -41,7 +41,8 @@ class NormalizeData():
         output_data = torch.empty((data.shape))
         for i in range(data.shape[0]):
             if i in self.output_indices:
-                if len(self.output_quantiles) > 0:
+
+                if hasattr(self, 'output_quantiles') and len(self.output_quantiles) > 0:
                     output_data[i][...] =(data[i] - self.output_quantiles[1, i]) / (self.output_quantiles[2, i] - self.output_quantiles[0, i])
                 else:
                     output_data[i][...] = (data[i] - self.output_mean[i]) /self.output_std[i]
