@@ -805,6 +805,7 @@ def write_fields(mesh, basename, bulk_model, fracture_model, elid_to_fr, elids_s
     el_cond = {}
     centers = []
     centers_bulk = []
+    n_fr = 0
 
     # rotation_matrix = np.array([[0, 1, 0],
     #                             [-1, 0, 0],
@@ -903,6 +904,7 @@ def write_fields(mesh, basename, bulk_model, fracture_model, elid_to_fr, elids_s
             cond_tn_flatten[8] = 1
 
         if n_nodes == 2:
+            n_fr += 1
             cs, cond_tn, fr_size = fracture_model.element_data(mesh, el_id, elid_to_fr)
             #print("fr cs: {}, cond_tn: {}".format(cs, cond_tn))
             fracture_cs.append(cs)
@@ -960,6 +962,9 @@ def write_fields(mesh, basename, bulk_model, fracture_model, elid_to_fr, elids_s
             cond_tn_field_bulk.append(cond_tn_field[-1])
 
         centers.append(center)
+
+    if n_fr == 0:
+        print("NO FRACTURES")
 
     # print("centers ", centers)
     # exit()
@@ -1151,7 +1156,7 @@ class FlowProblem:
 
     def add_fractures(self, pd, fracture_lines, eid):
         outer_wire = pd.outer_polygon.outer_wire.childs
-        # print("outer wire ", outer_wire)
+        #print("outer wire ", outer_wire)
 
         #print("len fracture lines ", len(fracture_lines))
 
@@ -1159,7 +1164,6 @@ class FlowProblem:
         outer_wire = next(iter(outer_wire))
         fracture_regions = []
         for i_fr, (p0, p1) in fracture_lines.items():
-
             reg = self.add_region("fr_{}".format(i_fr), dim=1, mesh_step=self.mesh_step)
             #print("i_fr: {}, reg.id: {}".format(i_fr, reg.id))
             self.reg_to_fr[reg.id] = i_fr

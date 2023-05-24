@@ -293,7 +293,7 @@ class DFMSim(Simulation):
 
 
     @staticmethod
-    def homogenization(config):
+    def homogenization(config, fractures=None):
         #print("config ", config)
         sample_dir = os.getcwd()
         #print("homogenization method")
@@ -394,7 +394,10 @@ class DFMSim(Simulation):
                 sim_config["work_dir"] = work_dir
                 #config["homogenization"] = True
 
-                fractures = DFMSim.generate_fractures(config)
+                if fractures is None:
+                    fractures = DFMSim.generate_fractures(config)
+
+                #print("fractures ", fractures)
                 # fine problem
                 fine_flow = FlowProblem.make_fine((config["fine"]["step"],
                                                    config["sim_config"]["geometry"]["fr_max_size"]),
@@ -537,13 +540,9 @@ class DFMSim(Simulation):
                             #if args.cuda and torch.cuda.is_available():
                             #    inputs = inputs.cuda()
                             predictions = DFMSim.model(inputs)
-
-                            #print("predictions ", predictions)
-                            #print("tragets ", targets)
+                            predictions = np.squeeze(predictions)
 
                             inv_predictions = torch.squeeze(DFMSim.inverse_transform(torch.reshape(predictions, (*predictions.shape, 1, 1))))
-
-                            #print("inv predictions ", inv_predictions)
 
                             pred_cond_tn = np.array([[inv_predictions[0], inv_predictions[1]],
                                                     [inv_predictions[1], inv_predictions[2]]])
@@ -573,11 +572,13 @@ class DFMSim(Simulation):
 
                 if n_subdomains > 1:
                     cond_tn_flatten = cond_tn[0].flatten()
-                    cond_tensors[(center_x, center_y)] = cond_tn[0].flatten()
+                    cond_tensors[(center_x, center_y)] = cond_tn_flatten
+                    #print("cond tn ", cond_tn_flatten)
 
                     if pred_cond_tn is not None:
                         pred_cond_tn_flatten = pred_cond_tn.flatten()
-                        pred_cond_tensors[(center_x, center_y)] = pred_cond_tn.flatten()
+                        pred_cond_tensors[(center_x, center_y)] = pred_cond_tn_flatten
+                        #print("pred cond tn ", pred_cond_tn_flatten)
                     cond_tn_pop_file = os.path.join(config["coarse"]["common_files_dir"], DFMSim.COND_TN_POP_FILE)
                     np.save(cond_tn_pop_file, cond_tn[0])
 
@@ -695,6 +696,8 @@ class DFMSim(Simulation):
 
             larger_domain_box = config["sim_config"]["geometry"]["domain_box"]
 
+            fractures = DFMSim.generate_fractures(config)
+
             larger_dom_obj = FlowProblem.make_fine((config["fine"]["step"], config["sim_config"]["geometry"]["fr_max_size"]),
                                               fractures, config)
             larger_dom_obj.fr_range = [config["fine"]["step"], larger_dom_obj.fr_range[1]]
@@ -702,6 +705,11 @@ class DFMSim(Simulation):
             larger_dom_obj.make_mesh()
             larger_dom_obj.make_fields()
             config["center_larger_cond_field"] = larger_dom_obj._center_cond
+
+            if os.path.exists("fields_fine.msh"):
+                shutil.move("fields_fine.msh", "fields_fine_large.msh")
+            if os.path.exists("mesh_fine.msh"):
+                shutil.move("mesh_fine.msh", "mesh_fine_large.msh")
 
             print("orig domain box ", orig_domain_box)
             config["sim_config"]["geometry"]["domain_box"] = orig_domain_box
@@ -743,7 +751,6 @@ class DFMSim(Simulation):
 
         #fine_flow.run() # @TODO replace fine_flow.run by DFMSim._run_sample()
         #print("run samples ")
-
 
         if not gen_hom_samples:
 
@@ -804,7 +811,7 @@ class DFMSim(Simulation):
         if coarse_step > 0:
             if config["sim_config"]["use_larger_domain"]:
                 config["sim_config"]["geometry"]["domain_box"] = hom_domain_box
-            cond_tensors, pred_cond_tensors = DFMSim.homogenization(copy.deepcopy(config))
+            cond_tensors, pred_cond_tensors = DFMSim.homogenization(copy.deepcopy(config), fractures)
 
             if not gen_hom_samples:
                 #print("cond tensors ", cond_tensors)
