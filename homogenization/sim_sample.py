@@ -688,13 +688,26 @@ class DFMSim(Simulation):
         ### fine problem ###
         ####################
         if "use_larger_domain" in config["sim_config"] and config["sim_config"]["use_larger_domain"]:
+            # Larger bulk domain
             orig_domain_box = config["sim_config"]["geometry"]["domain_box"]
+            #print("orig domain box from config", orig_domain_box)
             sub_domain_box = config["sim_config"]["geometry"]["subdomain_box"]
             config["sim_config"]["geometry"]["domain_box"] = [orig_domain_box[0] + 2*sub_domain_box[0], orig_domain_box[1]+ 2*sub_domain_box[1]]
             hom_domain_box = [orig_domain_box[0] + sub_domain_box[0], orig_domain_box[1]+ sub_domain_box[1]]
-            print("domain box ", config["sim_config"]["geometry"]["domain_box"])
+            #print("domain box ", config["sim_config"]["geometry"]["domain_box"])
 
-            larger_domain_box = config["sim_config"]["geometry"]["domain_box"]
+            #larger_domain_box = config["sim_config"]["geometry"]["domain_box"]
+
+            # Larger fracture domain
+            orig_frac_box = config["sim_config"]["geometry"]["fractures_box"]
+            #print("orig frac box from config ", orig_frac_box)
+            #sub_frac_domain_box = config["sim_config"]["geometry"]["subdomain_box"]
+            config["sim_config"]["geometry"]["fractures_box"] = [orig_frac_box[0] + 2 * sub_domain_box[0],
+                                                              orig_frac_box[1] + 2 * sub_domain_box[1]]
+
+            #hom_domain_box = [orig_domain_box[0] + sub_domain_box[0], orig_domain_box[1] + sub_domain_box[1]]
+            #print("domain box ", config["sim_config"]["geometry"]["domain_box"])
+
 
             fractures = DFMSim.generate_fractures(config)
 
@@ -711,8 +724,9 @@ class DFMSim(Simulation):
             if os.path.exists("mesh_fine.msh"):
                 shutil.move("mesh_fine.msh", "mesh_fine_large.msh")
 
-            print("orig domain box ", orig_domain_box)
+            #print("orig domain box ", orig_domain_box)
             config["sim_config"]["geometry"]["domain_box"] = orig_domain_box
+            config["sim_config"]["geometry"]["fractures_box"] = orig_frac_box
             DFMSim._remove_files()
 
         fine_res = 0
@@ -790,8 +804,6 @@ class DFMSim(Simulation):
             if os.path.exists("summary.yaml"):
                 shutil.move("summary.yaml", "summary_fine.yaml")
 
-
-
         coarse_res = 0
 
         #try:
@@ -810,8 +822,13 @@ class DFMSim(Simulation):
 
         if coarse_step > 0:
             if config["sim_config"]["use_larger_domain"]:
+                #print("hom domain box ", hom_domain_box)
                 config["sim_config"]["geometry"]["domain_box"] = hom_domain_box
             cond_tensors, pred_cond_tensors = DFMSim.homogenization(copy.deepcopy(config), fractures)
+
+            if config["sim_config"]["use_larger_domain"]:
+                config["sim_config"]["geometry"]["domain_box"] = orig_domain_box
+                config["sim_config"]["geometry"]["fractures_box"] = orig_frac_box
 
             if not gen_hom_samples:
                 #print("cond tensors ", cond_tensors)
@@ -830,7 +847,6 @@ class DFMSim(Simulation):
                 ######################
                 ### coarse problem ###
                 ######################
-                config["sim_config"]["geometry"]["domain_box"] = orig_domain_box
                 #coarse_ref = FlowProblem.make_microscale((config["fine"]["step"], config["coarse"]["step"]), fractures, fine_flow, config)
                 # coarse_ref.pressure_loads = p_loads
                 # coarse_ref.reg_to_group = fine_flow.reg_to_group

@@ -1872,12 +1872,12 @@ class FlowProblem:
         return dict(
             pos=[self.group_positions[eid].tolist() for eid in self.cond_tensors.keys()],
             cond_tn=[self.cond_tensors[eid].tolist() for eid in self.cond_tensors.keys()],
-            fracture_cs=self._fracture_cs,
-            fracture_len=self._fracture_len,
+            #fracture_cs=self._fracture_cs,
+            #fracture_len=self._fracture_len,
             flux=self.flux.tolist(),
             pressure_matrix=self.pressure_matrix.tolist(),
-            bulk_regions=self._bulk_regions,
-            regions=self._regions,
+            #bulk_regions=self._bulk_regions,
+            #regions=self._regions,
             pressure_loads=self._pressure_loads.tolist()
         )
 
@@ -2066,6 +2066,7 @@ class BothSample:
 
         with open("summary.yaml", "w") as f:
             yaml.dump(results, f)
+
 
     def calculate(self):
         fractures = self.generate_fractures()
