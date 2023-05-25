@@ -4,7 +4,7 @@ import os.path
 import numpy as np
 import yaml
 import gmsh_io
-from metamodel.cnn.datasets.rasterization import rasterize
+from metamodel.cnn.datasets.rasterization import Rasterization
 import time
 import argparse
 #from matplotlib import pyplot as plt
@@ -70,7 +70,7 @@ def create_input(sample_dir, n_pixels_x=256, feature_names=[['conductivity_tenso
     :param feature_names: features to
     :return: None
     """
-    n_tn_elements = 6  # number of tensor elements in use - upper triangular matrix of 3x3 tensor
+    n_tn_elements = 3  # number of tensor elements in use - upper triangular matrix of 3x3 tensor
     mesh = os.path.join(sample_dir, MESH_FILE)
 
     mesh_nodes, triangles, lines, ele_ids = extract_mesh_gmsh_io(mesh, image=True)
@@ -82,7 +82,7 @@ def create_input(sample_dir, n_pixels_x=256, feature_names=[['conductivity_tenso
         cond_tn_elements_triangles = []
         cond_tn_elements_lines = []
         cs_lines = []
-        skip_lower_tr_indices = [3, 6, 7]
+        skip_lower_tr_indices = [2, 3, 5, 6, 7, 8]
         for _ in range(n_tn_elements):
             cond_tn_elements_triangles.append(dict(zip(triangles.keys(), np.zeros(len(triangles.keys())))))
             cond_tn_elements_lines.append(dict(zip(lines.keys(), np.zeros(len(lines.keys())))))
@@ -108,9 +108,9 @@ def create_input(sample_dir, n_pixels_x=256, feature_names=[['conductivity_tenso
 
         bulk_data_array = np.empty((n_tn_elements, n_pixels_x, n_pixels_x))
         fractures_data_array = np.empty((n_tn_elements, n_pixels_x, n_pixels_x))
-
+        rasterization = Rasterization()
         for k in range(n_tn_elements):
-            trimesh, cvs_lines = rasterize(mesh_nodes, triangles, cond_tn_elements_triangles[k],
+            trimesh, cvs_lines = rasterization.rasterize(mesh_nodes, triangles, cond_tn_elements_triangles[k],
                       lines, cond_tn_elements_lines[k], cs_lines, n_pixels_x, save_image=True)
 
             bulk_data_array[k] = np.flip(trimesh, axis=0)
@@ -237,7 +237,7 @@ if __name__ == "__main__":
     # data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/homogenization_samples_MLMC-DFM_5LMC-L4_cl_1/"
     #
     # data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/homogenization_samples_MLMC-DFM_5LMC_L4_cl_v_1_0"
-
+    
     parser = argparse.ArgumentParser()
     parser.add_argument('data_dir', help='Data directory')
     parser.add_argument("-b", "--begin", type=int, default=-1, help="starting index")
@@ -277,3 +277,99 @@ if __name__ == "__main__":
 
     stop_time = time.time()
     print("total time: {}, time per sample: {}".format(stop_time - start_time, (stop_time - start_time) / (i + 1)))
+
+
+    # parser = argparse.ArgumentParser()
+    # parser.add_argument('data_dir', help='Data directory')
+    # parser.add_argument("-b", "--begin", type=int, default=-1, help="starting index")
+    # parser.add_argument("-e", "--end", type=int, default=-1, help="end index")
+    #
+    # args = parser.parse_args(sys.argv[1:])
+    #
+    #
+    #
+    # n_pixels_x = 256
+    #
+    # print("args.begin", args.begin)
+    # print("args.end ", args.end)
+    #
+    # i = int(args.begin)
+    # if int(args.begin) == -1:
+    #     i = 0
+    #
+    # data_dir = args.data_dir
+    # data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/test_sample_with_fractures"
+    #
+    # sample_dir = os.path.join(data_dir, "sample_0")
+    #
+    # # if os.path.exists(sample_dir):
+    # #     print("file exists")
+    # #     #if not os.path.exists(os.path.join(sample_dir, MESH_FILE)) \
+    # #     if not os.path.exists(os.path.join(sample_dir, SUMMARY_FILE)):
+    # #         i += 1
+    # #     #try:
+    # #     create_input(sample_dir, n_pixels_x=n_pixels_x)
+    # #     create_output(sample_dir, symmetrize=True)
+    # #     print("create input ")
+    # #     #except Exception as e:
+    # #     #   print(str(e))
+    #
+    # end = args.end
+    # end = 3
+    # start_time = time.time()
+    # import cProfile
+    # import pstats
+    #
+    # pr = cProfile.Profile()
+    # pr.enable()
+    # while True:
+    #     if i >= int(end) != -1:
+    #         break
+    #     #sample_dir = os.path.join(data_dir, "sample_{}".format(i))
+    #
+    #     #sample_dir = "/home/martin/Documents/MLMC-DFM/test/01_cond_field/output/failed/L01_S0000000/homogenization/i_0_j_0_k_1/sample_0"
+    #     #sample_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/homogenization_samples_MLMC-DFM_5LMC_L1_cl_v_0_overlap/sample_1118"
+    #     #sample_dir = "/home/martin/Documents/MLMC-DFM/test/01_cond_field/output/failed/L01_S0000000/homogenization/i_0_j_0_k_1/sample_0"
+    #     #sample_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/test_sample_with_fractures"
+    #     print("sample dir ", sample_dir)
+    #     #
+    #     # if os.path.exists(sample_dir):
+    #     #     print("file exists")
+    #     #     #if not os.path.exists(os.path.join(sample_dir, MESH_FILE)) \
+    #     #     if not os.path.exists(os.path.join(sample_dir, SUMMARY_FILE)):
+    #     #         i += 1
+    #     #         continue
+    #     #     #try:
+    #     #     create_input(sample_dir, n_pixels_x=n_pixels_x)
+    #     #     create_output(sample_dir, symmetrize=True)
+    #     #     print("create input ")
+    #     #     #except Exception as e:
+    #     #     #   print(str(e))
+    #     #     i += 1
+    #     # else:
+    #     #     break
+    #
+    #     if os.path.exists(sample_dir):
+    #         print("file exists")
+    #         #if not os.path.exists(os.path.join(sample_dir, MESH_FILE)) \
+    #         if not os.path.exists(os.path.join(sample_dir, SUMMARY_FILE)):
+    #             i += 1
+    #             continue
+    #         try:
+    #             create_input(sample_dir, n_pixels_x=n_pixels_x)
+    #             create_output(sample_dir, symmetrize=True)
+    #         except Exception as e:
+    #            print(str(e))
+    #         i += 1
+    #     else:
+    #         break
+    #
+    # pr.disable()
+    # ps = pstats.Stats(pr).sort_stats('cumtime')
+    # ps.print_stats()
+    #
+    #
+    #
+    # stop_time = time.time()
+    # print("total time: {}, time per sample: {}".format(stop_time - start_time, (stop_time - start_time) / (i + 1)))
+    # exit()
