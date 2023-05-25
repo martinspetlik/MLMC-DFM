@@ -657,8 +657,11 @@ class DFMSim(Simulation):
         """
         # print("config ", config)
         # exit()
+        #print("seed ", seed)
         #@TODO: check sample dir creation
+        np.random.seed(config["sim_config"]["seed"])
         fractures = DFMSim.generate_fractures(config)
+        #fractures = DFMSim.generate_fractures(config)
 
         coarse_step = config["coarse"]["step"]
         fine_step = config["fine"]["step"]
