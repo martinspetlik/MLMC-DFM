@@ -658,8 +658,9 @@ class DFMSim(Simulation):
         # print("config ", config)
         # exit()
         #print("seed ", seed)
+        #print("sim_config seed", config["sim_config"]["seed"])
         #@TODO: check sample dir creation
-        np.random.seed(config["sim_config"]["seed"])
+        np.random.seed(config["sim_config"]["seed"] + seed)
         fractures = DFMSim.generate_fractures(config)
         #fractures = DFMSim.generate_fractures(config)
 
@@ -1440,7 +1441,6 @@ class DFMSim(Simulation):
                 #                      sample_size=n_frac_limit)
 
                 print("fr size range ", fr_size_range)
-
 
                 pop.set_sample_range(fr_size_range,
                                      sample_size=n_frac_limit)
