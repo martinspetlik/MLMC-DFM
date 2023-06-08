@@ -60,7 +60,7 @@ def create_output(sample_dir, symmetrize=True):
     # np.savez_compressed(os.path.join(sample_dir, "output_tensor_compressed"), data=cond_tn.ravel)
 
 
-def create_input(sample_dir, n_pixels_x=256, feature_names=[['conductivity_tensor'], ['cross_section']]):
+def create_input(sample_dir, n_pixels_x=256, feature_names=[['conductivity_tensor'], ['cross_section']], avg_cs=None, lines_rast_method="r1"):
     """
     Create inputs - get mesh properties and corresponding values of random fields
                   - rasterize bulk and fracture properties separately
@@ -70,6 +70,7 @@ def create_input(sample_dir, n_pixels_x=256, feature_names=[['conductivity_tenso
     :param feature_names: features to
     :return: None
     """
+    rasterization = Rasterization(lines_rast_method)
     n_tn_elements = 3  # number of tensor elements in use - upper triangular matrix of 3x3 tensor
     mesh = os.path.join(sample_dir, MESH_FILE)
 
@@ -108,18 +109,46 @@ def create_input(sample_dir, n_pixels_x=256, feature_names=[['conductivity_tenso
 
         bulk_data_array = np.empty((n_tn_elements, n_pixels_x, n_pixels_x))
         fractures_data_array = np.empty((n_tn_elements, n_pixels_x, n_pixels_x))
-        rasterization = Rasterization()
+        #print("cond_tn_elements_lines ", cond_tn_elements_lines)
+
+        #print(list(cs_lines.keys()))
+        if avg_cs is None:
+            avg_cs = np.mean(list(cs_lines.keys())) * 10
+
+        rasterization._clear()
         for k in range(n_tn_elements):
             trimesh, cvs_lines = rasterization.rasterize(mesh_nodes, triangles, cond_tn_elements_triangles[k],
-                      lines, cond_tn_elements_lines[k], cs_lines, n_pixels_x, save_image=True)
-
+                      lines, cond_tn_elements_lines[k], cs_lines, n_pixels_x, save_image=True, index=k, avg_cs=avg_cs)
             bulk_data_array[k] = np.flip(trimesh, axis=0)
-            fractures_data_array[k] = np.flip(cvs_lines, axis=0)
+            cvs_lines_np = np.flip(cvs_lines, axis=0)
+
+            if k == 1:
+                try:
+                    cvs_lines_np_values = cvs_lines_np.values
+                    cvs_lines_np_values_shape = cvs_lines_np_values.shape
+                    flatten_fracture_features = cvs_lines_np_values.reshape(-1)
+                    not_nan_indices = np.argwhere(~np.isnan(flatten_fracture_features))
+                    flatten_fracture_features[not_nan_indices] = 0
+
+                    cvs_lines_np.values = flatten_fracture_features.reshape(cvs_lines_np_values_shape)
+                except AttributeError:
+                    pass
+                fractures_data_array[k] = cvs_lines_np
 
         np.savez_compressed(os.path.join(sample_dir, "bulk"), data=bulk_data_array)
         np.savez_compressed(os.path.join(sample_dir, "fractures"), data=fractures_data_array)
 
-        return bulk_data_array, fractures_data_array
+        #loaded_fractures = np.load(os.path.join(sample_dir, "fractures.npz"))["data"]
+
+        # flatten_fracture_features = loaded_fractures.reshape(-1)
+        # not_nan_indices = np.argwhere(~np.isnan(flatten_fracture_features))
+        #
+        # print("flatten_fracture_features[not_nan_indices] ", flatten_fracture_features[not_nan_indices])
+        #
+        # print("loaded fractures ", loaded_fractures)
+        # exit()
+
+        return bulk_data_array, fractures_data_array, avg_cs
 
 
 def join_fields(fields, f_names):
@@ -237,11 +266,12 @@ if __name__ == "__main__":
     # data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/homogenization_samples_MLMC-DFM_5LMC-L4_cl_1/"
     #
     # data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/homogenization_samples_MLMC-DFM_5LMC_L4_cl_v_1_0"
-    
+
     parser = argparse.ArgumentParser()
     parser.add_argument('data_dir', help='Data directory')
     parser.add_argument("-b", "--begin", type=int, default=-1, help="starting index")
     parser.add_argument("-e", "--end", type=int, default=-1, help="end index")
+    parser.add_argument("-r", "--r_method", choices=['r1', 'r2', 'r3'], default="r1")
 
     args = parser.parse_args(sys.argv[1:])
 
@@ -251,11 +281,14 @@ if __name__ == "__main__":
 
     print("args.begin", args.begin)
     print("args.end ", args.end)
+    print("args.r_method ", args.r_method)
+
 
     i = int(args.begin)
     if int(args.begin) == -1:
         i = 0
 
+    avg_cs = None
     while True:
         if i >= int(args.end) != -1:
             break
@@ -267,7 +300,7 @@ if __name__ == "__main__":
                 i += 1
                 continue
             try:
-                create_input(sample_dir, n_pixels_x=n_pixels_x)
+                _, _, avg_cs = create_input(sample_dir, n_pixels_x=n_pixels_x, avg_cs=avg_cs, lines_rast_method=args.r_method)
                 create_output(sample_dir, symmetrize=True)
             except Exception as e:
                 print(str(e))
@@ -278,44 +311,43 @@ if __name__ == "__main__":
     stop_time = time.time()
     print("total time: {}, time per sample: {}".format(stop_time - start_time, (stop_time - start_time) / (i + 1)))
 
-
     # parser = argparse.ArgumentParser()
     # parser.add_argument('data_dir', help='Data directory')
     # parser.add_argument("-b", "--begin", type=int, default=-1, help="starting index")
     # parser.add_argument("-e", "--end", type=int, default=-1, help="end index")
+    # parser.add_argument("-r", "--r_method", choices=['r1', 'r2', 'r3'], default="r1")
     #
     # args = parser.parse_args(sys.argv[1:])
-    #
-    #
     #
     # n_pixels_x = 256
     #
     # print("args.begin", args.begin)
     # print("args.end ", args.end)
+    # print("args.r_method ", args.r_method)
     #
     # i = int(args.begin)
     # if int(args.begin) == -1:
     #     i = 0
     #
     # data_dir = args.data_dir
-    # data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/test_sample_with_fractures"
+    # data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/test_sample_with_fractures_rho_5_0_no_sigma_1"
     #
-    # sample_dir = os.path.join(data_dir, "sample_0")
+    # sample_dir = os.path.join(data_dir, "sample_10000")
     #
-    # # if os.path.exists(sample_dir):
-    # #     print("file exists")
-    # #     #if not os.path.exists(os.path.join(sample_dir, MESH_FILE)) \
-    # #     if not os.path.exists(os.path.join(sample_dir, SUMMARY_FILE)):
-    # #         i += 1
-    # #     #try:
-    # #     create_input(sample_dir, n_pixels_x=n_pixels_x)
-    # #     create_output(sample_dir, symmetrize=True)
-    # #     print("create input ")
-    # #     #except Exception as e:
-    # #     #   print(str(e))
+    # if os.path.exists(sample_dir):
+    #     print("file exists")
+    #     #if not os.path.exists(os.path.join(sample_dir, MESH_FILE)) \
+    #     if not os.path.exists(os.path.join(sample_dir, SUMMARY_FILE)):
+    #         i += 1
+    #     #try:
+    #     _,_,avg_cs = create_input(sample_dir, n_pixels_x=n_pixels_x, lines_rast_method=args.r_method)
+    #     #create_output(sample_dir, symmetrize=True)
+    #     print("create input ")
+    #     #except Exception as e:
+    #     #   print(str(e))
     #
     # end = args.end
-    # end = 3
+    # end = 10
     # start_time = time.time()
     # import cProfile
     # import pstats
@@ -325,13 +357,16 @@ if __name__ == "__main__":
     # while True:
     #     if i >= int(end) != -1:
     #         break
-    #     #sample_dir = os.path.join(data_dir, "sample_{}".format(i))
+    #
+    #     #sample_dir = os.path.join(data_dir, "sample_10009")
+    #
+    #     sample_dir = os.path.join(data_dir, "sample_1000{}".format(i))
     #
     #     #sample_dir = "/home/martin/Documents/MLMC-DFM/test/01_cond_field/output/failed/L01_S0000000/homogenization/i_0_j_0_k_1/sample_0"
     #     #sample_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/homogenization_samples_MLMC-DFM_5LMC_L1_cl_v_0_overlap/sample_1118"
     #     #sample_dir = "/home/martin/Documents/MLMC-DFM/test/01_cond_field/output/failed/L01_S0000000/homogenization/i_0_j_0_k_1/sample_0"
     #     #sample_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/test_sample_with_fractures"
-    #     print("sample dir ", sample_dir)
+    #     #print("sample dir ", sample_dir)
     #     #
     #     # if os.path.exists(sample_dir):
     #     #     print("file exists")
@@ -355,11 +390,11 @@ if __name__ == "__main__":
     #         if not os.path.exists(os.path.join(sample_dir, SUMMARY_FILE)):
     #             i += 1
     #             continue
-    #         try:
-    #             create_input(sample_dir, n_pixels_x=n_pixels_x)
-    #             create_output(sample_dir, symmetrize=True)
-    #         except Exception as e:
-    #            print(str(e))
+    #         #try:
+    #         create_input(sample_dir, n_pixels_x=n_pixels_x, avg_cs=avg_cs, lines_rast_method=args.r_method)
+    #         #create_output(sample_dir, symmetrize=True)
+    #         #except Exception as e:
+    #         #   print(str(e))
     #         i += 1
     #     else:
     #         break
@@ -368,8 +403,7 @@ if __name__ == "__main__":
     # ps = pstats.Stats(pr).sort_stats('cumtime')
     # ps.print_stats()
     #
-    #
-    #
     # stop_time = time.time()
-    # print("total time: {}, time per sample: {}".format(stop_time - start_time, (stop_time - start_time) / (i + 1)))
+    # print("i ", i)
+    # print("total time: {}, time per sample: {}".format(stop_time - start_time, (stop_time - start_time) / (i)))
     # exit()
