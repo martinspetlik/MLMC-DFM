@@ -702,7 +702,11 @@ class BulkHomogenization(BulkBase):
     def __init__(self, config_dict):
         self._cond_tns = None
         self._get_tensors(config_dict["cond_tns_yaml_file"])
-        self.mean_log_conductivity = None # @TODO: auxiliary param
+        self.mean_log_conductivity = None
+
+        if "mean_log_conductivity" in config_dict:
+            self.mean_log_conductivity = config_dict["mean_log_conductivity"]
+
         self._center_points = np.asarray(list(self._cond_tns.keys()))
 
     def _get_tensors(self, cond_tn_file):
@@ -772,7 +776,7 @@ class FractureModel:
             cond = self.target_sigma * self.max_fr * 10 ** int(np.mean(self.bulk_model.mean_log_conductivity)) # @TODO: remove abs numbers ASAP
             cs = np.sqrt(12 * cond / (self.water_density * self.gravity_accel / self.water_viscosity))
 
-        print("i_fr: {}, cs: {}, cond: {}".format(i_fr, cs, cond))
+        #print("i_fr: {}, cs: {}, cond: {}".format(i_fr, cs, cond))
         # exit()
         cond_tn = cond * np.eye(2, 2)
 
@@ -1096,8 +1100,9 @@ class FlowProblem:
     def make_coarse(cls, fr_range, fractures, config_dict):
         #bulk_model = BulkMicroScale(micro_scale_problem)
         #print("coarse fr range ", fr_range)
+        bulk_conductivity = config_dict["sim_config"]['bulk_conductivity']
+        config_dict["mean_log_conductivity"] = bulk_conductivity["mean_log_conductivity"]
         bulk_model = BulkHomogenization(config_dict)
-        #bulk_model.mean_log_conductivity = 10**-6
 
         return FlowProblem("coarse",
                            fr_range, fractures, bulk_model, config_dict)
@@ -1265,7 +1270,7 @@ class FlowProblem:
 
         #self.fracture_lines = self.fractures.get_lines(self.fr_range)
         self.fracture_lines = self.fractures.get_lines(square_fr_range)
-        # print("fracture lines ", self.fracture_lines)
+        #print("fracture lines ", self.fracture_lines)
         #print("len fracture lines ", len(self.fracture_lines))
         # print("list fractures ", list(self.fracture_lines.values()))
 
