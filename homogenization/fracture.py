@@ -897,6 +897,7 @@ class Fractures:
         self.pt_bih = None
         self.line_bih = None
         self.fracture_ids = []
+        self._reduced_fractures = []
         # Maps line to its fracture.
 
         self.make_lines()
@@ -925,9 +926,16 @@ class Fractures:
         #print("fr min: {}, fr max: {}".format(fr_min, fr_max))
         #fr_min = 20
 
+        #print("len self.fractures ", len(self.fractures))
+        #print("self.fractures ", self.fractures)
+
         for i, (line, fr) in enumerate(zip(self.lines, self.fractures)):
             if fr_min <= fr.rx < fr_max:
                 lines[i] = [self.points[p][:2] for p in line]
+                self._reduced_fractures.append(fr)
+
+        # print("reduced fractures ", self._reduced_fractures)
+        # exit()
         return lines
 
     def make_bihs(self):
