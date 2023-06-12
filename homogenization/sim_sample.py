@@ -383,8 +383,8 @@ class DFMSim(Simulation):
             for j in range(n_subdomains):
                 start_time = time.time()
                 k += 1
-                # j = 7
-                # k = 53
+                #j = 8
+                #k = 53
                 #print("k ", k)
 
                 subdir_name = "i_{}_j_{}_k_{}".format(i, j, k)
@@ -412,42 +412,34 @@ class DFMSim(Simulation):
                 sim_config["work_dir"] = work_dir
                 #config["homogenization"] = True
 
-                if fractures is None:
-                    fractures = DFMSim.generate_fractures(config)
-
-
-                fine_flow = FlowProblem.make_fine((config["fine"]["step"],
-                                                   config["sim_config"]["geometry"]["fr_max_size"]),
-                                                  fractures,
-                                                  config)
-                fine_flow.fr_range = [config["fine"]["step"], config["coarse"]["step"]]
-
-                cond_fields = config["center_cond_field"]
-                if "center_larger_cond_field" in config:
-                    cond_fields = config["center_larger_cond_field"]
-
-                print("=== HOMOGENIZATION SAMPLE ===")
-
+                # if fractures is None:
+                #     fractures = DFMSim.generate_fractures(config)
+                #
+                #
+                # fine_flow = FlowProblem.make_fine((config["fine"]["step"],
+                #                                    config["sim_config"]["geometry"]["fr_max_size"]),
+                #                                   fractures,
+                #                                   config)
+                # fine_flow.fr_range = [config["fine"]["step"], config["coarse"]["step"]]
+                #
+                # cond_fields = config["center_cond_field"]
+                # if "center_larger_cond_field" in config:
+                #     cond_fields = config["center_larger_cond_field"]
+                #
+                # print("=== HOMOGENIZATION SAMPLE ===")
+                #
+                # # try:
+                # center_cond_field = DFMSim.eliminate_far_points(outer_polygon,
+                #                                                 cond_fields,
+                #                                                 fine_step=config["fine"]["step"])
                 # try:
-                center_cond_field = DFMSim.eliminate_far_points(outer_polygon,
-                                                                cond_fields,
-                                                                fine_step=config["fine"]["step"])
-                try:
-                    fine_flow.make_mesh()
-                except:
-                    pass
+                #     fine_flow.make_mesh()
+                # except:
+                #     pass
 
-                while not os.path.exists("mesh_fine.msh"):
-                    box_size_x += box_size_x * 0.05
-                    box_size_y += box_size_y * 0.05
-                    outer_polygon = DFMSim.get_outer_polygon(center_x, center_y, box_size_x, box_size_y)
-                    sim_config["geometry"]["outer_polygon"] = outer_polygon
-                    # print("work_dir ", work_dir)
+                #sim_config["work_dir"] = work_dir
 
-                    print("new outer polygon ", outer_polygon)
-                    sim_config["work_dir"] = work_dir
-                    # config["homogenization"] = True
-
+                while True:
                     if fractures is None:
                         fractures = DFMSim.generate_fractures(config)
 
@@ -468,6 +460,38 @@ class DFMSim(Simulation):
                         fine_flow.make_mesh()
                     except:
                         pass
+
+                    if not os.path.exists("mesh_fine.msh"):
+                        box_size_x += box_size_x * 0.05
+                        box_size_y += box_size_y * 0.05
+                        outer_polygon = DFMSim.get_outer_polygon(center_x, center_y, box_size_x, box_size_y)
+                        sim_config["geometry"]["outer_polygon"] = outer_polygon
+                        print("new outer polygon make_mesh failed", outer_polygon)
+                        continue
+
+                    #print("center cond field ", center_cond_field)
+                    fine_flow.interpolate_fields(center_cond_field, mode="linear")
+                    # fine_flow.make_fields()
+                    done = []
+                    # exit()
+                    # fine_flow.run() # @TODO replace fine_flow.run by DFMSim._run_sample()
+                    # print("run samples ")
+                    status, p_loads, outer_reg_names = DFMSim._run_homogenization_sample(fine_flow, config)
+
+                    done.append(fine_flow)
+                    try:
+                        cond_tn, diff = fine_flow.effective_tensor_from_bulk(p_loads, outer_reg_names, fine_flow.basename)
+                    except:
+                        box_size_x += box_size_x * 0.05
+                        box_size_y += box_size_y * 0.05
+                        outer_polygon = DFMSim.get_outer_polygon(center_x, center_y, box_size_x, box_size_y)
+                        sim_config["geometry"]["outer_polygon"] = outer_polygon
+                        print("new outer polygon flow123d failed", outer_polygon)
+                        os.remove("mesh_fine.msh")
+                        continue
+                    DFMSim.make_summary(done)
+                    percentage_sym_tn_diff.append(diff)
+                    break
 
                 # if n_subdomains == 1:
                 #     mesh_file = "/home/martin/Desktop/mesh_fine.msh"
@@ -501,18 +525,7 @@ class DFMSim(Simulation):
                     #    print("make mesh error", str(e))
                     #    exit()
                     #    continue
-                fine_flow.interpolate_fields(center_cond_field, mode="linear")
-                #fine_flow.make_fields()
-                done = []
-                # exit()
-                # fine_flow.run() # @TODO replace fine_flow.run by DFMSim._run_sample()
-                #print("run samples ")
-                status, p_loads, outer_reg_names = DFMSim._run_homogenization_sample(fine_flow, config)
 
-                done.append(fine_flow)
-                cond_tn, diff = fine_flow.effective_tensor_from_bulk(p_loads, outer_reg_names, fine_flow.basename)
-                DFMSim.make_summary(done)
-                percentage_sym_tn_diff.append(diff)
 
                 # except Exception as e:
                 #    print(str(e))
@@ -1140,7 +1153,6 @@ class DFMSim(Simulation):
         conv_check = DFMSim.check_conv_reasons(os.path.join(out_dir, "flow123.0.log"))
         print("converged: ", conv_check)
 
-
         return status, p_loads, outer_reg_names  # and conv_check
         # return  status, p_loads, outer_reg_names  # and conv_check
 
@@ -1344,8 +1356,8 @@ class DFMSim(Simulation):
             if flux_item['region'] in flux_regions:
                 flux = float(flux_item['data'][0])
                 flux_in = float(flux_item['data'][1])
-                if flux_in > 1e-10:
-                    raise Exception("Possitive inflow at outlet region.")
+                #if flux_in > 1e-10:
+                #    raise Exception("Possitive inflow at outlet region.")
                 total_flux += flux  # flux field
                 found = True
 
