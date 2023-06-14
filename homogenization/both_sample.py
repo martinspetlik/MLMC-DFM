@@ -20,8 +20,10 @@ import time
 import scipy.spatial as sc_spatial
 import scipy.interpolate as sc_interpolate
 import atexit
+import scipy as sc
 from scipy import stats
 from scipy.spatial import distance
+from sklearn.utils.extmath import randomized_svd
 
 src_path = os.path.dirname(os.path.abspath(__file__))
 
@@ -34,6 +36,8 @@ import copy
 import shutil
 #import compute_effective_cond
 import gstools
+from mlmc.random import correlated_field as cf
+
 
 logging.getLogger('bgem').disabled = True
 
@@ -307,7 +311,6 @@ class BulkFieldsGSTools(BulkBase):
         self._pc_means = pc_means
 
     def _create_field(self, mean_log_conductivity, cov_log_conductivity):
-        from mlmc.random import correlated_field as cf
         self._pca(mean_log_conductivity, cov_log_conductivity)
 
         field_k_xx = cf.Field('k_xx', cf.GSToolsSpatialCorrelatedField(self._model_k_xx, log=self.log,
@@ -698,6 +701,79 @@ class BulkChoose(BulkBase):
         return 1.0, self.cond_tn[idx].reshape(2,2)
 
 
+class SpatialCorrelatedFieldHom(cf.SpatialCorrelatedField):
+
+    def _initialize(self, **kwargs):
+        self._cond_tensors = None
+        ### Attributes computed in precalculation.
+        self.cov_mat = None
+        # Covariance matrix (dense).
+        self._n_approx_terms = None
+        # Length of the sample vector, number of KL (Karhunen-Loe?ve) expansion terms.
+        self._cov_l_factor = None
+        # (Reduced) L factor of the SVD decomposition of the covariance matrix.
+        self._sqrt_ev = None
+        # (Reduced) square roots of singular values.
+
+    def _sample(self):
+        """
+        :param uncorelated: Random samples from standard normal distribution.
+        :return: Random field evaluated in points given by 'set_points'.
+        """
+        if self._cov_l_factor is None:
+            self.svd_dcmp()
+        print("self._cond_tensors.shape ", self._cond_tensors.shape)
+        #print("self._cond_tensors ", self._cond_tensors)
+        # print("len(self._cond_tensors) ", len(self._cond_tensors))
+        # print("type self.n_approx_terms ", type(self.n_approx_terms))
+        # print("self.n_approx_terms ", self.n_approx_terms)
+        uncorelated_indices = np.random.choice(len(self._cond_tensors), size=self.n_approx_terms) #np.random.choice(len(self._cond_tensors), size=self._n_approx_terms)
+        #print("uncorelated indices", uncorelated_indices)
+        uncorelated = self._cond_tensors[uncorelated_indices]
+        #print("uncorelated ", uncorelated)
+        #print("uncorelated.shape ", uncorelated.shape)
+
+        #print("self._cov_l_factor ", self._cov_l_factor.shape)
+        return self._cov_l_factor.dot(uncorelated)
+
+
+class BulkHomogenizationFineSample(BulkBase):
+    def __init__(self, config_dict):
+        self._cond_tns = None
+        self._get_tensors(config_dict)
+
+        self._rf_sample = None
+
+        srf_model = SpatialCorrelatedFieldHom()
+        srf_model._cond_tensors = self._cond_tns
+
+        field_cond_tn = cf.Field('cond_tn', srf_model)
+        self._fields = cf.Fields([field_cond_tn])
+
+    def _get_tensors(self, config_dict):
+        self._cond_tns = np.load(config_dict["fine"]["cond_tn_pop_file"])
+        self._cond_tns = self._cond_tns.reshape(int(len(self._cond_tns)/4), 4)
+
+    def element_data(self, mesh, eid):
+        if self._rf_sample is None:
+            self._mesh_data = BulkFieldsGSTools.extract_mesh(mesh)
+            self._fields.set_points(self._mesh_data['points'],
+                                    self._mesh_data['point_region_ids'],
+                                    self._mesh_data['region_map'])
+            self._rf_sample = self._fields.sample()
+
+
+        ele_idx = np.where(self._mesh_data["ele_ids"] == eid)
+        cond_tn = self._rf_sample["cond_tn"][ele_idx]
+
+        cond_tn = cond_tn.reshape(2, 2)
+        sym_value = (cond_tn[0,1] + cond_tn[1,0])/2
+        cond_tn[0,1] = cond_tn[1,0] = sym_value
+
+        return 1.0, cond_tn
+
+
+
 class BulkHomogenization(BulkBase):
     def __init__(self, config_dict):
         self._cond_tns = None
@@ -1050,9 +1126,11 @@ class FlowProblem:
         if "cond_tn_pop_file" in config_dict["fine"]:
             #@TODO: sample from saved population of conductivity tensors
 
-            cond_tn_pop = np.load(config_dict["fine"]["cond_tn_pop_file"])
 
-            pass
+
+            bulk_model = BulkHomogenizationFineSample(config_dict)
+
+
             # bulk_cond_tn_pop_file = config_dict["fine"]["cond_tn_pop_file"]
             #bulk_model = BulkChoose(finer_level_path)
         else:

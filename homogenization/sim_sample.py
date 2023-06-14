@@ -20,6 +20,7 @@ from homogenization.both_sample import FlowProblem, BothSample
 #from metamodel.cnn.datasets import create_dataset
 from metamodel.cnn.postprocess.optuna_results import load_study, load_models, get_saved_model_path, get_inverse_transform
 from metamodel.cnn.datasets.dfm_dataset import DFMDataset
+from npy_append_array import NpyAppendArray
 
 
 def create_corr_field(model='gauss', corr_length=0.125, dim=2, log=True, sigma=1, mode_no=1000):
@@ -236,6 +237,7 @@ class DFMSim(Simulation):
         coarse_sim_common_files_dir = None
         if coarse_step != 0:
             coarse_sim_common_files_dir = os.path.join(self.work_dir, DFMSim.COMMON_FILES.format(coarse_step))
+            #force_mkdir(coarse_sim_common_files_dir, force=self.clean)
 
         # Simulation config
         # Configuration is used in mlmc.tool.pbs_job.PbsJob instance which is run from PBS process
@@ -248,7 +250,6 @@ class DFMSim(Simulation):
         config["sim_config"] = self.config_dict
         config["fine"]["common_files_dir"] = common_files_dir
         config["coarse"]["common_files_dir"] = coarse_sim_common_files_dir
-
         #config["fields_used_params"] = self._fields_used_params  # Params for Fields instance, which is created in PbsJob
 
         print("self.env ", type(self.env))
@@ -532,6 +533,7 @@ class DFMSim(Simulation):
 
                 #exit()
 
+
                 pred_cond_tn = None
                 ######################
                 ## Employ metamodel ##
@@ -559,22 +561,28 @@ class DFMSim(Simulation):
                     # print("cond_tn ", cond_tn)
                     # @TODO: save cond tn and center to npz file
 
-                    if n_subdomains > 1:
-                        cond_tn_flatten = cond_tn[0].flatten()
-                        cond_tensors[(center_x, center_y)] = cond_tn_flatten
-                        # print("cond tn ", cond_tn_flatten)
+                if n_subdomains > 1:
+                    cond_tn_flatten = cond_tn[0].flatten()
+                    cond_tensors[(center_x, center_y)] = cond_tn_flatten
+                    # print("cond tn ", cond_tn_flatten)
 
-                        # if pred_cond_tn is not None:
-                        #     pred_cond_tn_flatten = pred_cond_tn.flatten()
-                        #     pred_cond_tensors[(center_x, center_y)] = pred_cond_tn_flatten
-                            # print("pred cond tn ", pred_cond_tn_flatten)
-                        cond_tn_pop_file = os.path.join(config["coarse"]["common_files_dir"], DFMSim.COND_TN_POP_FILE)
-                        np.save(cond_tn_pop_file, cond_tn[0])
+                    # if pred_cond_tn is not None:
+                    #     pred_cond_tn_flatten = pred_cond_tn.flatten()
+                    #     pred_cond_tensors[(center_x, center_y)] = pred_cond_tn_flatten
+                    # print("pred cond tn ", pred_cond_tn_flatten)
+                    #print("config[coarse common_files_dir] ", config["coarse"]["common_files_dir"])
+                    cond_tn_pop_file = os.path.join(config["coarse"]["common_files_dir"], DFMSim.COND_TN_POP_FILE)
+
+                    with NpyAppendArray(cond_tn_pop_file, delete_if_exists=False) as npaa:
+                        npaa.append(cond_tn_flatten)
+                    #np.save(cond_tn_pop_file, cond_tn_flatten)
+
+                    loaded_cond_tn = np.load(cond_tn_pop_file)
+                    #print("loaded cond tn ", loaded_cond_tn)
+
 
                     dir_name = os.path.join(work_dir, subdir_name)
                     config["dir_name"] = dir_name
-
-                    # print("dir name ", dir_name)
 
                 try:
                     shutil.move("fine", dir_name)
@@ -698,8 +706,8 @@ class DFMSim(Simulation):
 
         os.chdir(sample_dir)
 
-        #print("cond tensors ", cond_tensors)
-        #print("pred cond tensors ", pred_cond_tensors)
+        # print("cond tensors ", cond_tensors)
+        # print("pred cond tensors ", pred_cond_tensors)
 
         return cond_tensors, pred_cond_tensors
 
@@ -776,14 +784,29 @@ class DFMSim(Simulation):
         if "generate_hom_samples" in config["sim_config"] and config["sim_config"]["generate_hom_samples"]:
             gen_hom_samples = True
 
+        cond_tn_pop = os.path.join(config["fine"]["common_files_dir"], DFMSim.COND_TN_POP_FILE)
+        if os.path.exists(cond_tn_pop):
+            config["fine"]["cond_tn_pop_file"] = cond_tn_pop
+
+        #print("config fine ", config["fine"])
+
         ####################
         ### fine problem ###
         ####################
-        if "use_larger_domain" in config["sim_config"] and config["sim_config"]["use_larger_domain"]:
+        if coarse_step > 0 and "use_larger_domain" in config["sim_config"] and config["sim_config"]["use_larger_domain"]:
             # Larger bulk domain
-            orig_domain_box = config["sim_config"]["geometry"]["domain_box"]
-            #print("orig domain box from config", orig_domain_box)
-            sub_domain_box = config["sim_config"]["geometry"]["subdomain_box"]
+            if "steps" in config["sim_config"]:
+                geometry = config["sim_config"]["steps"][fine_step]["geometry"]
+                print("geometry ", geometry)
+                orig_domain_box = geometry["domain_box"]
+                sub_domain_box = geometry["subdomain_box"]
+                orig_frac_box = geometry["fractures_box"]
+            else:
+                orig_domain_box = config["sim_config"]["geometry"]["domain_box"]
+                #print("orig domain box from config", orig_domain_box)
+                sub_domain_box = config["sim_config"]["geometry"]["subdomain_box"]
+                orig_frac_box = config["sim_config"]["geometry"]["fractures_box"]
+
             config["sim_config"]["geometry"]["domain_box"] = [orig_domain_box[0] + 2*sub_domain_box[0], orig_domain_box[1]+ 2*sub_domain_box[1]]
             hom_domain_box = [orig_domain_box[0] + sub_domain_box[0], orig_domain_box[1]+ sub_domain_box[1]]
             #print("domain box ", config["sim_config"]["geometry"]["domain_box"])
@@ -791,7 +814,6 @@ class DFMSim(Simulation):
             #larger_domain_box = config["sim_config"]["geometry"]["domain_box"]
 
             # Larger fracture domain
-            orig_frac_box = config["sim_config"]["geometry"]["fractures_box"]
             #print("orig frac box from config ", orig_frac_box)
             #sub_frac_domain_box = config["sim_config"]["geometry"]["subdomain_box"]
             config["sim_config"]["geometry"]["fractures_box"] = [orig_frac_box[0] + 2 * sub_domain_box[0],
@@ -820,7 +842,7 @@ class DFMSim(Simulation):
             config["sim_config"]["geometry"]["fractures_box"] = orig_frac_box
             DFMSim._remove_files()
 
-        fine_res = 0
+        fine_res = [0,0,0]
         fine_flow = FlowProblem.make_fine((config["fine"]["step"], config["sim_config"]["geometry"]["fr_max_size"]), fractures, config)
         fine_flow.fr_range = [config["fine"]["step"], fine_flow.fr_range[1]]
         #fine_flow.fr_range = [25, fine_flow.fr_range[1]]
@@ -858,6 +880,7 @@ class DFMSim(Simulation):
         fractures_for_coarse_sample = copy.deepcopy(fractures._reduced_fractures)
 
         if not gen_hom_samples:
+
             fine_res, status = DFMSim._run_sample(fine_flow, config)
             fine_res = fine_res[0]
 
@@ -865,6 +888,13 @@ class DFMSim(Simulation):
             status, p_loads, outer_reg_names = DFMSim._run_homogenization_sample(fine_flow, config)
             done.append(fine_flow)
             cond_tn, diff = fine_flow.effective_tensor_from_bulk(p_loads, outer_reg_names, fine_flow.basename)
+
+            print("fine cond tn ", cond_tn)
+            cond_tn = cond_tn[0]
+            cond_tn[0, 1] = (cond_tn[0, 1] + cond_tn[1, 0]) / 2
+            fine_res = cond_tn.flatten()
+            fine_res = [fine_res[0], fine_res[1], fine_res[3]]
+            print("fine res ", fine_res)
 
             if os.path.exists("flow_fields.pvd"):
                 os.remove("flow_fields.pvd")
@@ -894,7 +924,7 @@ class DFMSim(Simulation):
             if os.path.exists("summary.yaml"):
                 shutil.move("summary.yaml", "summary_fine.yaml")
 
-        coarse_res = 0
+        coarse_res = [0, 0, 0]
 
         #try:
             #shutil.rmtree("fine")
@@ -925,13 +955,9 @@ class DFMSim(Simulation):
             if not gen_hom_samples:
                 #print("cond tensors ", cond_tensors)
                 #print("pred cond tensors ", pred_cond_tensors)
+
                 DFMSim._save_tensors(cond_tensors, file=DFMSim.COND_TN_FILE)
                 DFMSim._save_tensors(pred_cond_tensors, file=DFMSim.PRED_COND_TN_FILE)
-
-                cond_tn_pop = os.path.join(DFMSim.COMMON_FILES.format(fine_step), DFMSim.COND_TN_POP_FILE)
-                # print("cond tn pop ", cond_tn_pop)
-                if os.path.exists(cond_tn_pop):
-                    config["fine"]["cond_tn_pop_file"] = cond_tn_pop
 
                 config["cond_tns_yaml_file"] = os.path.abspath(DFMSim.COND_TN_FILE)
                 config["pred_cond_tns_yaml_file"] = os.path.abspath(DFMSim.PRED_COND_TN_FILE)
@@ -954,10 +980,10 @@ class DFMSim(Simulation):
                 # print("coarse flow ", coarse_flow)
                 # print("config ", config)
 
-                coarse_res, status = DFMSim._run_sample(coarse_flow, config)
-                print("coarse res ", coarse_res)
-                print("status ", status)
-                coarse_res = coarse_res[0]
+                # coarse_res, status = DFMSim._run_sample(coarse_flow, config)
+                # print("coarse res ", coarse_res)
+                # print("status ", status)
+                # coarse_res = coarse_res[0]
 
                 if os.path.exists("flow_fields"):
                     shutil.rmtree("flow_fields")
@@ -966,6 +992,13 @@ class DFMSim(Simulation):
                 status, p_loads, outer_reg_names = DFMSim._run_homogenization_sample(coarse_flow, config)
                 done.append(coarse_flow)
                 cond_tn, diff = coarse_flow.effective_tensor_from_bulk(p_loads, outer_reg_names, coarse_flow.basename)
+                print("coarse cond tn ", cond_tn)
+
+                cond_tn = cond_tn[0]
+                cond_tn[0, 1] = (cond_tn[0, 1] + cond_tn[1, 0]) / 2
+                coarse_res = cond_tn.flatten()
+                coarse_res = [coarse_res[0], coarse_res[1], coarse_res[3]]
+                print("coarse res ", coarse_res)
 
                 if os.path.exists("flow_fields.pvd"):
                     os.remove("flow_fields.pvd")
@@ -1011,13 +1044,19 @@ class DFMSim(Simulation):
                     done = []
                     # fine_flow.run() # @TODO replace fine_flow.run by DFMSim._run_sample()
                     # print("run samples ")
-                    coarse_res, status = DFMSim._run_sample(coarse_flow, config)
-                    coarse_res = coarse_res[0]
+                    # coarse_res, status = DFMSim._run_sample(coarse_flow, config)
+                    # coarse_res = coarse_res[0]
 
                     done = []
                     status, p_loads, outer_reg_names = DFMSim._run_homogenization_sample(coarse_flow, config)
                     done.append(coarse_flow)
                     cond_tn, diff = coarse_flow.effective_tensor_from_bulk(p_loads, outer_reg_names, coarse_flow.basename)
+
+                    cond_tn = cond_tn[0]
+                    cond_tn[0, 1] = (cond_tn[0, 1] + cond_tn[1, 0]) / 2
+                    coarse_res = cond_tn.flatten()
+                    coarse_res = [coarse_res[0], coarse_res[1], coarse_res[3]]
+                    print("coarse res ", coarse_res)
 
                     if os.path.exists("flow_fields.pvd"):
                         os.remove("flow_fields.pvd")
@@ -1044,10 +1083,14 @@ class DFMSim(Simulation):
                     if os.path.exists("flow_fields.msh"):
                         shutil.move("flow_fields.msh", "flow_fields_coarse.msh")
 
+
+        print("fine res ", fine_res)
+
         return fine_res, coarse_res, times
 
     @staticmethod
     def _save_tensors(cond_tensors, file):
+        #print("save tensors cond tensors ", cond_tensors)
         with open(file, "w") as f:
             yaml.dump(cond_tensors, f)
 
@@ -1409,7 +1452,7 @@ class DFMSim(Simulation):
         Define simulation result format
         :return: List[QuantitySpec, ...]
         """
-        spec1 = QuantitySpec(name="conductivity", unit="m", shape=(1, 1), times=[1], locations=['0'])
+        spec1 = QuantitySpec(name="cond_tn", unit="m", shape=(3, 1), times=[1], locations=['0'])
         # spec2 = QuantitySpec(name="width", unit="mm", shape=(2, 1), times=[1, 2, 3], locations=['30', '40'])
         return [spec1]
 
