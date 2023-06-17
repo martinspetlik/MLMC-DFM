@@ -1082,8 +1082,8 @@ class BulkHomogenizationFineSample(BulkBase):
         # sym_value = (cond_tn[0,1] + cond_tn[1,0])/2
         # cond_tn[0,1] = cond_tn[1,0] = sym_value
 
-        cond_tn[0,0] = np.abs(cond_tn[0,0])
-        cond_tn[1,1] = np.abs(cond_tn[1,1])
+        cond_tn[0][0] = np.abs(cond_tn[0][0])
+        cond_tn[1][1] = np.abs(cond_tn[1][1])
 
         return 1.0, cond_tn
 
