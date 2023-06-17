@@ -133,6 +133,7 @@ class DFMSim(Simulation):
     COND_TN_FILE = "cond_tensors.yaml"
     PRED_COND_TN_FILE = "pred_cond_tensors.yaml"
     COMMON_FILES = "l_step_{}_common_files"
+    SAMPLES_COND_TNS_DIR = "samples_cond_tns"
 
     """
     Gather data for single flow call (coarse/fine)
@@ -237,6 +238,9 @@ class DFMSim(Simulation):
         coarse_sim_common_files_dir = None
         if coarse_step != 0:
             coarse_sim_common_files_dir = os.path.join(self.work_dir, DFMSim.COMMON_FILES.format(coarse_step))
+            samples_cond_tns = os.path.join(coarse_sim_common_files_dir, DFMSim.SAMPLES_COND_TNS_DIR)
+            force_mkdir(samples_cond_tns, force=self.clean)
+
             #force_mkdir(coarse_sim_common_files_dir, force=self.clean)
 
         # Simulation config
@@ -249,6 +253,9 @@ class DFMSim(Simulation):
         config["coarse"]["step"] = coarse_step
         config["sim_config"] = self.config_dict
         config["fine"]["common_files_dir"] = common_files_dir
+
+        if coarse_step != 0:
+            config["coarse"]["sample_cond_tns"] = samples_cond_tns
         config["coarse"]["common_files_dir"] = coarse_sim_common_files_dir
         #config["fields_used_params"] = self._fields_used_params  # Params for Fields instance, which is created in PbsJob
 
@@ -577,13 +584,10 @@ class DFMSim(Simulation):
                         npaa.append(cond_tn_flatten)
                     #np.save(cond_tn_pop_file, cond_tn_flatten)
 
-                    loaded_cond_tn = np.load(cond_tn_pop_file)
+                    #loaded_cond_tn = np.load(cond_tn_pop_file)
                     #print("loaded cond tn ", loaded_cond_tn)
-
-
                     dir_name = os.path.join(work_dir, subdir_name)
                     config["dir_name"] = dir_name
-
                 try:
                     shutil.move("fine", dir_name)
                     if os.path.exists(os.path.join(dir_name, "fields_fine.msh")):
@@ -788,6 +792,10 @@ class DFMSim(Simulation):
         if os.path.exists(cond_tn_pop):
             config["fine"]["cond_tn_pop_file"] = cond_tn_pop
 
+        sample_cond_tns = os.path.join(config["fine"]["common_files_dir"], DFMSim.SAMPLES_COND_TNS_DIR)
+        if os.path.exists(sample_cond_tns):
+            config["fine"]["sample_cond_tns"] = sample_cond_tns
+
         #print("config fine ", config["fine"])
 
         ####################
@@ -959,6 +967,21 @@ class DFMSim(Simulation):
                 DFMSim._save_tensors(cond_tensors, file=DFMSim.COND_TN_FILE)
                 DFMSim._save_tensors(pred_cond_tensors, file=DFMSim.PRED_COND_TN_FILE)
 
+                # print("os.path.abspath(DFMSim.COND_TN_FILE) ", os.path.abspath(DFMSim.COND_TN_FILE))
+                # print("config[sample_cond_tns] ", config["fine"]["sample_cond_tns"])
+
+                file_path_split = os.path.split(os.path.split(os.path.abspath(DFMSim.COND_TN_FILE))[0])
+                sample_id = file_path_split[1].split("_")[1]
+
+                print("config[coarsesample_cond_tns ", config["coarse"]["sample_cond_tns"])
+
+                shutil.copy(os.path.abspath(DFMSim.COND_TN_FILE), config["coarse"]["sample_cond_tns"])
+                os.rename(os.path.join(config["coarse"]["sample_cond_tns"], DFMSim.COND_TN_FILE),
+                          os.path.join(config["coarse"]["sample_cond_tns"], sample_id + "_" + DFMSim.COND_TN_FILE))
+                shutil.copy(os.path.abspath(DFMSim.PRED_COND_TN_FILE), config["coarse"]["sample_cond_tns"])
+                os.rename(os.path.join(config["coarse"]["sample_cond_tns"], DFMSim.PRED_COND_TN_FILE),
+                          os.path.join(config["coarse"]["sample_cond_tns"], sample_id + "_" + DFMSim.PRED_COND_TN_FILE))
+
                 config["cond_tns_yaml_file"] = os.path.abspath(DFMSim.COND_TN_FILE)
                 config["pred_cond_tns_yaml_file"] = os.path.abspath(DFMSim.PRED_COND_TN_FILE)
 
@@ -1083,10 +1106,8 @@ class DFMSim(Simulation):
                     if os.path.exists("flow_fields.msh"):
                         shutil.move("flow_fields.msh", "flow_fields_coarse.msh")
 
-
-        print("fine res ", fine_res)
-
-        return fine_res, coarse_res, times
+        #print("fine res ", fine_res)
+        return fine_res, coarse_res
 
     @staticmethod
     def _save_tensors(cond_tensors, file):

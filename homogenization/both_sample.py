@@ -30,6 +30,7 @@ src_path = os.path.dirname(os.path.abspath(__file__))
 from bgem.gmsh import gmsh_io
 from bgem.polygons import polygons
 from homogenization import fracture
+from homogenization import sim_sample
 import matplotlib.pyplot as plt
 import copy
 #from plots_skg import matplotlib_variogram_plot
@@ -37,6 +38,7 @@ import shutil
 #import compute_effective_cond
 import gstools
 from mlmc.random import correlated_field as cf
+from sklearn.mixture import GaussianMixture
 
 
 logging.getLogger('bgem').disabled = True
@@ -351,9 +353,44 @@ class BulkFieldsGSTools(BulkBase):
             self._rf_sample["k_yy"] += self._pc_means[1]
 
             srf_data = np.array([self._rf_sample["k_xx"], self._rf_sample["k_yy"]])
+
+            # bins = 60
+            # # np_bins = np.linspace(np.min(values[:, 0]), np.max(values[:, 0]), 50)  # Define histogram bins
+            # plt.hist(srf_data[0, :], bins=bins, color="red", label="k_xx", density=True)
+            # # plt.hist(samples[:, 0], bins=bins, color="blue", label="k_xy sampled", alpha=0.65, density=True)
+            # plt.legend()
+            # plt.show()
+            #
+            # plt.hist(srf_data[1, :], bins=bins, color="red", label="k_xy", density=True)
+            # # plt.hist(samples[:, 0], bins=bins, color="blue", label="k_xy sampled", alpha=0.65, density=True)
+            # plt.legend()
+            # plt.show()
+            #
+            # plt.hist(srf_data[2, :], bins=bins, color="red", label="k_yy", density=True)
+            # # plt.hist(samples[:, 0], bins=bins, color="blue", label="k_xy sampled", alpha=0.65, density=True)
+            # plt.legend()
+            # plt.show()
+
+
             # pca_cond.transform()
             # inv_srf_data = pca_cond.inverse_transform(srf_data.T).T
             inv_srf_data = np.matmul(srf_data.T, self._projection_matrix.T).T
+
+            # # np_bins = np.linspace(np.min(values[:, 0]), np.max(values[:, 0]), 50)  # Define histogram bins
+            # plt.hist(inv_srf_data[0, :], bins=bins, color="red", label="inv k_xx", density=True)
+            # # plt.hist(samples[:, 0], bins=bins, color="blue", label="k_xy sampled", alpha=0.65, density=True)
+            # plt.legend()
+            # plt.show()
+            #
+            # plt.hist(inv_srf_data[1, 0], bins=bins, color="red", label="inv k_xy", density=True)
+            # # plt.hist(samples[:, 0], bins=bins, color="blue", label="k_xy sampled", alpha=0.65, density=True)
+            # plt.legend()
+            # plt.show()
+            # #
+            # plt.hist(inv_srf_data[2, 0], bins=bins, color="red", label="inv k_yy", density=True)
+            # # plt.hist(samples[:, 0], bins=bins, color="blue", label="k_xy sampled", alpha=0.65, density=True)
+            # plt.legend()
+            # plt.show()
 
             # for i in range(inv_srf_data.shape[1]):
             #     print("inv data ", inv_srf_data[:, i])
@@ -363,6 +400,31 @@ class BulkFieldsGSTools(BulkBase):
 
             self._rf_sample["k_xx"] = inv_srf_data[0, :]
             self._rf_sample["k_yy"] = inv_srf_data[1, :]
+
+            ##########################
+            ## Variogram estimation ##
+            ##########################
+            # import skgstat as skg
+            # random_field = np.power(10, self._rf_sample["k_xx"])
+            # random_field = self._rf_sample["k_xx"]
+            # #V = skg.Variogram(self._mesh_data['points'], random_field)
+            # #bin_center, gamma = V.get_empirical(bin_center=True)
+            # #print("V describe", V.describe())
+            #
+            # #print("self._mesh_data['points'] ", self._mesh_data['points'].shape)
+            # #print("random field shape ", random_field.shape)
+            #
+            # x_coord, y_coord = self._mesh_data['points'][:, 0], self._mesh_data['points'][:, 1]
+            # bin_center, gamma = gstools.vario_estimate((x_coord, y_coord), random_field)
+            # fit_model = gstools.Exponential(dim=2)
+            # params = fit_model.fit_variogram(bin_center, gamma, nugget=False)
+            #
+            # print("params ", params)
+
+            ###########################
+            ###########################
+
+
 
             data_srf_angle_vec = np.stack([self._rf_sample["angle_x"],  self._rf_sample["angle_y"]])
 
@@ -378,6 +440,16 @@ class BulkFieldsGSTools(BulkBase):
 
             xv = self._mesh_data['points'][:, 0]
             yv = self._mesh_data['points'][:, 1]
+            #
+            # plt.hist(srf_data[:, 0], bins=bins, color="red", label="final k_xx", density=True)
+            # # plt.hist(samples[:, 0], bins=bins, color="blue", label="k_xy sampled", alpha=0.65, density=True)
+            # plt.legend()
+            # plt.show()
+            #
+            # plt.hist(srf_data[:, 2], bins=bins, color="red", label="k_yy", density=True)
+            # # plt.hist(samples[:, 0], bins=bins, color="blue", label="k_xy sampled", alpha=0.65, density=True)
+            # plt.legend()
+            # plt.show()
 
             #import matplotlib
             #matplotlib.rcParams.update({'font.size': 34})
@@ -500,6 +572,7 @@ class BulkFieldsGSTools(BulkBase):
         k_xx = self._rf_sample["k_xx"][ele_idx][0]
         k_yy = self._rf_sample["k_yy"][ele_idx][0]
 
+
         unrotated_tn = np.diag(np.power(10, np.array([k_xx, k_yy])))
 
 
@@ -570,7 +643,7 @@ class BulkFieldsGSTools(BulkBase):
         for id, el in mesh.elements.items():
             _, tags, i_nodes = el
             region_id = tags[0]
-            if not is_bc_region[region_id]:
+            if not is_bc_region[region_id] and len(i_nodes) == 3:
                 bulk_elements.append(id)
 
         n_bulk = len(bulk_elements)
@@ -715,26 +788,51 @@ class SpatialCorrelatedFieldHom(cf.SpatialCorrelatedField):
         self._sqrt_ev = None
         # (Reduced) square roots of singular values.
 
-    def _sample(self):
-        """
-        :param uncorelated: Random samples from standard normal distribution.
-        :return: Random field evaluated in points given by 'set_points'.
-        """
-        if self._cov_l_factor is None:
-            self.svd_dcmp()
-        print("self._cond_tensors.shape ", self._cond_tensors.shape)
-        #print("self._cond_tensors ", self._cond_tensors)
-        # print("len(self._cond_tensors) ", len(self._cond_tensors))
-        # print("type self.n_approx_terms ", type(self.n_approx_terms))
-        # print("self.n_approx_terms ", self.n_approx_terms)
-        uncorelated_indices = np.random.choice(len(self._cond_tensors), size=self.n_approx_terms) #np.random.choice(len(self._cond_tensors), size=self._n_approx_terms)
-        #print("uncorelated indices", uncorelated_indices)
-        uncorelated = self._cond_tensors[uncorelated_indices]
-        #print("uncorelated ", uncorelated)
-        #print("uncorelated.shape ", uncorelated.shape)
 
-        #print("self._cov_l_factor ", self._cov_l_factor.shape)
-        return self._cov_l_factor.dot(uncorelated)
+    def _sample(self):
+        cond_tn_values = self._cond_tensors
+        mult_coef = 1 / np.abs(np.min(cond_tn_values))
+        values = cond_tn_values * mult_coef
+
+        # values[:, 0] = np.log10(values[:, 0])
+        # values[:, 2] = np.log10(values[:, 2])
+
+        # Fit a Gaussian Mixture Model (GMM)
+        n_components = 250
+        gmm = GaussianMixture(n_components=n_components)  # Choose the number of components
+        # gmm.fit(values.reshape(-1, 1))
+        gmm.fit(values)
+
+        size = self.n_points
+        samples, _ = gmm.sample(n_samples=size)
+
+        samples /= mult_coef
+
+        return samples
+
+    # def _sample(self):
+    #     """
+    #     :param uncorelated: Random samples from standard normal distribution.
+    #     :return: Random field evaluated in points given by 'set_points'.
+    #     """
+    #     if self._cov_l_factor is None:
+    #         self.svd_dcmp()
+    #     #print("self._cond_tensors.shape ", self._cond_tensors.shape)
+    #     #print("self._cond_tensors ", self._cond_tensors)
+    #     # print("len(self._cond_tensors) ", len(self._cond_tensors))
+    #     # print("type self.n_approx_terms ", type(self.n_approx_terms))
+    #     # print("self.n_approx_terms ", self.n_approx_terms)
+    #
+    #     size = self.n_points
+    #     #size = self.n_approx_terms
+    #     uncorelated_indices = np.random.choice(len(self._cond_tensors), size=size) #np.random.choice(len(self._cond_tensors), size=self._n_approx_terms)
+    #     #print("uncorelated indices", uncorelated_indices)
+    #     uncorelated = self._cond_tensors[uncorelated_indices]
+    #     #print("uncorelated ", uncorelated)
+    #     print("uncorelated.shape ", uncorelated.shape)
+    #     print("self._cov_l_factor ", self._cov_l_factor.shape)
+    #
+    #     return uncorelated #self._cov_l_factor.dot(uncorelated)
 
 
 class BulkHomogenizationFineSample(BulkBase):
@@ -742,17 +840,133 @@ class BulkHomogenizationFineSample(BulkBase):
         self._cond_tns = None
         self._get_tensors(config_dict)
 
-        self._rf_sample = None
+        #print("config dict ", config_dict)
 
-        srf_model = SpatialCorrelatedFieldHom()
+        avg_var_list, avg_len_scale_list = self._calc_var_len_scale(config_dict)
+
+        #print("avg var list ", avg_var_list)
+        #print("avg len scale list ", avg_len_scale_list)
+
+        #print("self. cond tn ", self._cond_tns)
+
+        self._cond_tns = BulkHomogenizationFineSample.symmetrize_cond_tns(self._cond_tns)
+
+        self._rf_sample = None
+        srf_model = SpatialCorrelatedFieldHom(corr_exp="exp", corr_length=np.mean(avg_len_scale_list))#, sigma=np.sqrt(np.mean(avg_var_list)))
         srf_model._cond_tensors = self._cond_tns
+
+        print("SRF MODEL corr length: {}, sigma: {}".format(srf_model._corr_length, srf_model.sigma))
 
         field_cond_tn = cf.Field('cond_tn', srf_model)
         self._fields = cf.Fields([field_cond_tn])
 
+    @staticmethod
+    def symmetrize_cond_tns(cond_tns):
+        sym_values = (cond_tns[:, 1] + cond_tns[:, 2])/2
+        cond_tns = np.delete(cond_tns, 2, 1)
+        cond_tns[:, 1] = sym_values
+        return cond_tns
+
     def _get_tensors(self, config_dict):
-        self._cond_tns = np.load(config_dict["fine"]["cond_tn_pop_file"])
+        cond_pop_file = config_dict["fine"]["cond_tn_pop_file"]
+        #cond_pop_file =
+        #print("cond pop file ", cond_pop_file)
+        self._cond_tns = np.load(cond_pop_file)
         self._cond_tns = self._cond_tns.reshape(int(len(self._cond_tns)/4), 4)
+
+        # cond_file = "/home/martin/Documents/MLMC-DFM/test/01_cond_field/output_good_backup/L01_S0000000/cond_tensors.yaml"
+        # with open(cond_file, "r") as f:
+        #     cond_tns = ruamel.yaml.load(f)
+        #
+        # self._cond_tns = cond_tns
+
+    @staticmethod
+    def get_len_scales(cond_tns):
+        #print("cond tns keys ()", cond_tns.keys())
+        coords = np.array(list(cond_tns.keys()))
+        x_coord, y_coord = coords[:, 0], coords[:, 1]
+        rf_values = np.array(list(cond_tns.values()))
+
+        # print("coords ", coords)
+        # print("coords.shape ", coords.shape)
+        # print("rf values .shape ", rf_values.shape)
+
+        bin_center, gamma = gstools.vario_estimate((x_coord, y_coord), rf_values[:, 0])
+        fit_model = gstools.Exponential(dim=2)
+        k_xx_params = fit_model.fit_variogram(bin_center, gamma, nugget=False)
+        # print("k xx params ", k_xx_params)
+        # print("np.var(rf_values[:, 0]) ", np.var(rf_values[:, 0]))
+
+        bin_center, gamma = gstools.vario_estimate((x_coord, y_coord), rf_values[:, 1])
+        fit_model = gstools.Stable(dim=2)
+        k_xy_params = fit_model.fit_variogram(bin_center, gamma, nugget=False)
+
+        # ax = fit_model.plot()
+        # print("bin center ", bin_center)
+        # print("gamma ", gamma)
+        # ax.scatter(bin_center, gamma)
+        # plt.plot()
+        # print(fit_model)
+        # print("k xy params ", k_xy_params)
+        # print("np.var(rf_values[:, 1]) ", np.var(rf_values[:, 1]))
+
+        bin_center, gamma = gstools.vario_estimate((x_coord, y_coord), rf_values[:, 2])
+        fit_model = gstools.Exponential(dim=2)
+        k_yy_params = fit_model.fit_variogram(bin_center, gamma, nugget=False)
+        # print("k yy params ", k_yy_params)
+        # print("np.var(rf_values[:, 2]) ", np.var(rf_values[:, 2]))
+        # exit()
+
+        return k_xx_params, k_xy_params, k_yy_params
+
+    @staticmethod
+    def get_vars(cond_tns):
+        rf_values = np.array(list(cond_tns.values()))
+        return np.var(rf_values[:, 0]), np.var(rf_values[:, 1]), np.var(rf_values[:, 2])
+
+    def _calc_var_len_scale(self, config_dict):
+        sample_id = 0
+        avg_len_scale_list = []
+        avg_var_list = []
+        while True:
+            cond_file = os.path.join(config_dict["fine"]["sample_cond_tns"], "S{:07d}_{}".format(sample_id, sim_sample.DFMSim.COND_TN_FILE))
+            pred_cond_file = os.path.join(config_dict["fine"]["sample_cond_tns"],
+                                     "S{:07d}_{}".format(sample_id, sim_sample.DFMSim.PRED_COND_TN_FILE))
+
+            if not os.path.exists(cond_file):
+                break
+
+            with open(cond_file, "r") as f:
+                cond_tns = ruamel.yaml.load(f)
+
+            with open(pred_cond_file, "r") as f:
+                pred_cond_tns = ruamel.yaml.load(f)
+
+            if len(pred_cond_tns) > 0:
+                k_xx_params, k_xy_params, k_yy_params = BulkHomogenizationFineSample.get_len_scales(pred_cond_tns)
+                k_xx_var, k_xy_var, k_yy_var = BulkHomogenizationFineSample.get_vars(pred_cond_tns)
+            else:
+                k_xx_params, k_xy_params, k_yy_params = BulkHomogenizationFineSample.get_len_scales(cond_tns)
+                k_xx_var, k_xy_var, k_yy_var = BulkHomogenizationFineSample.get_vars(cond_tns)
+
+
+            k_xx_len_scale = k_xx_params[0]['len_scale']
+            k_xy_len_scale = k_xy_params[0]['len_scale']
+            k_yy_len_scale = k_yy_params[0]['len_scale']
+
+            #print("LEN SCALE k_xx: {}, k_xy: {}, k_yy:{}".format(k_xx_len_scale, k_xy_len_scale, k_yy_len_scale))
+            #print("VAR k_xx: {}, k_xy: {}, k_yy:{}".format(k_xx_var, k_xy_var, k_yy_var))
+
+            avg_len_scale = (k_xx_len_scale + k_xy_len_scale + k_yy_len_scale) / 3
+            avg_var = (k_xx_var + k_xy_var + k_yy_var) / 3
+
+            avg_len_scale_list.append(avg_len_scale)
+            avg_var_list.append(avg_var)
+
+            sample_id += 1
+
+        return avg_var_list, avg_len_scale_list
+
 
     def element_data(self, mesh, eid):
         if self._rf_sample is None:
@@ -762,13 +976,114 @@ class BulkHomogenizationFineSample(BulkBase):
                                     self._mesh_data['region_map'])
             self._rf_sample = self._fields.sample()
 
+            xv = self._mesh_data['points'][:, 0]
+            yv = self._mesh_data['points'][:, 1]
+
+            #print("self._rf_sample[cond_tn].shape ", self._rf_sample["cond_tn"].shape)
+
+            # import matplotlib
+            # #matplotlib.rcParams.update({'font.size': 34})
+            #
+            # bins=60
+            # # np_bins = np.linspace(np.min(values[:, 0]), np.max(values[:, 0]), 50)  # Define histogram bins
+            # plt.hist(self._rf_sample["cond_tn"][:, 0], bins=bins, color="red", label="k_xx", density=True)
+            # # plt.hist(samples[:, 0], bins=bins, color="blue", label="k_xy sampled", alpha=0.65, density=True)
+            # plt.legend()
+            # plt.show()
+            #
+            # # np_bins = np.linspace(np.min(values[:, 0]), np.max(values[:, 0]), 50)  # Define histogram bins
+            # plt.hist(np.abs(self._rf_sample["cond_tn"][:, 0]), bins=bins, color="red", label="abs k_xx", density=True)
+            # # plt.hist(samples[:, 0], bins=bins, color="blue", label="k_xy sampled", alpha=0.65, density=True)
+            # plt.legend()
+            # plt.show()
+            #
+            # # np_bins = np.linspace(np.min(values[:, 0]), np.max(values[:, 0]), 50)  # Define histogram bins
+            # plt.hist(np.exp(self._rf_sample["cond_tn"][:, 0]), bins=bins, color="red", label="abs k_xx", density=True)
+            # # plt.hist(samples[:, 0], bins=bins, color="blue", label="k_xy sampled", alpha=0.65, density=True)
+            # plt.legend()
+            # plt.show()
+            #
+            #
+            # try:
+            #     fig, ax = plt.subplots(1, 1, figsize=(15, 10))
+            #     cont = ax.tricontourf(xv, yv, self._rf_sample["cond_tn"][:, 0], level=32)
+            #     fig.colorbar(cont)
+            #     plt.title(r"$k_{xx}$")
+            #     plt.show()
+            # except Exception as e:
+            #     print(e)
+            #
+            # try:
+            #     fig, ax = plt.subplots(1, 1, figsize=(15, 10))
+            #     cont = ax.tricontourf(xv, yv, np.abs(self._rf_sample["cond_tn"][:, 0]), level=32)
+            #     fig.colorbar(cont)
+            #     plt.title(r"$abs k_{xx}$")
+            #     plt.show()
+            # except Exception as e:
+            #     print(e)
+            #
+            # # np_bins = np.linspace(np.min(values[:, 0]), np.max(values[:, 0]), 50)  # Define histogram bins
+            # plt.hist(np.abs(self._rf_sample["cond_tn"][:, 1]), bins=bins, color="red", label="abs k_xy",
+            #          density=True)
+            # # plt.hist(samples[:, 0], bins=bins, color="blue", label="k_xy sampled", alpha=0.65, density=True)
+            # plt.legend()
+            # plt.show()
+            #
+            # try:
+            #     fig, ax = plt.subplots(1, 1, figsize=(15, 10))
+            #     cont = ax.tricontourf(xv, yv, self._rf_sample["cond_tn"][:, 1], level=32)
+            #     fig.colorbar(cont)
+            #     plt.title(r"$k_{xy}$")
+            #     plt.show()
+            # except Exception as e:
+            #     print(e)
+            #
+            # # bins = 60
+            # # # np_bins = np.linspace(np.min(values[:, 0]), np.max(values[:, 0]), 50)  # Define histogram bins
+            # # plt.hist(self._rf_sample["cond_tn"][:, 3], bins=bins, color="red", label="k_yy", density=True)
+            # # # plt.hist(samples[:, 0], bins=bins, color="blue", label="k_xy sampled", alpha=0.65, density=True)
+            # # plt.legend()
+            # # plt.show()
+            # #
+            # # # np_bins = np.linspace(np.min(values[:, 0]), np.max(values[:, 0]), 50)  # Define histogram bins
+            # # plt.hist(np.abs(self._rf_sample["cond_tn"][:,3]), bins=bins, color="red", label="abs k_yy", density=True)
+            # # # plt.hist(samples[:, 0], bins=bins, color="blue", label="k_xy sampled", alpha=0.65, density=True)
+            # # plt.legend()
+            # # plt.show()
+            # #
+            # # try:
+            # #     fig, ax = plt.subplots(1, 1, figsize=(15, 10))
+            # #     cont = ax.tricontourf(xv, yv, self._rf_sample["cond_tn"][:, 3], level=32)
+            # #     fig.colorbar(cont)
+            # #     plt.title(r"$k_{yy}$")
+            # #     plt.show()
+            # # except Exception as e:
+            # #     print(e)
+            # #
+            # # try:
+            # #     fig, ax = plt.subplots(1, 1, figsize=(15, 10))
+            # #     cont = ax.tricontourf(xv, yv, np.abs(self._rf_sample["cond_tn"][:, 3]), level=32)
+            # #     fig.colorbar(cont)
+            # #     plt.title(r"$abs k_{yy}$")
+            # #     plt.show()
+            # # except Exception as e:
+            # #     print(e)
+            #
+            # print("self._rf_sample ", self._rf_sample)
 
         ele_idx = np.where(self._mesh_data["ele_ids"] == eid)
         cond_tn = self._rf_sample["cond_tn"][ele_idx]
 
-        cond_tn = cond_tn.reshape(2, 2)
-        sym_value = (cond_tn[0,1] + cond_tn[1,0])/2
-        cond_tn[0,1] = cond_tn[1,0] = sym_value
+        #print("cond tn ", cond_tn)
+
+        cond_tn = [[cond_tn[0][0], cond_tn[0][1]], [cond_tn[0][1], cond_tn[0][2]]]
+
+        # cond_tn = cond_tn.reshape(2, 2)
+        # sym_value = (cond_tn[0,1] + cond_tn[1,0])/2
+        # cond_tn[0,1] = cond_tn[1,0] = sym_value
+
+        cond_tn[0,0] = np.abs(cond_tn[0,0])
+        cond_tn[1,1] = np.abs(cond_tn[1,1])
 
         return 1.0, cond_tn
 
