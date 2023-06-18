@@ -130,6 +130,7 @@ class DFMSim(Simulation):
     YAML_FILE = 'flow_input.yaml'
     FIELDS_FILE = "flow_fields.msh"
     COND_TN_POP_FILE = 'cond_tn_pop.npy'
+    PRED_COND_TN_POP_FILE = 'pred_cond_tn_pop.npy'
     COND_TN_FILE = "cond_tensors.yaml"
     PRED_COND_TN_FILE = "pred_cond_tensors.yaml"
     COMMON_FILES = "l_step_{}_common_files"
@@ -689,7 +690,12 @@ class DFMSim(Simulation):
 
                     if pred_cond_tn is not None:
                         pred_cond_tn_flatten = pred_cond_tn.flatten()
-                        pred_cond_tensors[center] = pred_cond_tn_flatten
+
+                        if not np.any(np.isnan(pred_cond_tn_flatten)):
+                            pred_cond_tensors[center] = pred_cond_tn_flatten
+                            pred_cond_tn_pop_file = os.path.join(config["coarse"]["common_files_dir"], DFMSim.PRED_COND_TN_POP_FILE)
+                            with NpyAppendArray(pred_cond_tn_pop_file, delete_if_exists=False) as npaa:
+                                npaa.append(pred_cond_tn_flatten)
 
             end_time_nn = time.time()
 
@@ -789,6 +795,11 @@ class DFMSim(Simulation):
         cond_tn_pop = os.path.join(config["fine"]["common_files_dir"], DFMSim.COND_TN_POP_FILE)
         if os.path.exists(cond_tn_pop):
             config["fine"]["cond_tn_pop_file"] = cond_tn_pop
+
+        if "nn_path" in config["sim_config"]:
+            pred_cond_tn_pop = os.path.join(config["fine"]["common_files_dir"], DFMSim.PRED_COND_TN_POP_FILE)
+            if os.path.exists(pred_cond_tn_pop):
+                config["fine"]["pred_cond_tn_pop_file"] = pred_cond_tn_pop
 
         sample_cond_tns = os.path.join(config["fine"]["common_files_dir"], DFMSim.SAMPLES_COND_TNS_DIR)
         if os.path.exists(sample_cond_tns):

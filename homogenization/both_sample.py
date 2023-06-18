@@ -872,7 +872,12 @@ class BulkHomogenizationFineSample(BulkBase):
         return cond_tns
 
     def _get_tensors(self, config_dict):
-        cond_pop_file = config_dict["fine"]["cond_tn_pop_file"]
+        if "pred_cond_tn_pop_file" in config_dict["fine"]:
+            cond_pop_file = config_dict["fine"]["pred_cond_tn_pop_file"]
+        else:
+            cond_pop_file = config_dict["fine"]["cond_tn_pop_file"]
+
+        #print("cond_pop_file ", cond_pop_file)
         #cond_pop_file =
         #print("cond pop file ", cond_pop_file)
         self._cond_tns = np.load(cond_pop_file)
@@ -1442,9 +1447,8 @@ class FlowProblem:
     def make_fine(cls, fr_range, fractures, config_dict):
         bulk_conductivity = config_dict["sim_config"]['bulk_conductivity']
 
-        if "cond_tn_pop_file" in config_dict["fine"]:
+        if "cond_tn_pop_file" in config_dict["fine"] or "pred_cond_tn_pop_file" in config_dict["fine"]:
             #@TODO: sample from saved population of conductivity tensors
-
 
 
             bulk_model = BulkHomogenizationFineSample(config_dict)
