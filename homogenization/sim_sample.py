@@ -570,22 +570,20 @@ class DFMSim(Simulation):
 
                 if n_subdomains > 1:
                     cond_tn_flatten = cond_tn[0].flatten()
-                    cond_tensors[(center_x, center_y)] = cond_tn_flatten
-                    # print("cond tn ", cond_tn_flatten)
+                    if not np.any(np.isnan(cond_tn_flatten)):
+                        cond_tensors[(center_x, center_y)] = cond_tn_flatten
+                        # print("cond tn ", cond_tn_flatten)
 
-                    # if pred_cond_tn is not None:
-                    #     pred_cond_tn_flatten = pred_cond_tn.flatten()
-                    #     pred_cond_tensors[(center_x, center_y)] = pred_cond_tn_flatten
-                    # print("pred cond tn ", pred_cond_tn_flatten)
-                    #print("config[coarse common_files_dir] ", config["coarse"]["common_files_dir"])
-                    cond_tn_pop_file = os.path.join(config["coarse"]["common_files_dir"], DFMSim.COND_TN_POP_FILE)
+                        # if pred_cond_tn is not None:
+                        #     pred_cond_tn_flatten = pred_cond_tn.flatten()
+                        #     pred_cond_tensors[(center_x, center_y)] = pred_cond_tn_flatten
+                        # print("pred cond tn ", pred_cond_tn_flatten)
+                        #print("config[coarse common_files_dir] ", config["coarse"]["common_files_dir"])
 
-                    with NpyAppendArray(cond_tn_pop_file, delete_if_exists=False) as npaa:
-                        npaa.append(cond_tn_flatten)
-                    #np.save(cond_tn_pop_file, cond_tn_flatten)
+                        cond_tn_pop_file = os.path.join(config["coarse"]["common_files_dir"], DFMSim.COND_TN_POP_FILE)
+                        with NpyAppendArray(cond_tn_pop_file, delete_if_exists=False) as npaa:
+                            npaa.append(cond_tn_flatten)
 
-                    #loaded_cond_tn = np.load(cond_tn_pop_file)
-                    #print("loaded cond tn ", loaded_cond_tn)
                     dir_name = os.path.join(work_dir, subdir_name)
                     config["dir_name"] = dir_name
                 try:

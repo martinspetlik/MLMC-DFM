@@ -791,6 +791,10 @@ class SpatialCorrelatedFieldHom(cf.SpatialCorrelatedField):
 
     def _sample(self):
         cond_tn_values = self._cond_tensors
+        # Remove nans if there are any
+        mask = np.isnan(cond_tn_values).any(axis=1)
+        cond_tn_values = cond_tn_values[~mask]
+
         mult_coef = 1 / np.abs(np.min(cond_tn_values))
         values = cond_tn_values * mult_coef
 
