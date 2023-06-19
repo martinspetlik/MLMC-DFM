@@ -844,6 +844,10 @@ class BulkHomogenizationFineSample(BulkBase):
         self._cond_tns = None
         self._get_tensors(config_dict)
 
+        self.mean_log_conductivity = None
+        if "mean_log_conductivity" in config_dict:
+            self.mean_log_conductivity = config_dict["mean_log_conductivity"]
+
         #print("config dict ", config_dict)
 
         avg_var_list, avg_len_scale_list = self._calc_var_len_scale(config_dict)
@@ -1450,8 +1454,10 @@ class FlowProblem:
         if "cond_tn_pop_file" in config_dict["fine"] or "pred_cond_tn_pop_file" in config_dict["fine"]:
             #@TODO: sample from saved population of conductivity tensors
 
-
+            bulk_conductivity = config_dict["sim_config"]['bulk_conductivity']
+            config_dict["mean_log_conductivity"] = bulk_conductivity["mean_log_conductivity"]
             bulk_model = BulkHomogenizationFineSample(config_dict)
+
 
 
             # bulk_cond_tn_pop_file = config_dict["fine"]["cond_tn_pop_file"]
