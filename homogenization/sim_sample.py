@@ -485,10 +485,12 @@ class DFMSim(Simulation):
                     # exit()
                     # fine_flow.run() # @TODO replace fine_flow.run by DFMSim._run_sample()
                     # print("run samples ")
-                    status, p_loads, outer_reg_names = DFMSim._run_homogenization_sample(fine_flow, config)
+                    status, p_loads, outer_reg_names, conv_check = DFMSim._run_homogenization_sample(fine_flow, config)
 
                     done.append(fine_flow)
                     try:
+                        if not conv_check:
+                            raise Exception("homogenization sample not converged")
                         cond_tn, diff = fine_flow.effective_tensor_from_bulk(p_loads, outer_reg_names, fine_flow.basename)
                     except:
                         box_size_x += box_size_x * 0.05
@@ -516,7 +518,7 @@ class DFMSim(Simulation):
                 #     #exit()
                 #     # fine_flow.run() # @TODO replace fine_flow.run by DFMSim._run_sample()
                 #     #print("run samples ")
-                #     status, p_loads, outer_reg_names = DFMSim._run_homogenization_sample(fine_flow, config)
+                #     status, p_loads, outer_reg_names, conv_check = DFMSim._run_homogenization_sample(fine_flow, config)
                 #
                 #     done.append(fine_flow)
                 #     cond_tn, diff = fine_flow.effective_tensor_from_bulk(p_loads, outer_reg_names, fine_flow.basename, elids_same_value)
@@ -898,11 +900,14 @@ class DFMSim(Simulation):
 
         if not gen_hom_samples:
 
-            fine_res, status = DFMSim._run_sample(fine_flow, config)
-            fine_res = fine_res[0]
+            # fine_res, status = DFMSim._run_sample(fine_flow, config)
+            # fine_res = fine_res[0]
+            # print("fine res ", fine_res)
 
             done = []
-            status, p_loads, outer_reg_names = DFMSim._run_homogenization_sample(fine_flow, config)
+            status, p_loads, outer_reg_names, conv_check = DFMSim._run_homogenization_sample(fine_flow, config)
+            if not conv_check:
+                raise Exception("fine sample not converged")
             done.append(fine_flow)
             cond_tn, diff = fine_flow.effective_tensor_from_bulk(p_loads, outer_reg_names, fine_flow.basename)
 
@@ -913,12 +918,13 @@ class DFMSim(Simulation):
             fine_res = [fine_res[0], fine_res[1], fine_res[3]]
             print("fine res ", fine_res)
 
+
             if os.path.exists("flow_fields.pvd"):
                 os.remove("flow_fields.pvd")
             if os.path.exists("flow_fields"):
                 shutil.rmtree("flow_fields")
 
-            status, p_loads, outer_reg_names = DFMSim._run_homogenization_sample(fine_flow, config, format="vtk")
+            status, p_loads, outer_reg_names, conv_check = DFMSim._run_homogenization_sample(fine_flow, config, format="vtk")
             DFMSim.make_summary(done)
 
             ff_fine_vtk = os.path.join(os.getcwd(), "flow_field_fine_vtk")
@@ -1021,11 +1027,13 @@ class DFMSim(Simulation):
                     shutil.rmtree("flow_fields")
 
                 done = []
-                status, p_loads, outer_reg_names = DFMSim._run_homogenization_sample(coarse_flow, config)
+                status, p_loads, outer_reg_names, conv_check = DFMSim._run_homogenization_sample(coarse_flow, config)
+                if not conv_check:
+                    raise Exception("coarse sample not converged")
                 done.append(coarse_flow)
                 cond_tn, diff = coarse_flow.effective_tensor_from_bulk(p_loads, outer_reg_names, coarse_flow.basename)
                 print("coarse cond tn ", cond_tn)
-
+                #
                 cond_tn = cond_tn[0]
                 cond_tn[0, 1] = (cond_tn[0, 1] + cond_tn[1, 0]) / 2
                 coarse_res = cond_tn.flatten()
@@ -1037,7 +1045,7 @@ class DFMSim(Simulation):
                 if os.path.exists("flow_fields"):
                     shutil.rmtree("flow_fields")
 
-                status, p_loads, outer_reg_names = DFMSim._run_homogenization_sample(coarse_flow, config, format="vtk")
+                status, p_loads, outer_reg_names, conv_check = DFMSim._run_homogenization_sample(coarse_flow, config, format="vtk")
 
                 DFMSim.make_summary(done)
                 if os.path.exists("flow_fields.msh"):
@@ -1080,7 +1088,7 @@ class DFMSim(Simulation):
                     # coarse_res = coarse_res[0]
 
                     done = []
-                    status, p_loads, outer_reg_names = DFMSim._run_homogenization_sample(coarse_flow, config)
+                    status, p_loads, outer_reg_names, conv_check = DFMSim._run_homogenization_sample(coarse_flow, config)
                     done.append(coarse_flow)
                     cond_tn, diff = coarse_flow.effective_tensor_from_bulk(p_loads, outer_reg_names, coarse_flow.basename)
 
@@ -1095,7 +1103,7 @@ class DFMSim(Simulation):
                     if os.path.exists("flow_fields"):
                         shutil.rmtree("flow_fields")
 
-                    status, p_loads, outer_reg_names = DFMSim._run_homogenization_sample(coarse_flow, config, format="vtk")
+                    status, p_loads, outer_reg_names, conv_check = DFMSim._run_homogenization_sample(coarse_flow, config, format="vtk")
 
                     DFMSim.make_summary(done)
 
@@ -1226,7 +1234,7 @@ class DFMSim(Simulation):
         conv_check = DFMSim.check_conv_reasons(os.path.join(out_dir, "flow123.0.log"))
         print("converged: ", conv_check)
 
-        return status, p_loads, outer_reg_names  # and conv_check
+        return status, p_loads, outer_reg_names, conv_check  # and conv_check
         # return  status, p_loads, outer_reg_names  # and conv_check
 
     @staticmethod
@@ -1482,8 +1490,9 @@ class DFMSim(Simulation):
         Define simulation result format
         :return: List[QuantitySpec, ...]
         """
+        #spec1 = QuantitySpec(name="cond_tn", unit="m", shape=(1, 1), times=[1], locations=['0'])
         spec1 = QuantitySpec(name="cond_tn", unit="m", shape=(3, 1), times=[1], locations=['0'])
-        # spec2 = QuantitySpec(name="width", unit="mm", shape=(2, 1), times=[1, 2, 3], locations=['30', '40'])
+
         return [spec1]
 
     @staticmethod
