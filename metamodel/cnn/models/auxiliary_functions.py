@@ -41,14 +41,12 @@ class NormalizeData():
         output_data = torch.empty((data.shape))
         for i in range(data.shape[0]):
             if i in self.output_indices:
-
                 if hasattr(self, 'output_quantiles') and len(self.output_quantiles) > 0:
                     output_data[i][...] =(data[i] - self.output_quantiles[1, i]) / (self.output_quantiles[2, i] - self.output_quantiles[0, i])
                 else:
                     output_data[i][...] = (data[i] - self.output_mean[i]) /self.output_std[i]
             else:
                 output_data[i][...] = data[i]
-
         return output_data
 
 def log_all_data(data):
@@ -69,6 +67,16 @@ def log_all_data(data):
         raise NotImplementedError("Log transformation implemented for 2D case only")
 
     return output_data
+
+
+def init_norm(data):
+    input, output = data
+    avg_k = torch.mean(input)
+    input /= avg_k
+    output /= avg_k
+
+    return input, output
+
 
 def log_data(data):
     output_data = torch.empty((data.shape))

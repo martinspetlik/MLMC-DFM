@@ -4,7 +4,7 @@ import copy
 import shutil
 
 import torch
-#import sklearn
+import sklearn
 import pandas as pd
 #from skimage import io, transform
 import numpy as np
@@ -17,13 +17,13 @@ class DFMDataset(Dataset):
     """DFM models dataset"""
 
     def __init__(self, data_dir, bulk_file_name="bulk.npz", fracture_file_name="fractures.npz",
-                 output_file_name="output_tensor.npy", input_transform=None, output_transform=None, two_dim=True,
-                 input_channels=None, output_channels=None, fractures_sep=False, vel_avg=False):
-
+                 output_file_name="output_tensor.npy", input_transform=None, output_transform=None, init_transform=None,
+                 two_dim=True, input_channels=None, output_channels=None, fractures_sep=False, vel_avg=False, plot=False):
         self._data_dir = data_dir
         self._bulk_file_name = bulk_file_name
         self._fracture_file_name = fracture_file_name
         self._output_file_name = output_file_name
+        self.init_transform = init_transform
         self.input_transform = input_transform
         self.output_transform = output_transform
         self._two_dim = two_dim
@@ -35,6 +35,8 @@ class DFMDataset(Dataset):
         self._bulk_file_paths = []
         self._fracture_file_paths = []
         self._output_file_paths = []
+
+        self.plot = plot
 
         self._set_paths_to_samples()
 
@@ -106,13 +108,16 @@ class DFMDataset(Dataset):
 
         if self._two_dim:
             indices = [0,1,3]
+            output_indices = [0,1,3]
+            if bulk_features.shape[0] == 3:
+                indices = [0, 1, 2]
             bulk_features = bulk_features[indices, ...]
             if fractures_features is not None:
                 fractures_features = fractures_features[indices, ...]
 
         if self._two_dim and not self._vel_avg:
             if len(output_features) > 0:
-                output_features = output_features[indices, ...]
+                output_features = output_features[output_indices, ...]
 
         bulk_features_shape = bulk_features.shape
 
@@ -121,14 +126,20 @@ class DFMDataset(Dataset):
             if self._fractures_sep is False:
                 flatten_fracture_features = fractures_features.reshape(-1)
                 not_nan_indices = np.argwhere(~np.isnan(flatten_fracture_features))
+                #print("flatten_fracture_features[not_nan_indices] ", flatten_fracture_features[not_nan_indices])
+                # if len(not_nan_indices) == 0:
+                #     print("not nan indices ", not_nan_indices)
                 flatten_bulk_features[not_nan_indices] = flatten_fracture_features[not_nan_indices]
             else:
                 flatten_fracture_features = fractures_features.reshape(-1)
                 nan_indices = np.argwhere(np.isnan(flatten_fracture_features))
                 flatten_fracture_features[nan_indices] = 0
                 fractures_channel = fractures_features[0, ...]
+        else:
+            print("fr Nan")
 
         final_features = flatten_bulk_features.reshape(bulk_features_shape)
+
         if self._fractures_sep:
             final_features = np.concatenate((final_features, np.expand_dims(fractures_channel, axis=0)), axis=0)
 
@@ -140,10 +151,15 @@ class DFMDataset(Dataset):
         if self._output_channels is not None and len(output_features) > 0:
             output_features = output_features[self._output_channels]
 
+        if self.init_transform is not None:
+            reshaped_output = torch.reshape(output_features, (*output_features.shape, 1, 1))
+            final_features, reshaped_features = self.init_transform((final_features, reshaped_output))
+        else:
+            reshaped_output = torch.reshape(output_features, (*output_features.shape, 1, 1))
+
         if self.input_transform is not None:
             final_features = self.input_transform(final_features)
         if self.output_transform is not None and len(output_features) > 0:
-            reshaped_output = torch.reshape(output_features, (*output_features.shape, 1, 1))
             output_features = np.squeeze(self.output_transform(reshaped_output))
 
         DFMDataset._check_nans(final_features, str_err="Input features contains NaN values, {}".format(bulk_path), file=bulk_path)
@@ -155,14 +171,22 @@ class DFMDataset(Dataset):
         #     output_features = torch.empty(1, dtype=None)
         #     print("output features ", output_features)
 
+        # if self.plot:
+        #     #print("self. output transform ", len(self.output_transform))
+        #     if output_features[0] == 1:
+        #         print("output features ", output_features)
+        #         print("bulk_path ", bulk_path)
+        #     else:
+        #         pass
+        #         #print("else")
+
         return final_features, output_features
 
     @staticmethod
     def _check_nans(final_features, str_err="Data contains NaN values", file=None):
         has_nan = torch.any(torch.isnan(final_features))
-
         if has_nan:
-            # print("str err ", str_err)
-            # print("file ", os.path.dirname(file))
+            #print("str err ", str_err)
+            #print("file ", os.path.dirname(file))
             # shutil.rmtree(os.path.dirname(file))
             raise ValueError(str_err)

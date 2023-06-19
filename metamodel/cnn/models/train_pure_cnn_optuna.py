@@ -23,7 +23,7 @@ from metamodel.cnn.datasets.dfm_dataset import DFMDataset
 #from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
 from metamodel.cnn.models.auxiliary_functions import get_mean_std, log_data, exp_data,\
-    quantile_transform_fit, QuantileTRF, NormalizeData, log_all_data
+    quantile_transform_fit, QuantileTRF, NormalizeData, log_all_data, init_norm
 #from metamodel.cnn.visualization.visualize_data import plot_samples
 
 
@@ -358,6 +358,7 @@ def prepare_sub_datasets(study, config, data_dir, serialize_path=None):
     for key, dset_config in config["sub_datasets"].items():
         prepare_dset_config = copy.deepcopy(config)
         prepare_dset_config["log_input"] = dset_config["log_input"]
+        prepare_dset_config["init_norm"] = dset_config["init_norm"]
         prepare_dset_config["normalize_input"] = dset_config["normalize_input"]
         prepare_dset_config["log_output"] = dset_config["log_output"]
         prepare_dset_config["normalize_output"] = dset_config["normalize_output"]
@@ -417,8 +418,16 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
     if "n_train_samples" in config and config["n_train_samples"] is not None:
         n_train_samples = config["n_train_samples"]
 
+    init_transform = []
     input_transform_list = []
     output_transform_list = []
+
+    ###########################
+    ## Initial normalization ##
+    ###########################
+
+    if config["init_norm"]:
+        init_transform.append(transforms.Lambda(init_norm))
 
     ########################
     ## Quantile Transform ##
@@ -428,7 +437,6 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
                                                                      output_file_name,
                                                                      input_transform_list,
                                                                      output_transform_list)
-
     ####################
     ## Log transforms ##
     ####################
@@ -443,6 +451,11 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
     input_transform = transforms.Compose(input_transform_list)
     output_transform = transforms.Compose(output_transform_list)
 
+    if len(init_transform) > 0:
+        init_transform = transforms.Compose(init_transform)
+    else:
+        init_transform = None
+
     if config["normalize_input"] or config["normalize_output"]:
         if train_dataset is not None:
             dataset_for_mean_std = train_dataset
@@ -453,6 +466,7 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
                                               output_file_name=output_file_name,
                                               input_transform=input_transform,
                                               output_transform=output_transform,
+                                              init_transform=init_transform,
                                               two_dim=True,
                                               input_channels=config["input_channels"] if "input_channels" in config else None,
                                               output_channels=config["output_channels"] if "output_channels" in config else None,
@@ -472,13 +486,13 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
         else:
             train_set = train_val_set[:-int(n_train_samples * config["val_samples_ratio"])]
 
-        train_loader_mean_std = torch.utils.data.DataLoader(train_set, batch_size=config["batch_size_train"], shuffle=False)
+        train_loader_mean_std = torch.utils.data.DataLoader(dataset_for_mean_std, batch_size=config["batch_size_train"], shuffle=False)
         iqr = []
         if "output_iqr_scale" in config:
             iqr = config["output_iqr_scale"]
         input_mean, input_std, output_mean, output_std, output_quantiles = get_mean_std(train_loader_mean_std, output_iqr=iqr)
         print("input mean: {}, std:{}, output mean: {}, std: {}".format(input_mean, input_std, output_mean, output_std))
-        print("output qunatiles: {}".format(output_quantiles))
+        print("output quantiles: {}".format(output_quantiles))
 
         # validation_set = train_val_set[-int(n_train_samples * config["val_samples_ratio"]):]
         #
@@ -505,11 +519,22 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
     # =======================
     input_transformations = []
     output_transformations = []
+    init_transform = []
+
+    ###########################
+    ## Initial normalization ##
+    ###########################
+    if config["init_norm"]:
+        init_transform.append(transforms.Lambda(init_norm))
+
+    if len(init_transform) > 0:
+        data_init_transform = transforms.Compose(init_transform)
+
     if "input_transform" in config or "output_transform" in config:
         input_transformations, output_transformations = features_transform(config, data_dir, output_file_name, input_transformations,
                                                                            output_transformations, train_set)
 
-    data_input_transform, data_output_transform = None, None
+    data_input_transform, data_output_transform, data_init_transform = None, None, None
     # Standardize input
     if config["log_input"]:
         if "log_all_input_channels" in config and config["log_all_input_channels"]:
@@ -548,6 +573,7 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
                              output_file_name=output_file_name,
                              input_transform=data_input_transform,
                              output_transform=data_output_transform,
+                             init_transform=data_init_transform,
                              input_channels=config["input_channels"] if "input_channels" in config else None,
                              output_channels=config["output_channels"] if "output_channels" in config else None,
                              fractures_sep=config["fractures_sep"] if "fractures_sep" in config else False,
@@ -621,6 +647,7 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
         if "log_all_input_channels" in config:
             study.set_user_attr("log_all_input_channels", config["log_all_input_channels"])
 
+        study.set_user_attr("init_norm", config["init_norm"])
         study.set_user_attr("normalize_input", config["normalize_input"])
         study.set_user_attr("normalize_output", config["normalize_output"])
 

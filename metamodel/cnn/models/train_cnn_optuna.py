@@ -304,8 +304,8 @@ def objective(trial, trials_config, train_loader, validation_loader):
             # if trial.should_prune():
             #     raise optuna.exceptions.TrialPruned()
         except Exception as e:
-            print(str(e))
-            return avg_vloss
+           print(str(e))
+           return avg_vloss
 
     #for key, value in trial.params.items():
     #    model_path += "_{}_{}".format(key, value)
@@ -348,6 +348,7 @@ if __name__ == '__main__':
               "train_samples_ratio": trials_config["train_samples_ratio"] if "train_samples_ratio" in trials_config else 0.8,
               "val_samples_ratio": trials_config["val_samples_ratio"] if "val_samples_ratio" in trials_config else 0.2,
               "print_batches": 10,
+              "init_norm": trials_config["init_norm"] if "init_norm" in trials_config else False,
               "log_all_input_channels": trials_config["log_all_input_channels"] if "log_all_input_channels" in trials_config else False,
               "log_input": trials_config["log_input"] if "log_input" in trials_config else True,
               "normalize_input": trials_config["normalize_input"] if "normalize_input" in trials_config else True,
