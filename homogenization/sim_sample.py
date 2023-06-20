@@ -481,6 +481,10 @@ class DFMSim(Simulation):
                     #print("center cond field ", center_cond_field)
                     fine_flow.interpolate_fields(center_cond_field, mode="linear")
                     # fine_flow.make_fields()
+
+                    if "nn_path" in config["sim_config"] and "run_only_hom" in config["sim_config"] and config["sim_config"]["run_only_hom"]:
+                        break
+
                     done = []
                     # exit()
                     # fine_flow.run() # @TODO replace fine_flow.run by DFMSim._run_sample()
@@ -563,7 +567,6 @@ class DFMSim(Simulation):
                     shutil.copy("fields_fine.msh", dset_sample_dir)
                     shutil.copy("mesh_fine.msh", dset_sample_dir)
                     #shutil.copy("summary.yaml", dset_dir)
-
                     sample_center[sample_name] = (center_x, center_y)
 
                     #pred_cond_tensors[] = (center_x, center_y)
@@ -571,42 +574,44 @@ class DFMSim(Simulation):
                     # print("cond_tn ", cond_tn)
                     # @TODO: save cond tn and center to npz file
 
-                if n_subdomains > 1:
-                    cond_tn_flatten = cond_tn[0].flatten()
-                    if not np.any(np.isnan(cond_tn_flatten)):
-                        cond_tensors[(center_x, center_y)] = cond_tn_flatten
-                        # print("cond tn ", cond_tn_flatten)
+                if "run_only_hom" not in config["sim_config"] or\
+                        ("run_only_hom" in config["sim_config"] and not config["sim_config"]["run_only_hom"]):
+                    if n_subdomains > 1:
+                        cond_tn_flatten = cond_tn[0].flatten()
+                        if not np.any(np.isnan(cond_tn_flatten)):
+                            cond_tensors[(center_x, center_y)] = cond_tn_flatten
+                            # print("cond tn ", cond_tn_flatten)
 
-                        # if pred_cond_tn is not None:
-                        #     pred_cond_tn_flatten = pred_cond_tn.flatten()
-                        #     pred_cond_tensors[(center_x, center_y)] = pred_cond_tn_flatten
-                        # print("pred cond tn ", pred_cond_tn_flatten)
-                        #print("config[coarse common_files_dir] ", config["coarse"]["common_files_dir"])
+                            # if pred_cond_tn is not None:
+                            #     pred_cond_tn_flatten = pred_cond_tn.flatten()
+                            #     pred_cond_tensors[(center_x, center_y)] = pred_cond_tn_flatten
+                            # print("pred cond tn ", pred_cond_tn_flatten)
+                            #print("config[coarse common_files_dir] ", config["coarse"]["common_files_dir"])
 
-                        cond_tn_pop_file = os.path.join(config["coarse"]["common_files_dir"], DFMSim.COND_TN_POP_FILE)
-                        with NpyAppendArray(cond_tn_pop_file, delete_if_exists=False) as npaa:
-                            npaa.append(cond_tn_flatten)
+                            cond_tn_pop_file = os.path.join(config["coarse"]["common_files_dir"], DFMSim.COND_TN_POP_FILE)
+                            with NpyAppendArray(cond_tn_pop_file, delete_if_exists=False) as npaa:
+                                npaa.append(cond_tn_flatten)
 
-                    dir_name = os.path.join(work_dir, subdir_name)
-                    config["dir_name"] = dir_name
+                        dir_name = os.path.join(work_dir, subdir_name)
+                        config["dir_name"] = dir_name
+
                 try:
                     shutil.move("fine", dir_name)
                     if os.path.exists(os.path.join(dir_name, "fields_fine.msh")):
                         os.remove(os.path.join(dir_name, "fields_fine.msh"))
                     shutil.move("fields_fine.msh", dir_name)
-                    shutil.move("summary.yaml", dir_name)
-                    shutil.move("flow_fields.msh", dir_name)
+                    if os.path.exists(os.path.join(dir_name, "summary.yaml")):
+                        shutil.move("summary.yaml", dir_name)
+                    if os.path.exists(os.path.join(dir_name, "flow_fields.msh")):
+                        shutil.move("flow_fields.msh", dir_name)
                     shutil.move("mesh_fine.msh", dir_name)
                     shutil.move("mesh_fine.brep", dir_name)
                     shutil.move("mesh_fine.tmp.geo", dir_name)
                     shutil.move("mesh_fine.tmp.msh", dir_name)
                     shutil.rmtree("fine")
-
                 except:
                     pass
-
                 os.chdir(h_dir)
-
                 time_measurements.append(time.time() - start_time)
 
         if "nn_path" in config["sim_config"]:
@@ -706,10 +711,6 @@ class DFMSim(Simulation):
             #ps.print_stats()
 
             print("NN time {}".format(end_time_nn - start_time_nn))
-
-
-
-
 
         # print("np.mean(percentage_sym_tn_diff) ", np.mean(percentage_sym_tn_diff))
         # print("time_measurements ", time_measurements)

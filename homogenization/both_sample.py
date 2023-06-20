@@ -1105,7 +1105,9 @@ class BulkHomogenizationFineSample(BulkBase):
 class BulkHomogenization(BulkBase):
     def __init__(self, config_dict):
         self._cond_tns = None
-        self._get_tensors(config_dict["cond_tns_yaml_file"])
+        #print("config_dict ", config_dict)
+
+        self._get_tensors(config_dict)
         self.mean_log_conductivity = None
 
         if "mean_log_conductivity" in config_dict:
@@ -1113,9 +1115,13 @@ class BulkHomogenization(BulkBase):
 
         self._center_points = np.asarray(list(self._cond_tns.keys()))
 
-    def _get_tensors(self, cond_tn_file):
-        with open(cond_tn_file, "r") as f:
+    def _get_tensors(self, config):
+        with open(config["cond_tns_yaml_file"], "r") as f:
             self._cond_tns = ruamel.yaml.load(f)
+
+        if len(self._cond_tns) == 0:
+            with open(config["pred_cond_tns_yaml_file"], "r") as f:
+                self._cond_tns = ruamel.yaml.load(f)
 
         tria = sc_spatial.Delaunay(list(self._cond_tns.keys()))
         self._mean_val = np.mean(list(self._cond_tns.values()))
@@ -1123,7 +1129,7 @@ class BulkHomogenization(BulkBase):
         values = np.array(list(self._cond_tns.values()))[:, [0,1,3]]
         self._interp = sc_interpolate.LinearNDInterpolator(tria, values, fill_value=0)
         self._interp_nearest = sc_interpolate.NearestNDInterpolator(tria, values)
-        print("self._cond_tns ", self._cond_tns)
+        #print("self._cond_tns ", self._cond_tns)
 
     def element_data(self, mesh, eid):
         el_type, tags, node_ids = mesh.elements[eid]
