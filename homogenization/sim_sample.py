@@ -956,22 +956,22 @@ class DFMSim(Simulation):
             if os.path.exists("flow_fields.msh"):
                 shutil.move("flow_fields.msh", "flow_fields_fine.msh")
 
-            if "nn_path" in config["sim_config"] and \
-                    ("run_only_hom" not in config["sim_config"] or not config["sim_config"]["run_only_hom"]):
-
-                status, p_loads, outer_reg_names, conv_check = DFMSim._run_homogenization_sample(fine_flow, config, format="vtk")
-                DFMSim.make_summary(done)
-
-                ff_fine_vtk = os.path.join(os.getcwd(), "flow_field_fine_vtk")
-                if os.path.exists(ff_fine_vtk):
-                    shutil.rmtree(ff_fine_vtk)
-                os.mkdir(ff_fine_vtk)
-
-                if os.path.exists("flow_fields.pvd"):
-                    shutil.move("flow_fields.pvd", ff_fine_vtk)
-                    # shutil.move("flow_fields.pvd", "flow_fields_coarse_vtk.pvd")
-                if os.path.exists("flow_fields"):
-                    shutil.move("flow_fields", ff_fine_vtk)
+            # if "nn_path" in config["sim_config"] and \
+            #         ("run_only_hom" not in config["sim_config"] or not config["sim_config"]["run_only_hom"]):
+            #
+            #     status, p_loads, outer_reg_names, conv_check = DFMSim._run_homogenization_sample(fine_flow, config, format="vtk")
+            #     DFMSim.make_summary(done)
+            #
+            #     ff_fine_vtk = os.path.join(os.getcwd(), "flow_field_fine_vtk")
+            #     if os.path.exists(ff_fine_vtk):
+            #         shutil.rmtree(ff_fine_vtk)
+            #     os.mkdir(ff_fine_vtk)
+            #
+            #     if os.path.exists("flow_fields.pvd"):
+            #         shutil.move("flow_fields.pvd", ff_fine_vtk)
+            #         # shutil.move("flow_fields.pvd", "flow_fields_coarse_vtk.pvd")
+            #     if os.path.exists("flow_fields"):
+            #         shutil.move("flow_fields", ff_fine_vtk)
             # if os.path.exists("flow_fields.pvd"):
             #     shutil.move("flow_fields.pvd", "flow_fields_fine_vtk.pvd")
             # if os.path.exists("flow_fields"):
@@ -1089,24 +1089,24 @@ class DFMSim(Simulation):
                 if os.path.exists("flow_fields"):
                     shutil.rmtree("flow_fields")
 
-                if "nn_path" in config["sim_config"] and \
-                        ("run_only_hom" not in config["sim_config"] or not config["sim_config"]["run_only_hom"]):
-                    status, p_loads, outer_reg_names, conv_check = DFMSim._run_homogenization_sample(coarse_flow, config, format="vtk")
-
-                    DFMSim.make_summary(done)
-                    if os.path.exists("flow_fields.msh"):
-                        shutil.move("flow_fields.msh", "flow_fields_coarse.msh")
-
-                    ff_coarse_vtk = os.path.join(os.getcwd(), "flow_field_coarse_vtk")
-                    if os.path.exists(ff_coarse_vtk):
-                        shutil.rmtree(ff_coarse_vtk)
-                    os.mkdir(ff_coarse_vtk)
-
-                    if os.path.exists("flow_fields.pvd"):
-                        shutil.move("flow_fields.pvd", ff_coarse_vtk)
-                        #shutil.move("flow_fields.pvd", "flow_fields_coarse_vtk.pvd")
-                    if os.path.exists("flow_fields"):
-                        shutil.move("flow_fields", ff_coarse_vtk)
+                # if "nn_path" in config["sim_config"] and \
+                #         ("run_only_hom" not in config["sim_config"] or not config["sim_config"]["run_only_hom"]):
+                #     status, p_loads, outer_reg_names, conv_check = DFMSim._run_homogenization_sample(coarse_flow, config, format="vtk")
+                #
+                #     DFMSim.make_summary(done)
+                #     if os.path.exists("flow_fields.msh"):
+                #         shutil.move("flow_fields.msh", "flow_fields_coarse.msh")
+                #
+                #     ff_coarse_vtk = os.path.join(os.getcwd(), "flow_field_coarse_vtk")
+                #     if os.path.exists(ff_coarse_vtk):
+                #         shutil.rmtree(ff_coarse_vtk)
+                #     os.mkdir(ff_coarse_vtk)
+                #
+                #     if os.path.exists("flow_fields.pvd"):
+                #         shutil.move("flow_fields.pvd", ff_coarse_vtk)
+                #         #shutil.move("flow_fields.pvd", "flow_fields_coarse_vtk.pvd")
+                #     if os.path.exists("flow_fields"):
+                #         shutil.move("flow_fields", ff_coarse_vtk)
                 if os.path.exists("summary.yaml"):
                     shutil.move("summary.yaml", "summary_coarse.yaml")
 
@@ -1149,23 +1149,23 @@ class DFMSim(Simulation):
                     if os.path.exists("flow_fields"):
                         shutil.rmtree("flow_fields")
 
-                    if "nn_path" in config["sim_config"] and \
-                            ("run_only_hom" not in config["sim_config"] or not config["sim_config"]["run_only_hom"]):
-
-                        status, p_loads, outer_reg_names, conv_check = DFMSim._run_homogenization_sample(coarse_flow, config, format="vtk")
-
-                        DFMSim.make_summary(done)
-
-                        ff_coarse_vtk = os.path.join(os.getcwd(), "flow_field_coarse_vtk")
-                        if os.path.exists(ff_coarse_vtk):
-                            shutil.rmtree(ff_coarse_vtk)
-                        os.mkdir(ff_coarse_vtk)
-
-                        if os.path.exists("flow_fields.pvd"):
-                            shutil.move("flow_fields.pvd", ff_coarse_vtk)
-                            # shutil.move("flow_fields.pvd", "flow_fields_coarse_vtk.pvd")
-                        if os.path.exists("flow_fields"):
-                            shutil.move("flow_fields", ff_coarse_vtk)
+                    # if "nn_path" in config["sim_config"] and \
+                    #         ("run_only_hom" not in config["sim_config"] or not config["sim_config"]["run_only_hom"]):
+                    #
+                    #     status, p_loads, outer_reg_names, conv_check = DFMSim._run_homogenization_sample(coarse_flow, config, format="vtk")
+                    #
+                    #     DFMSim.make_summary(done)
+                    #
+                    #     ff_coarse_vtk = os.path.join(os.getcwd(), "flow_field_coarse_vtk")
+                    #     if os.path.exists(ff_coarse_vtk):
+                    #         shutil.rmtree(ff_coarse_vtk)
+                    #     os.mkdir(ff_coarse_vtk)
+                    #
+                    #     if os.path.exists("flow_fields.pvd"):
+                    #         shutil.move("flow_fields.pvd", ff_coarse_vtk)
+                    #         # shutil.move("flow_fields.pvd", "flow_fields_coarse_vtk.pvd")
+                    #     if os.path.exists("flow_fields"):
+                    #         shutil.move("flow_fields", ff_coarse_vtk)
                     if os.path.exists("summary.yaml"):
                         shutil.move("summary.yaml", "summary_coarse.yaml")
 
