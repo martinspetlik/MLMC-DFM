@@ -591,10 +591,11 @@ class DFMSim(Simulation):
                             # print("pred cond tn ", pred_cond_tn_flatten)
                             # print("config[coarse common_files_dir] ", config["coarse"]["common_files_dir"])
 
-                            cond_tn_pop_file = os.path.join(config["coarse"]["common_files_dir"],
-                                                            DFMSim.COND_TN_POP_FILE)
-                            with NpyAppendArray(cond_tn_pop_file, delete_if_exists=False) as npaa:
-                                npaa.append(cond_tn_flatten)
+
+                            # cond_tn_pop_file = os.path.join(config["coarse"]["common_files_dir"],
+                            #                                 DFMSim.COND_TN_POP_FILE)
+                            # with NpyAppendArray(cond_tn_pop_file, delete_if_exists=False) as npaa:
+                            #     npaa.append(cond_tn_flatten)
 
                         dir_name = os.path.join(work_dir, subdir_name)
                         config["dir_name"] = dir_name
@@ -719,10 +720,10 @@ class DFMSim(Simulation):
 
                         if not np.any(np.isnan(pred_cond_tn_flatten)):
                             pred_cond_tensors[center] = pred_cond_tn_flatten
-                            pred_cond_tn_pop_file = os.path.join(config["coarse"]["common_files_dir"],
-                                                                 DFMSim.PRED_COND_TN_POP_FILE)
-                            with NpyAppendArray(pred_cond_tn_pop_file, delete_if_exists=False) as npaa:
-                                npaa.append(pred_cond_tn_flatten)
+                            # pred_cond_tn_pop_file = os.path.join(config["coarse"]["common_files_dir"],
+                            #                                      DFMSim.PRED_COND_TN_POP_FILE)
+                            # with NpyAppendArray(pred_cond_tn_pop_file, delete_if_exists=False) as npaa:
+                            #     npaa.append(pred_cond_tn_flatten)
 
                 dset_pred_end_time = time.time()
 

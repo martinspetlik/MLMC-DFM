@@ -885,7 +885,8 @@ class BulkHomogenizationFineSample(BulkBase):
         #cond_pop_file =
         #print("cond pop file ", cond_pop_file)
         self._cond_tns = np.load(cond_pop_file)
-        self._cond_tns = self._cond_tns.reshape(int(len(self._cond_tns)/4), 4)
+        #print("self._cond_tns ", self._cond_tns)
+        #self._cond_tns = self._cond_tns.reshape(int(len(self._cond_tns)/4), 4)
 
         # cond_file = "/home/martin/Documents/MLMC-DFM/test/01_cond_field/output_good_backup/L01_S0000000/cond_tensors.yaml"
         # with open(cond_file, "r") as f:
