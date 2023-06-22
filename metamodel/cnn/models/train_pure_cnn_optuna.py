@@ -524,6 +524,7 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
     ###########################
     ## Initial normalization ##
     ###########################
+    data_init_transform = None
     if config["init_norm"]:
         init_transform.append(transforms.Lambda(init_norm))
 
@@ -534,7 +535,7 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
         input_transformations, output_transformations = features_transform(config, data_dir, output_file_name, input_transformations,
                                                                            output_transformations, train_set)
 
-    data_input_transform, data_output_transform, data_init_transform = None, None, None
+    data_input_transform, data_output_transform = None, None
     # Standardize input
     if config["log_input"]:
         if "log_all_input_channels" in config and config["log_all_input_channels"]:
