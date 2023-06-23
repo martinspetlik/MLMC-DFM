@@ -17,12 +17,101 @@ from metamodel.cnn.datasets.dfm_dataset import DFMDataset
 from datetime import datetime
 from metamodel.cnn.visualization.visualize_tensor import plot_tensors
 from metamodel.cnn.visualization.visualize_data import plot_target_prediction, plot_train_valid_loss
-from metamodel.cnn.models.auxiliary_functions import exp_data, get_eigendecomp, get_mse_nrmse_r2, get_mean_std, log_data
+from metamodel.cnn.models.auxiliary_functions import exp_data, get_eigendecomp, get_mse_nrmse_r2, get_mean_std, log_data, exp_data,\
+    quantile_transform_fit, QuantileTRF, NormalizeData, log_all_data, init_norm
 from metamodel.cnn.models.train_pure_cnn_optuna import prepare_dataset
 #from sklearn.isotonic import IsotonicRegression
 #from statsmodels.regression.quantile_regression import QuantReg
 #from sklearn.linear_model import LogisticRegression
 #from sklearn.calibration import CalibratedClassifierCV
+
+
+def preprocess_dataset(config, user_attrs, data_dir):
+    print("user attrs ", user_attrs)
+    output_file_name = "output_tensor.npy"
+    if "vel_avg" in config and config["vel_avg"]:
+        output_file_name = "output_vel_avg.npy"
+
+    # ===================================
+    # Get mean and std for each channel
+    # ===================================
+    input_mean, output_mean, input_std, output_std = 0, 0, 1, 1
+    data_normalizer = NormalizeData()
+
+    n_train_samples = None
+    if "n_train_samples" in config and config["n_train_samples"] is not None:
+        n_train_samples = config["n_train_samples"]
+
+    input_transformations = []
+    output_transformations = []
+
+    data_input_transform, data_output_transform = None, None
+    # Standardize input
+    if config["log_input"]:
+        if "log_all_input_channels" in config and config["log_all_input_channels"]:
+            input_transformations.append(transforms.Lambda(log_all_data))
+        else:
+            input_transformations.append(transforms.Lambda(log_data))
+    if config["normalize_input"]:
+        if "normalize_input_indices" in config:
+            data_normalizer.input_indices = config["normalize_input_indices"]
+        data_normalizer.input_mean = user_attrs["input_mean"]
+        data_normalizer.input_std = user_attrs["input_std"]
+        input_transformations.append(data_normalizer.normalize_input)
+
+    if len(input_transformations) > 0:
+        data_input_transform = transforms.Compose(input_transformations)
+
+    #print("input transforms ", input_transformations)
+
+    # Standardize output
+    if config["log_output"]:
+        output_transformations.append(transforms.Lambda(log_data))
+    if config["normalize_output"]:
+        if "normalize_output_indices" in config:
+            data_normalizer.input_indices = config["normalize_output_indices"]
+        data_normalizer.output_mean = user_attrs["output_mean"]
+        data_normalizer.output_std = user_attrs["output_std"]
+        output_transformations.append(data_normalizer.normalize_output)
+
+    if len(output_transformations) > 0:
+        data_output_transform = transforms.Compose(output_transformations)
+
+    # ============================
+    # Datasets and data loaders
+    # ============================
+    dataset = DFMDataset(data_dir=data_dir,
+                         output_file_name=output_file_name,
+                         input_transform=data_input_transform,
+                         output_transform=data_output_transform,
+                         two_dim=True,
+                         input_channels=config["input_channels"] if "input_channels" in config else None,
+                         output_channels=config["output_channels"] if "output_channels" in config else None,
+                         fractures_sep=config["fractures_sep"] if "fractures_sep" in config else False,
+                         vel_avg=config["vel_avg"] if "vel_avg" in config else False
+                         )
+    dataset.shuffle(config["seed"])
+    print("len dataset ", len(dataset))
+
+    if n_train_samples is None:
+        n_train_samples = int(len(dataset) * config["train_samples_ratio"])
+
+    n_train_samples = np.min([n_train_samples, int(len(dataset) * config["train_samples_ratio"])])
+
+    train_val_set = dataset[:n_train_samples]
+    train_set = train_val_set[:-int(n_train_samples * config["val_samples_ratio"])]
+    validation_set = train_val_set[-int(n_train_samples * config["val_samples_ratio"]):]
+
+    if "n_test_samples" in config and config["n_test_samples"] is not None:
+        n_test_samples = config["n_test_samples"]
+        test_set = dataset[-n_test_samples:]
+    else:
+        test_set = dataset[n_train_samples:]
+
+    return train_set, validation_set, test_set
+
+    # print("len(trainset): {}, len(valset): {}, len(testset): {}".format(len(train_set), len(validation_set),
+    #                                                                     len(test_set)))
 
 
 def get_calibrator():
@@ -77,22 +166,38 @@ def load_dataset(results_dir, study):
     dataset = joblib.load(os.path.join(results_dir, "dataset.pkl"))
     if not hasattr(dataset, '_fractures_sep'):
         dataset._fractures_sep = False
+    if not hasattr(dataset, '_vel_avg'):
+        dataset._vel_avg = False
+    if not hasattr(dataset, 'init_transform'):
+        dataset.init_transform = None
+    if dataset.output_transform is not None:
+        if not hasattr(dataset.output_transform, 'output_quantiles'):
+            dataset.output_transform.output_quantiles = []
+
     n_train_samples = study.user_attrs["n_train_samples"]
     n_val_samples = study.user_attrs["n_val_samples"]
     # print("len(dataset) ", len(dataset))
-    # print("n val samples ", n_val_samples)
     train_val_set = dataset[:(n_train_samples + n_val_samples)]
-    train_set = train_val_set[:-n_val_samples]
-    validation_set = train_val_set[-n_val_samples:]
+
+    if n_val_samples == 0:
+        train_set = train_val_set
+        validation_set = []
+    else:
+        train_set = train_val_set[:-n_val_samples]
+        validation_set = train_val_set[-n_val_samples:]
     n_test_samples = study.user_attrs["n_test_samples"]
     test_set = dataset[-n_test_samples:]
 
     return train_set, validation_set, test_set
 
     data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/homogenization_samples_5LMC_L4"
-    data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/homogenization_samples_MLMC-DFM_5LMC-L4_cl_1"
+    data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/homogenization_samples_MLMC-DFM_5LMC-L4_cl_0" #_0_7_norm_output"
+    data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/homogenization_samples_MLMC-DFM_hom_nn_gen_hom_samples_cl_10_0_overlap_subset"
     #data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/homogenization_samples_MLMC-DFM_5LMC-L4_cl_6"
-    data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/homogenization_samples_charon"
+    #data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/homogenization_samples_charon"
+    data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/homogenization_samples_MLMC-DFM_5LMC_L1_cl_v_0_overlap"
+    data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/homogenization_samples_MLMC-DFM_hom_nn_rho_5_0_no_fractures"
+    data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/homogenization_samples_MLMC-DFM_hom_nn_rho_7_5_no_sigma_rast_3"
     config = {#"num_epochs": trials_config["num_epochs"],
               "batch_size_train": 32,
               # "batch_size_test": 250,
@@ -106,7 +211,8 @@ def load_dataset(results_dir, study):
               "log_output": study.user_attrs["output_log"],
               "normalize_output": study.user_attrs["normalize_output"],
               "seed": 12345}
-    return prepare_dataset(None, config, data_dir=data_dir)
+
+    return preprocess_dataset(config, study.user_attrs, data_dir=data_dir)
 
 
 def get_rotation_angles(model, loader, inverse_transform):
@@ -157,15 +263,20 @@ def get_rotation_angles(model, loader, inverse_transform):
     angles = []
     for i in range(n_channels):
         k_target, k_predict = all_targets[:, i], all_predictions[:, i]
-        angle, shift = get_channel_angles(k_target, k_predict)
-        angles.append((angle, shift))
+        angle, slope, intercept = get_channel_angles(k_target, k_predict)
+        angles.append((angle, slope, intercept))
     return angles
 
 
+# def find_predictions_transform(k_target, k_predict):
+#     print("k target ", k_target)
+#     print("k predict ", k_predict)
+#     pass
+
 def get_channel_angles(targets, predictions):
-    a, b = np.polyfit(targets, predictions, 1)
-    angle = np.pi/4 - np.arctan(a)
-    return angle, b
+    slope, intercept = np.polyfit(targets, predictions, 1)
+    angle = np.pi/4 - np.arctan(slope)
+    return angle, slope, intercept
 
 
 def rotate_by_angle(targets, predictions, angles):
@@ -173,11 +284,103 @@ def rotate_by_angle(targets, predictions, angles):
     rotated_predictions = []
 
     for i in range(n_channels):
-        angle, shift = angles[i]
+        angle, shift, intercept = angles[i]
+        #print("orig predictions ", predictions[i])
         predictions[i] -= shift
+        #print("shifted predictions ", predictions[i])
+        #yr = (predictions[i] * np.cos(angle)) + shift
+        #print("yr ", yr)
         yr = (targets[i] * np.sin(angle)) + (predictions[i] * np.cos(angle)) + shift
+        #print("yr tr pr", yr)
         rotated_predictions.append(yr)
     return torch.from_numpy(np.array(rotated_predictions))
+
+
+def get_inverse_transform_input(study):
+    inverse_transform = None
+    print("study.user_attrs", study.user_attrs)
+
+    if "normalize_input" in study.user_attrs and study.user_attrs["normalize_input"]:
+        std = 1 / study.user_attrs["input_std"]
+        zeros_mean = np.zeros(len(study.user_attrs["input_mean"]))
+
+        print("input_mean ", study.user_attrs["input_mean"])
+        print("input_std ", study.user_attrs["input_std"])
+
+        ones_std = np.ones(len(zeros_mean))
+        mean = -study.user_attrs["input_mean"]
+
+        transforms_list = [transforms.Normalize(mean=zeros_mean, std=std),
+                           transforms.Normalize(mean=mean, std=ones_std)]
+
+        if "input_log" in study.user_attrs and study.user_attrs["input_log"]:
+            print("input log to transform list")
+            transforms_list.append(transforms.Lambda(exp_data))
+
+        inverse_transform = transforms.Compose(transforms_list)
+
+    if "init_norm" in study.user_attrs and study.user_attrs["init_norm"]:
+        print("init norm ")
+
+    return inverse_transform
+
+
+def get_transform(study):
+    input_transformations = []
+    output_transformations = []
+    init_transform = []
+
+    data_normalizer = NormalizeData()
+
+    ###########################
+    ## Initial normalization ##
+    ###########################
+    data_init_transform = None
+    if "init_norm" in study.user_attrs and study.user_attrs["init_norm"]:
+        init_transform.append(transforms.Lambda(init_norm))
+
+    if len(init_transform) > 0:
+        data_init_transform = transforms.Compose(init_transform)
+
+    # if "input_transform" in study.user_attrs or "output_transform" in study.user_attrs:
+    #     input_transformations, output_transformations = features_transform(config, data_dir, output_file_name,
+    #                                                                        input_transformations,
+    #                                                                        output_transformations, train_set)
+
+    data_input_transform, data_output_transform = None, None
+    # Standardize input
+    if "log_input" in study.user_attrs and study.user_attrs["log_input"]:
+        if "log_all_input_channels" in study.user_attrs and study.user_attrs["log_all_input_channels"]:
+            input_transformations.append(transforms.Lambda(log_all_data))
+        else:
+            input_transformations.append(transforms.Lambda(log_data))
+    if "normalize_input" in study.user_attrs and study.user_attrs["normalize_input"]:
+        if "normalize_input_indices" in study.user_attrs:
+            data_normalizer.input_indices = study.user_attrs["normalize_input_indices"]
+        data_normalizer.input_mean = study.user_attrs["input_mean"]
+        data_normalizer.input_std = study.user_attrs["input_std"]
+        input_transformations.append(data_normalizer.normalize_input)
+
+    if len(input_transformations) > 0:
+        data_input_transform = transforms.Compose(input_transformations)
+
+    # Standardize output
+    if "output_log" in study.user_attrs and study.user_attrs["output_log"]:
+        output_transformations.append(transforms.Lambda(log_data))
+    if "normalize_output" in study.user_attrs and study.user_attrs["normalize_output"]:
+        if "normalize_output_indices" in study.user_attrs:
+            data_normalizer.output_indices = study.user_attrs["normalize_output_indices"]
+        data_normalizer.output_mean = study.user_attrs["output_mean"]
+        data_normalizer.output_std = study.user_attrs["output_std"]
+        if "output_quantiles" in study.user_attrs:
+            data_normalizer.output_quantiles = study.user_attrs["output_quantiles"]
+        output_transformations.append(data_normalizer.normalize_output)
+
+    if len(output_transformations) > 0:
+        data_output_transform = transforms.Compose(output_transformations)
+
+
+    return data_init_transform, data_input_transform, data_output_transform
 
 
 def get_inverse_transform(study):
@@ -203,6 +406,8 @@ def get_inverse_transform(study):
 
         inverse_transform = transforms.Compose(transforms_list)
 
+    # if "init_norm" in study.user_attrs and study.user_attrs["init_norm"]:
+    #     print("init norm ")
     return inverse_transform
 
 
@@ -225,7 +430,7 @@ def renormalize_data(dataset, study, input=False, output=False):
 
         loader = torch.utils.data.DataLoader(new_dataset, shuffle=False)
 
-        input_mean, input_std, output_mean, output_std = get_mean_std(loader)
+        input_mean, input_std, output_mean, output_std, _ = get_mean_std(loader)
         print("Test loader, INPUT mean: {}, std: {}, OUTPUT mean: {}, std: {}".format(input_mean, input_std, output_mean, output_std))
 
         if "normalize_input" in study.user_attrs and study.user_attrs["normalize_input"]:
@@ -268,7 +473,7 @@ def renormalize_data(dataset, study, input=False, output=False):
 
         loader = torch.utils.data.DataLoader(new_dataset, shuffle=False)
 
-        input_mean, input_std, output_mean, output_std = get_mean_std(loader)
+        input_mean, input_std, output_mean, output_std, _ = get_mean_std(loader)
         print(
             "Test loader, INPUT mean: {}, std: {}, OUTPUT mean: {}, std: {}".format(input_mean, input_std, output_mean,
                                                                                     output_std))
@@ -283,11 +488,92 @@ def renormalize_data(dataset, study, input=False, output=False):
 
     loader = torch.utils.data.DataLoader(new_dataset, shuffle=False)
 
-    input_mean, input_std, output_mean, output_std = get_mean_std(loader)
+    input_mean, input_std, output_mean, output_std, _ = get_mean_std(loader)
     print("Renormalized loader, INPUT mean: {}, std: {}, OUTPUT mean: {}, std: {}".format(input_mean, input_std, output_mean,
                                                                                   output_std))
 
     return loader
+
+
+def plot_target_data(train_loader, validation_loader, test_loader):
+    import matplotlib.pyplot as plt
+    train_targets = []
+    val_targets = []
+    test_targets = []
+
+    k_xx_list_input = []
+    k_xy_list_input = []
+    k_yy_list_input = []
+    for i, test_sample in enumerate(train_loader):
+        inputs, targets = test_sample
+        inputs = np.squeeze(inputs.numpy())
+        print("inputs ", inputs)
+        if i > 50:
+            break
+        print("inputs[0].ravel() ", inputs[0].ravel())
+        k_xx_list_input.extend(inputs[0].ravel())
+        k_xy_list_input.extend(inputs[1].ravel())
+        k_yy_list_input.extend(inputs[2].ravel())
+
+    print("kxx shape ", np.array(k_xx_list_input).shape)
+    plt.hist(k_xx_list_input, bins=25, color="red", label="k_xx", density=True)
+    #plt.xlim([-0.001, 1])
+    plt.legend()
+    plt.show()
+
+    plt.hist(k_xy_list_input, bins=60, color="red", label="k_xy", density=True)
+    plt.legend()
+    plt.show()
+
+    plt.hist(k_yy_list_input, bins=60, color="red", label="k_yy", density=True)
+    plt.legend()
+    plt.show()
+
+    for i, test_sample in enumerate(train_loader):
+        inputs, targets = test_sample
+        targets_np = np.squeeze(targets.numpy())
+        #print("targets_np ", targets_np)
+        train_targets.append(targets_np)
+        #exit()
+
+    # for i, test_sample in enumerate(validation_loader):
+    #     inputs, targets = test_sample
+    #     targets_np = np.squeeze(targets.numpy())
+    #     val_targets.append(targets_np)
+    #
+    # for i, test_sample in enumerate(test_loader):
+    #     inputs, targets = test_sample
+    #     targets_np = np.squeeze(targets.numpy())
+    #     test_targets.append(targets_np)
+
+    train_targets = np.array(train_targets)
+    #val_targets = np.array(val_targets)
+    #test_targets = np.array(test_targets)
+
+    n_channels = 3
+    for i in range(n_channels):
+        print("train targets shape ", train_targets.shape)
+        k_train_targets = train_targets[:, i]
+        #k_val_targets = val_targets[:, i]
+        #k_test_targets = test_targets[:, i]
+        print("min: {}, max: {}, avg:{} ".format(np.min(k_train_targets),
+                                                 np.max(k_train_targets),
+                                                 np.mean(k_train_targets)))
+        print("k_train_targets ", k_train_targets.shape)
+
+        density = False
+
+        plt.hist(k_train_targets, bins=1000, color="red", label="train", alpha=0.5, density=density)
+        #plt.hist(k_val_targets, bins=60, color="blue", label="val", alpha=0.5, density=density)
+        #plt.hist(k_test_targets, bins=60, color="green", label="test", alpha=0.5, density=density)
+        #plt.xlabel(xlabel)
+        # plt.ylabel("Frequency for relative")
+        #plt.xlim([0.0001, 0.01])
+        plt.legend()
+        #plt.savefig("hist_" + title + ".pdf")
+        plt.show()
+
+        # exit()
 
 
 def load_models(args, study):
@@ -322,19 +608,31 @@ def load_models(args, study):
     validation_loader = torch.utils.data.DataLoader(validation_set, shuffle=False)
     test_loader = torch.utils.data.DataLoader(test_set, shuffle=False)
 
-
-    input_mean, input_std, output_mean, output_std = get_mean_std(train_loader)
-    print("Train loader, INPUT mean: {}, std: {}, OUTPUT mean: {}, std: {}".format(input_mean, input_std, output_mean, output_std))
-    input_mean, input_std, output_mean, output_std = get_mean_std(validation_loader)
-    print("Validation loader, INPUT mean: {}, std: {}, OUTPUT mean: {}, std: {}".format(input_mean, input_std, output_mean, output_std))
-    input_mean, input_std, output_mean, output_std = get_mean_std(test_loader)
-    print("Test loader, INPUT mean: {}, std: {}, OUTPUT mean: {}, std: {}".format(input_mean, input_std, output_mean, output_std))
-
-
-    #test_loader = renormalize_data(test_set, study, output=True, input=True)
-
     print("len(trainset): {}, len(valset): {}, len(testset): {}".format(len(train_set), len(validation_set),
                                                                         len(test_set)))
+
+    # input_mean, input_std, output_mean, output_std, _ = get_mean_std(train_loader)
+    # print("Train loader, INPUT mean: {}, std: {}, OUTPUT mean: {}, std: {}".format(input_mean, input_std, output_mean, output_std))
+    # #@TODO: skip when validation_loader has empty set
+    # input_mean, input_std, output_mean, output_std, _ = get_mean_std(validation_loader)
+    # print("Validation loader, INPUT mean: {}, std: {}, OUTPUT mean: {}, std: {}".format(input_mean, input_std, output_mean, output_std))
+    # input_mean, input_std, output_mean, output_std, _ = get_mean_std(test_loader)
+    # print("Test loader, INPUT mean: {}, std: {}, OUTPUT mean: {}, std: {}".format(input_mean, input_std, output_mean, output_std))
+
+    #test_loader = renormalize_data(test_set, study, output=True, input=True)
+    #
+
+    # train_set.init_transform = None
+    # validation_set.init_transform = None
+    # test_set.init_transform = None
+    # train_set.input_transform = None
+    # validation_set.input_transform = None
+    # test_set.input_transform = None
+    # train_set.output_transform = None
+    # validation_set.output_transform = None
+    # test_set.output_transform = None
+    # plot_target_data(train_loader, validation_loader, test_loader)
+    # exit()
 
     # train_inputs = []
     # train_outputs = []
@@ -344,6 +642,7 @@ def load_models(args, study):
     #     train_outputs.append(output)
 
     inverse_transform = get_inverse_transform(study)
+    input_inverse_transform = None #get_inverse_transform_input(study)
 
     plot_separate_images = False
     # Disable grad
@@ -603,22 +902,48 @@ def load_models(args, study):
         square_err_k_yy = []
 
         nrmse = 0
-        for i, test_sample in enumerate(test_loader):
+
+        if input_inverse_transform is not None:
+            import copy
+            tst_input_transform = copy.deepcopy(test_set.input_transform)
+            print("test_set.input_transform ", test_set.input_transform)
+            test_set.init_transform = None
+            test_set.input_transform = None
+
+        for i, test_sample in enumerate(train_loader): #@TODO: SET TEST LOADER (test_loader)
             inputs, targets = test_sample
             #print("intputs ", inputs)
+
+            if input_inverse_transform is not None:
+                #print("inputs ", inputs)
+                inv_transformed_inputs = inputs#input_inverse_transform(inputs)
+                #print("inv tra inputs ", inv_transformed_inputs)
+
+                inv_input_avg = torch.mean(inv_transformed_inputs)
+                #print("inv input avg ", inv_input_avg)
+
+                inv_transformed_inputs /= inv_input_avg
+                #print("inv transformed inputs ", inv_transformed_inputs)
+                #print("inv transformed inputs shape", inv_transformed_inputs.shape)
+                inv_transformed_inputs_shape = inv_transformed_inputs.shape
+                inputs = tst_input_transform(torch.squeeze(inv_transformed_inputs))
+
+                inputs = torch.reshape(inputs, inv_transformed_inputs_shape)
+                #print("final inputs ", inputs)
+                #print("final inputs shape ", inputs.shape)
+                #exit()
             inputs = inputs.float()
 
             if args.cuda and torch.cuda.is_available():
                 inputs = inputs.cuda()
             predictions = model(inputs)
-
             #print("targets size ", targets.size())
 
             if len(targets.size()) > 1 and np.sum(targets.size())/len(targets.size()) != 1:
                 targets = torch.squeeze(targets.float())
 
-            #print("predictions ", predictions)
-            #print("targets ", targets)
+            print("predictions ", predictions)
+            print("targets ", targets)
             #print("targets_np.shape ", targets_np.shape)
 
             # if calibrate:
@@ -673,6 +998,19 @@ def load_models(args, study):
                 inv_targets = inverse_transform(torch.reshape(targets, (*targets.shape, 1, 1)))
                 inv_predictions = inverse_transform(torch.reshape(predictions, (*predictions.shape, 1, 1)))
 
+                if input_inverse_transform is not None:
+                    print("inv targets ", inv_targets)
+                    print("inv prediction ", inv_predictions)
+                    inv_predictions *= inv_input_avg
+                    inv_targets *= inv_input_avg
+
+                    print("inv targets ", inv_targets)
+                    print("inv prediction ", inv_predictions)
+                    #
+                    #
+                    # print("inv predictins mult ", inv_predictions)
+                    # exit()
+
                 inv_targets = np.reshape(inv_targets, targets.shape)
                 inv_predictions = np.reshape(inv_predictions, predictions.shape)
 
@@ -711,14 +1049,13 @@ def load_models(args, study):
             #inv_calibs = [inv_calibrator_0, inv_calibrator_1, inv_calibrator_2]
             inv_predictions_list = calibrate_data(inv_predictions_list, inv_calibrators)
 
-
         mse, rmse, nrmse, r2 = get_mse_nrmse_r2(targets_list, predictions_list)
         inv_mse, inv_rmse, inv_nrmse, inv_r2 = get_mse_nrmse_r2(inv_targets_list, inv_predictions_list)
 
         test_loss = running_loss / (i + 1)
         inv_test_loss = inv_running_loss / (i + 1)
 
-        plot_target_prediction(np.array(targets_list), np.array(predictions_list))
+        plot_target_prediction(np.array(targets_list), np.array(predictions_list), "preprocessed_")
         plot_target_prediction(np.array(inv_targets_list), np.array(inv_predictions_list))
 
         print("epochs: {}, train loss: {}, valid loss: {}, test loss: {}, inv test loss: {}".format(epoch,

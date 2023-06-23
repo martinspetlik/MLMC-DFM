@@ -18,7 +18,7 @@ from mlmc.quantity.quantity_spec import QuantitySpec
 import homogenization.fracture as fracture
 from homogenization.both_sample import FlowProblem, BothSample
 #from metamodel.cnn.datasets import create_dataset
-from metamodel.cnn.postprocess.optuna_results import load_study, load_models, get_saved_model_path, get_inverse_transform
+from metamodel.cnn.postprocess.optuna_results import load_study, load_models, get_saved_model_path, get_inverse_transform, get_transform
 from metamodel.cnn.datasets.dfm_dataset import DFMDataset
 from npy_append_array import NpyAppendArray
 
@@ -309,8 +309,7 @@ class DFMSim(Simulation):
 
         # print("center x: {}, y: {}".format(center_x, center_y))
 
-        return [copy.deepcopy(bl_corner), copy.deepcopy(br_corner), copy.deepcopy(tr_corner),
-                         copy.deepcopy(tl_corner)]
+        return [bl_corner, br_corner, tr_corner, tl_corner]
 
     @staticmethod
     def homogenization(config, fractures=None):
@@ -470,7 +469,7 @@ class DFMSim(Simulation):
                                                                     cond_fields,
                                                                     fine_step=config["fine"]["step"])
                     try:
-                        fine_flow.make_mesh()
+                        fine_flow.make_mesh(center_box=([center_x, center_y], subdomain_box))
                     except:
                         pass
 
@@ -483,7 +482,10 @@ class DFMSim(Simulation):
                         continue
 
                     #print("center cond field ", center_cond_field)
+                    #fine_flow.interpolate_fields(center_cond_field, mode="linear")
+
                     fine_flow.interpolate_fields(center_cond_field, mode="linear")
+
                     # fine_flow.make_fields()
 
                     if "nn_path" in config["sim_config"] and "run_only_hom" in config["sim_config"] and config["sim_config"]["run_only_hom"]:
@@ -659,8 +661,9 @@ class DFMSim(Simulation):
                 # DFMSim.checkpoint = torch.load(model_path)
 
                 DFMSim.inverse_transform = get_inverse_transform(study)
+                DFMSim.transform = get_transform(study)
 
-                DFMSim.dataset = joblib.load(os.path.join(config["sim_config"]["nn_path"], "dataset.pkl"))
+                #DFMSim.dataset = joblib.load(os.path.join(config["sim_config"]["nn_path"], "dataset.pkl"))
 
             load_model_end_time = time.time()
 
@@ -671,8 +674,9 @@ class DFMSim(Simulation):
             cr_dset_loader_start_time = time.time()
             dataset_for_prediction = DFMDataset(data_dir=dataset_path,
                                                 # output_file_name=output_file_name,
-                                                input_transform=DFMSim.dataset.input_transform,
-                                                output_transform=DFMSim.dataset.output_transform,
+                                                init_transform=DFMSim.transform[0],
+                                                input_transform=DFMSim.transform[1],
+                                                output_transform=DFMSim.transform[2],
                                                 two_dim=True,
                                                 # input_channels=config[
                                                 #     "input_channels"] if "input_channels" in config else None,
@@ -948,7 +952,6 @@ class DFMSim(Simulation):
             fine_res = [fine_res[0], fine_res[1], fine_res[3]]
             print("fine res ", fine_res)
 
-
             if os.path.exists("flow_fields.pvd"):
                 os.remove("flow_fields.pvd")
             if os.path.exists("flow_fields"):
@@ -1002,15 +1005,13 @@ class DFMSim(Simulation):
             if config["sim_config"]["use_larger_domain"]:
                 #print("hom domain box ", hom_domain_box)
                 config["sim_config"]["geometry"]["domain_box"] = hom_domain_box
-
-            #import cProfile
-            #import pstats
-
+            #
+            # import cProfile
+            # import pstats
             # pr = cProfile.Profile()
             # pr.enable()
-
             cond_tensors, pred_cond_tensors = DFMSim.homogenization(copy.deepcopy(config), fractures)
-
+            #
             # pr.disable()
             # ps = pstats.Stats(pr).sort_stats('cumtime')
             # ps.print_stats(100)

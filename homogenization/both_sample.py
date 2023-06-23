@@ -423,9 +423,6 @@ class BulkFieldsGSTools(BulkBase):
 
             ###########################
             ###########################
-
-
-
             data_srf_angle_vec = np.stack([self._rf_sample["angle_x"],  self._rf_sample["angle_y"]])
 
             if self.anisotropy is not None and self.rotation is not None:
@@ -572,9 +569,7 @@ class BulkFieldsGSTools(BulkBase):
         k_xx = self._rf_sample["k_xx"][ele_idx][0]
         k_yy = self._rf_sample["k_yy"][ele_idx][0]
 
-
         unrotated_tn = np.diag(np.power(10, np.array([k_xx, k_yy])))
-
 
         angle = self._rf_sample["angle"][ele_idx][0]
         c, s = np.cos(angle), np.sin(angle)
@@ -850,6 +845,7 @@ class BulkHomogenizationFineSample(BulkBase):
 
         #print("config dict ", config_dict)
 
+        #@TODO: use coarse SRF values, not effective tensors calculated at particular points
         avg_var_list, avg_len_scale_list = self._calc_var_len_scale(config_dict)
 
         #print("avg var list ", avg_var_list)
@@ -860,7 +856,7 @@ class BulkHomogenizationFineSample(BulkBase):
         self._cond_tns = BulkHomogenizationFineSample.symmetrize_cond_tns(self._cond_tns)
 
         self._rf_sample = None
-        srf_model = SpatialCorrelatedFieldHom(corr_exp="exp", corr_length=np.mean(avg_len_scale_list))#, sigma=np.sqrt(np.mean(avg_var_list)))
+        srf_model = SpatialCorrelatedFieldHom(corr_exp="exp", corr_length=1) # np.mean(avg_len_scale_list))#, sigma=np.sqrt(np.mean(avg_var_list)))
         srf_model._cond_tensors = self._cond_tns
 
         print("SRF MODEL corr length: {}, sigma: {}".format(srf_model._corr_length, srf_model.sigma))
@@ -1210,7 +1206,7 @@ def find_closest(center, center_cond_field, kdtree):
 
 
 def write_fields(mesh, basename, bulk_model, fracture_model, elid_to_fr, elids_same_value=None,
-                 positions=None, input_tensors=None, center_cond_tn_field=None, interp_data=None):
+                 positions=None, input_tensors=None, center_cond_tn_field=None, interp_data=None, mesh_centers_eids=None):
     elem_ids = []
     cond_tn_field = []
     cond_tn_field_bulk = []
@@ -1222,161 +1218,132 @@ def write_fields(mesh, basename, bulk_model, fracture_model, elid_to_fr, elids_s
     centers_bulk = []
     n_fr = 0
 
-    # rotation_matrix = np.array([[0, 1, 0],
-    #                             [-1, 0, 0],
-    #                             [0, 0, 1]])
-    #rotation_matrix = np.array([[0, 1], [-1, 0]])
-
-    # all_cond_tn = {}
-    # all_ele_ids = {}
-    #
-    # indices = np.reshape(np.array(list(range(9))), (3, 3))
-    #
-    # rot = indices.T
-    #
-    # rot = rot.flatten()
-    # print("rot flatten ", rot)
-    #
-    # all_ell_ids = {17: 0, 18: 0, 19: 1, 20: 1, 21: 2, 22: 2, 23: 3, 24: 3, 25: 4, 26: 4, 27: 5, 28: 5, 29: 6, 30: 6,
-    #                31: 7, 32: 7, 33: 8, 34: 8}
-    #
-    # all_cond_tn = {0: np.array([[8.77108150e-07, -1.08600165e-07],
-    #                             [-1.08600165e-07, 6.58661058e-07]]), 1: np.array([[4.92966922e-07, -3.66120247e-10],
-    #                                                                               [-3.66120247e-10, 4.91705754e-07]]),
-    #                2: np.array([[4.36438326e-07, 2.24193169e-07],
-    #                             [2.24193169e-07, 4.09646465e-07]]), 3: np.array([[8.89458094e-07, 2.74144935e-07],
-    #                                                                              [2.74144935e-07, 8.19394721e-07]]),
-    #                4: np.array([[9.90674584e-07, 4.36280744e-07],
-    #                             [4.36280744e-07, 1.24064447e-06]]), 5: np.array([[2.63761706e-06, 6.14196903e-07],
-    #                                                                              [6.14196903e-07, 1.03941896e-06]]),
-    #                6: np.array([[4.31686662e-07, -6.25398254e-08],
-    #                             [-6.25398254e-08, 5.65524507e-07]]), 7: np.array([[1.17374197e-06, 2.34448527e-08],
-    #                                                                               [2.34448527e-08, 1.14371008e-06]]),
-    #                8: np.array([[1.46986308e-06, -3.47998338e-07],
-    #                             [-3.47998338e-07, 1.53616856e-06]])}
-    # i = 0
-
-    # for el_id, ele in gmsh_mesh_bulk_elements(mesh):
-    #     elem_ids.append(el_id)
-    #     el_type, tags, node_ids = ele
-    #     n_nodes = len(node_ids)
-    #
-    #     if n_nodes == 2:
-    #         cs, cond_tn, fr_size = fracture_model.element_data(mesh, el_id, elid_to_fr)
-    #         # print("fr cs: {}, cond_tn: {}".format(cs, cond_tn))
-    #         fracture_cs.append(cs)
-    #         fracture_len.append(fr_size)
-    #         # sigma = cs * (cond_tn[0][0] /10**-6)
-    #         # print("sigma: {}", sigma)
-    #     else:
-    #         # n_nodes == 3
-    #         cs, cond_tn = bulk_model.element_data(mesh, el_id)
-    #         # print("bulk cs: {}, cond_tn: {}".format(cs, cond_tn))
-    #
-    #         if elids_same_value is not None and el_id in elids_same_value:
-    #             if elids_same_value[el_id] in elem_ids:
-    #                 cond_tn = el_cond[elids_same_value[el_id]]
-    #             # all_cond_tn.append(cond_tn)
-    #         # print("cond tn ", cond_tn.shape)
-    #         # exit()
-    #         #
-    #         # print("np.reshape(cond_tn, (3,3)) ", np.reshape(np.array(cond_tn), (3,3)))
-    #         # exit()
-    #         # cond_tn = rotation_matrix.T @ cond_tn @ rotation_matrix
-    #         # cond_tn = cond_tn.flatten()
-    #
-    #         el_cond[el_id] = cond_tn
-    #
-    #     cs_field.append(np.array(cs))
-    #     cond_tn_field.append(tensor_3d_flatten(cond_tn))
-    #
-
     if center_cond_tn_field is not None:
         from scipy.spatial import KDTree
         centers_cnd, values_cnd = center_cond_tn_field
         kdtree = KDTree(centers_cnd)
 
-    for el_id, ele in gmsh_mesh_bulk_elements(mesh):
-        elem_ids.append(el_id)
-        el_type, tags, node_ids = ele
-        n_nodes = len(node_ids)
-        center = np.average(np.array([mesh.nodes[i_node] for i_node in node_ids]), axis=0)
+    if interp_data is not None:
+        mesh_centers_eids_n_nodes = interp_data[0]
+        centers, elem_ids, n_nodes_list = mesh_centers_eids_n_nodes
 
-        if center_cond_tn_field is not None:
-            cond_tn_flatten = find_closest(center, center_cond_tn_field, kdtree)
+        #print("len(elem_ids) ", len(elem_ids))
+        #print("len centers ", len(centers))
 
-        if interp_data is not None:
-            eids = interp_data[0][1]
-            cond_values = interp_data[1]
-            el_index = eids.index(el_id)
-            cond_tn = cond_values[el_index]
+        for idx, center in enumerate(centers):
+            el_id = elem_ids[idx]
+            n_nod = n_nodes_list[idx]
+            # elem_ids.append(el_id)
+            # _, _, node_ids = ele
+            # n_nodes = len(node_ids)
+            # center = np.average(np.array([mesh.nodes[i_node] for i_node in node_ids]), axis=0)
 
-            cond_tn_flatten = np.zeros(9)
-            cond_tn_flatten[0] = cond_tn[0]
-            cond_tn_flatten[1] = cond_tn[1]
-            cond_tn_flatten[3] = cond_tn[1]
-            cond_tn_flatten[4] = cond_tn[2]
-            cond_tn_flatten[8] = 1
+            if center_cond_tn_field is not None:
+                cond_tn_flatten = find_closest(center, center_cond_tn_field, kdtree)
 
-        if n_nodes == 2:
-            n_fr += 1
-            cs, cond_tn, fr_size = fracture_model.element_data(mesh, el_id, elid_to_fr)
-            #print("fr cs: {}, cond_tn: {}".format(cs, cond_tn))
-            fracture_cs.append(cs)
-            fracture_len.append(fr_size)
-            # sigma = cs * (cond_tn[0][0] /10**-6)
-            # print("sigma: {}", sigma)
-        else:
-            # n_nodes == 3
-            #print("bulk model self. rf sample ", bulk_model._rf_sample)
-            cs, cond_tn = bulk_model.element_data(mesh, el_id)
-            #print("bulk model self. rf sample ", bulk_model._rf_sample)
-            #exit()
+            if interp_data is not None:
+                eids = interp_data[0][1]
+                cond_values = interp_data[1]
+                el_index = eids.index(el_id)
+                cond_tn = cond_values[el_index]
 
-            if input_tensors is not None:
-                indices = positions[el_id]
-                cond_tn = input_tensors[:, indices[0], indices[1]]
-                cond_tn = [[cond_tn[0], cond_tn[1]], [cond_tn[1], cond_tn[2]]]
-                #print("cond_tn ", cond_tn)
+                cond_tn_flatten = np.zeros(9)
+                cond_tn_flatten[0] = cond_tn[0]
+                cond_tn_flatten[1] = cond_tn[1]
+                cond_tn_flatten[3] = cond_tn[1]
+                cond_tn_flatten[4] = cond_tn[2]
+                cond_tn_flatten[8] = 1
 
-            #cs = 1.0
-            #cond_tn = all_cond_tn[rot[all_ell_ids[el_id]]]
-            # i += 1
-            # print("bulk cs: {}, cond_tn: {}".format(cs, cond_tn))
-            if elids_same_value is not None and el_id in elids_same_value:
-                if elids_same_value[el_id] in elem_ids:
-                    cond_tn = el_cond[elids_same_value[el_id]]
-                    #all_ele_ids[el_id] = all_ele_ids[elids_same_value[el_id]]
-            # else:
-            #     all_cond_tn[i] = cond_tn
-            #     all_ele_ids[el_id] = i
-            #     i += 1
-            # print("cond tn ", cond_tn.shape)
-            # exit()
-            #
-            # print("np.reshape(cond_tn, (3,3)) ", np.reshape(np.array(cond_tn), (3,3)))
-            # exit()
-            #cond_tn = rotation_matrix.dot(cond_tn) #@ rotation_matrix
-            #cond_tn = rotation_matrix.T @ cond_tn @ rotation_matrix
-
-            #print("cond tn ", cond_tn)
-            #print("cond tn 2 ", cond_tn_2)
-            #cond_tn = cond_tn.flatten()
-
-            el_cond[el_id] = cond_tn
-
-        cs_field.append(np.array(cs))
-        if n_nodes == 2:
-            cond_tn_field.append(tensor_3d_flatten(cond_tn))
-        else:
-            if center_cond_tn_field is not None or interp_data is not None:
-                cond_tn_field.append(cond_tn_flatten)
+            if n_nod == 2:
+                n_fr += 1
+                cs, cond_tn, fr_size = fracture_model.element_data(mesh, el_id, elid_to_fr)
+                # print("fr cs: {}, cond_tn: {}".format(cs, cond_tn))
+                fracture_cs.append(cs)
+                fracture_len.append(fr_size)
             else:
-                cond_tn_field.append(tensor_3d_flatten(cond_tn))
-            centers_bulk.append(center)
-            cond_tn_field_bulk.append(cond_tn_field[-1])
+                cs = 1.0
+                if input_tensors is None and cond_tn_field_bulk is None:
+                    cs, cond_tn = bulk_model.element_data(mesh, el_id)
 
-        centers.append(center)
+                if input_tensors is not None:
+                    indices = positions[el_id]
+                    cond_tn = input_tensors[:, indices[0], indices[1]]
+                    cond_tn = [[cond_tn[0], cond_tn[1]], [cond_tn[1], cond_tn[2]]]
+
+                if elids_same_value is not None and el_id in elids_same_value:
+                    if elids_same_value[el_id] in elem_ids:
+                        cond_tn = el_cond[elids_same_value[el_id]]
+
+                el_cond[el_id] = cond_tn
+
+            cs_field.append(np.array(cs))
+            if n_nod == 2:
+                cond_tn_field.append(tensor_3d_flatten(cond_tn))
+            else:
+                if center_cond_tn_field is not None or interp_data is not None:
+                    cond_tn_field.append(cond_tn_flatten)
+                else:
+                    cond_tn_field.append(tensor_3d_flatten(cond_tn))
+                centers_bulk.append(center)
+                cond_tn_field_bulk.append(cond_tn_field[-1])
+    else:
+        for el_id, ele in gmsh_mesh_bulk_elements(mesh):
+            elem_ids.append(el_id)
+            _, _, node_ids = ele
+            n_nodes = len(node_ids)
+            center = np.average(np.array([mesh.nodes[i_node] for i_node in node_ids]), axis=0)
+
+            if center_cond_tn_field is not None:
+                cond_tn_flatten = find_closest(center, center_cond_tn_field, kdtree)
+
+            if interp_data is not None:
+                eids = interp_data[0][1]
+                cond_values = interp_data[1]
+                el_index = eids.index(el_id)
+                cond_tn = cond_values[el_index]
+
+                cond_tn_flatten = np.zeros(9)
+                cond_tn_flatten[0] = cond_tn[0]
+                cond_tn_flatten[1] = cond_tn[1]
+                cond_tn_flatten[3] = cond_tn[1]
+                cond_tn_flatten[4] = cond_tn[2]
+                cond_tn_flatten[8] = 1
+
+            if n_nodes == 2:
+                n_fr += 1
+                cs, cond_tn, fr_size = fracture_model.element_data(mesh, el_id, elid_to_fr)
+                #print("fr cs: {}, cond_tn: {}".format(cs, cond_tn))
+                fracture_cs.append(cs)
+                fracture_len.append(fr_size)
+            else:
+                #cs = 1.0
+                #if input_tensors is None and cond_tn_field_bulk is None:
+                cs, cond_tn = bulk_model.element_data(mesh, el_id)
+                #print("cs: {}, cond_tn:{} ".format(cs, cond_tn))
+
+                if input_tensors is not None:
+                    indices = positions[el_id]
+                    cond_tn = input_tensors[:, indices[0], indices[1]]
+                    cond_tn = [[cond_tn[0], cond_tn[1]], [cond_tn[1], cond_tn[2]]]
+
+                if elids_same_value is not None and el_id in elids_same_value:
+                    if elids_same_value[el_id] in elem_ids:
+                        cond_tn = el_cond[elids_same_value[el_id]]
+
+                el_cond[el_id] = cond_tn
+
+            cs_field.append(np.array(cs))
+            if n_nodes == 2:
+                cond_tn_field.append(tensor_3d_flatten(cond_tn))
+            else:
+                if center_cond_tn_field is not None or interp_data is not None:
+                    cond_tn_field.append(cond_tn_flatten)
+                else:
+                    cond_tn_field.append(tensor_3d_flatten(cond_tn))
+                centers_bulk.append(center)
+                cond_tn_field_bulk.append(cond_tn_field[-1])
+
+            centers.append(center)
 
     if n_fr == 0:
         print("NO FRACTURES")
@@ -1464,9 +1431,6 @@ class FlowProblem:
             bulk_conductivity = config_dict["sim_config"]['bulk_conductivity']
             config_dict["mean_log_conductivity"] = bulk_conductivity["mean_log_conductivity"]
             bulk_model = BulkHomogenizationFineSample(config_dict)
-
-
-
             # bulk_cond_tn_pop_file = config_dict["fine"]["cond_tn_pop_file"]
             #bulk_model = BulkChoose(finer_level_path)
         else:
@@ -1573,8 +1537,45 @@ class FlowProblem:
 
         return pd, side_regions
 
-    def add_fractures(self, pd, fracture_lines, eid):
+    def point_in_larger_outer_polygon(self, points, center_box):
+        #print("points ", points)
+        #print("center box ", center_box)
+        center, subdomain_box = center_box
+        center_x, center_y = center[0], center[1]
+        box_size_x = subdomain_box[0] * 2
+        box_size_y = subdomain_box[1] * 2
+
+        bl_corner = [center_x - box_size_x / 2, center_y - box_size_y / 2]
+        br_corner = [center_x + box_size_x / 2, center_y - box_size_y / 2]
+        tl_corner = [center_x - box_size_x / 2, center_y + box_size_y / 2]
+        tr_corner = [center_x + box_size_x / 2, center_y + box_size_y / 2]
+
+        # outer_polygon = [copy.deepcopy(bl_corner), copy.deepcopy(br_corner), copy.deepcopy(tr_corner),
+        #         copy.deepcopy(tl_corner)]
+
+        for point in points:
+            if br_corner[0] < point[0] or point[0] < bl_corner[0] or tr_corner[1] < point[1] or point[1] < bl_corner[1]:
+                return False
+        return True
+
+        #point = points[0]
+
+        # print("outer polygon ", outer_polygon)
+        # sides = outer_polygon[1:] - outer_polygon[:-1]
+        # print("sides ", sides)
+        #
+        # point_sides = point - outer_polygon[:-1]
+        # cross_products = np.cross(sides, point_sides)
+        # print("corss product ", cross_products)
+        # print()
+        # return all(cross_products >= 0) or all(cross_products <= 0)
+
+    def add_fractures(self, pd, fracture_lines, eid, center_box=None):
+        #print("fracture lines ", fracture_lines)
+        #print("len fracture lines ", len(fracture_lines))
+
         outer_wire = pd.outer_polygon.outer_wire.childs
+
         #print("outer wire ", outer_wire)
 
         #print("len fracture lines ", len(fracture_lines))
@@ -1585,6 +1586,11 @@ class FlowProblem:
         for i_fr, (p0, p1) in fracture_lines.items():
             reg = self.add_region("fr_{}".format(i_fr), dim=1, mesh_step=self.mesh_step)
             #print("i_fr: {}, reg.id: {}".format(i_fr, reg.id))
+
+            if center_box is not None:
+                if not self.point_in_larger_outer_polygon([p0, p1], center_box):
+                    continue
+
             self.reg_to_fr[reg.id] = i_fr
             fracture_regions.append(reg)
             if self.skip_decomposition:
@@ -1643,7 +1649,7 @@ class FlowProblem:
         # # plot_decomp_segments(pd)
         return pd, fracture_regions
 
-    def make_fracture_network(self):
+    def make_fracture_network(self, center_box=None):
         self.mesh_step = self.fr_range[0]
 
         # Init regions
@@ -1660,20 +1666,10 @@ class FlowProblem:
         else:
             self.outer_polygon = [[-lx / 2, -ly / 2], [+lx / 2, -ly / 2], [+lx / 2, +ly / 2], [-lx / 2, +ly / 2]]
 
-        #self.outer_polygon = [[-lx / 2, 0], [0, 0], [0, +ly / 2], [-lx / 2, +ly / 2]]
-
-        #self.outer_polygon = [[-10, -10], [10, -10], [10, 10], [-10, 10]]
-        #self.outer_polygon = [[-500, 0], [0, 0], [0, 500], [-500, 500]]
-
-        #print("outer polygon ", self.outer_polygon)
-
         pd, self.side_regions = self.init_decomposition(self.outer_polygon, bulk_reg, tol=self.mesh_step)
         self.group_positions[0] = np.mean(self.outer_polygon, axis=0)
 
         square_fr_range = [self.fr_range[0], np.min([self.fr_range[1], self.outer_polygon[1][0] - self.outer_polygon[0][0]])]
-        #square_fr_range = [10, square_fr_range[1]]
-        #print("square fr range ", square_fr_range)
-
         # if self.config_dict.get("homogenization", False):
         #     coarse_step = self.config_dict["coarse"]["step"] * 2
         #     square_fr_range[0] = coarse_step
@@ -1688,7 +1684,7 @@ class FlowProblem:
         #print("len fracture lines ", len(self.fracture_lines))
         # print("list fractures ", list(self.fracture_lines.values()))
 
-        pd, fr_regions = self.add_fractures(pd, self.fracture_lines, eid=0)
+        pd, fr_regions = self.add_fractures(pd, self.fracture_lines, eid=0, center_box=center_box)
         #self.reg_to_group[fr_region.id] = 0
 
         for reg in fr_regions:
@@ -1715,7 +1711,7 @@ class FlowProblem:
     def get_subdomain(self, outer_polygon):
         self.mesh
 
-    def make_mesh(self, mesh_file=None):
+    def make_mesh(self, mesh_file=None, center_box=None):
         import homogenization.geometry_2d as geom
         if mesh_file is None:
             mesh_file = "mesh_{}.msh".format(self.basename)
@@ -1728,7 +1724,7 @@ class FlowProblem:
 
         #print("self regions ", self.regions)
         if not self.skip_decomposition:
-            self.make_fracture_network()
+            self.make_fracture_network(center_box)
             gmsh_executable = self.config_dict["sim_config"]["gmsh_executable"]
             g2d = geom.Geometry2d("mesh_" + self.basename, self.regions)
             g2d.add_compoud(self.decomp)
@@ -1750,13 +1746,53 @@ class FlowProblem:
     def get_centers(self, mesh):
         centers = []
         elem_ids = []
-        for el_id, ele in gmsh_mesh_bulk_elements(mesh):
-            elem_ids.append(el_id)
-            el_type, tags, node_ids = ele
-            #n_nodes = len(node_ids)
-            center = np.average(np.array([mesh.nodes[i_node] for i_node in node_ids]), axis=0)
-            centers.append(center)
-        return [centers, elem_ids]
+        n_nodes_list = []
+
+        is_bc_region = {}
+        for name, (id, _) in mesh.physical.items():
+            unquoted_name = name.strip("\"'")
+            is_bc_region[id] = (unquoted_name[0] == '.')
+
+        for eid, ele in mesh.elements.items():
+            _, tags, i_nodes = ele
+            region_id = tags[0]
+            if not is_bc_region[region_id]:# and len(i_nodes) == 3:
+                elem_ids.append(eid)
+
+                if len(i_nodes) == 3:
+                    center = [(mesh.nodes[i_nodes[0]][0] + mesh.nodes[i_nodes[1]][0] + mesh.nodes[i_nodes[2]][0]) / 3,
+                              (mesh.nodes[i_nodes[0]][1] + mesh.nodes[i_nodes[1]][1] + mesh.nodes[i_nodes[2]][1]) / 3,
+                              (mesh.nodes[i_nodes[0]][2] + mesh.nodes[i_nodes[1]][2] + mesh.nodes[i_nodes[2]][2]) / 3
+                              ]
+                    n_nodes_list.append(3)
+                elif len(i_nodes) == 2:
+                    center = [(mesh.nodes[i_nodes[0]][0] + mesh.nodes[i_nodes[1]][0]) / 2,
+                              (mesh.nodes[i_nodes[0]][1] + mesh.nodes[i_nodes[1]][1]) / 2,
+                              (mesh.nodes[i_nodes[0]][2] + mesh.nodes[i_nodes[1]][2]) / 2
+                              ]
+                    n_nodes_list.append(2)
+
+                #center = np.mean([mesh.nodes[i_node] for i_node in i_nodes], axis=0)
+                centers.append(center)
+
+        # for id, el in mesh.elements.items():
+        #     _, tags, i_nodes = el
+        #     region_id = tags[0]
+        #
+        #
+        #
+        # for el_id, ele in gmsh_mesh_bulk_elements(mesh):
+        #     elem_ids.append(el_id)
+        #     el_type, tags, node_ids = ele
+        #     if len(i_nodes) == 3:
+        #     print(node_ids)
+        #
+        #     #center = mesh.nodes[0] + mesh.nodes[1] + mesh.nodes[]
+        #     center = np.mean([mesh.nodes[i_node] for i_node in node_ids], axis=0)
+        #     centers.append(center)
+        #print("centers len ", len(centers))
+        # exit()
+        return [centers, elem_ids, n_nodes_list]
 
     def interpolate_fields(self, center_cond_tn_field, mode="linear"):
         fracture_model = FractureModel(self.fractures, self.reg_to_fr,
@@ -1789,16 +1825,35 @@ class FlowProblem:
         # xy[1] = y_fine
         # xy = xy.T
 
+        # print("values ", values)
+        # exit()
+
+        # import cProfile
+        # import pstats
+        # pr = cProfile.Profile()
+        # pr.enable()
         tria = sc_spatial.Delaunay(grid_fine)
         mean_val = np.mean(values)
-
         interp = sc_interpolate.LinearNDInterpolator(tria, values, fill_value=0)
         value_hom = interp(grid_hom)
+        # pr.disable()
+        # ps = pstats.Stats(pr).sort_stats('cumtime')
+        # ps.print_stats(100)
 
-        for index, row in enumerate(value_hom):
-            if np.alltrue(row == 0):
-                v = [mean_val, 0, mean_val]
-                value_hom[index] = v
+
+        # print("value hom ", value_hom)
+        # exit()
+
+        #print("value hom shape ", value_hom.shape)
+
+        zero_rows = np.where(np.all(value_hom == 0, axis=1))[0]
+        value_hom[zero_rows] = [mean_val, 0, mean_val]
+
+        # for index, row in enumerate(value_hom):
+        #     if np.alltrue(row == 0):
+        #         print("row ", row)
+        #         v = [mean_val, 0, mean_val]
+        #         value_hom[index] = v
 
         interp_data = [mesh_centers_eids, value_hom]
 
@@ -1807,8 +1862,8 @@ class FlowProblem:
                                                                                                  self.bulk_model,
                                                                                                  fracture_model,
                                                                                                  self.elid_to_fr,
-                                                                                                 center_cond_tn_field=center_cond_tn_field,
-                                                                                                 interp_data=interp_data,
+                                                                                                 #center_cond_tn_field=center_cond_tn_field,
+                                                                                                 interp_data=interp_data
                                                                                                  )
 
         self._elem_ids = elem_ids
