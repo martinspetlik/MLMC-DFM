@@ -121,6 +121,9 @@ class DFMDataset(Dataset):
 
         bulk_features_shape = bulk_features.shape
 
+        if self.init_transform is not None:
+            bulk_features_avg = np.mean(bulk_features)
+
         flatten_bulk_features = bulk_features.reshape(-1)
         if fractures_features is not None:
             if self._fractures_sep is False:
@@ -153,7 +156,7 @@ class DFMDataset(Dataset):
 
         if self.init_transform is not None:
             reshaped_output = torch.reshape(output_features, (*output_features.shape, 1, 1))
-            final_features, reshaped_features = self.init_transform((final_features, reshaped_output))
+            final_features, reshaped_features = self.init_transform((bulk_features_avg, final_features, reshaped_output))
         else:
             reshaped_output = torch.reshape(output_features, (*output_features.shape, 1, 1))
 

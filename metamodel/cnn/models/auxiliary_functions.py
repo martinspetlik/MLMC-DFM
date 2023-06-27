@@ -49,6 +49,7 @@ class NormalizeData():
                 output_data[i][...] = data[i]
         return output_data
 
+
 def log_all_data(data):
     output_data = torch.empty((data.shape))
     if data.shape[0] == 3:
@@ -70,10 +71,11 @@ def log_all_data(data):
 
 
 def init_norm(data):
-    input, output = data
-    avg_k = torch.mean(input)
-    input /= avg_k
-    output /= avg_k
+    bulk_features_avg, input, output = data
+    #avg_k = torch.mean(input)
+
+    input /= bulk_features_avg
+    output /= bulk_features_avg
 
     return input, output
 
@@ -97,6 +99,7 @@ def log_data(data):
 
     return output_data
 
+
 def quantile_transform_fit(data, indices=[], transform_type=None):
     transform_obj = []
     for i in range(data.shape[0]):
@@ -112,6 +115,7 @@ def quantile_transform_fit(data, indices=[], transform_type=None):
         else:
             transform_obj.append(None)
     return transform_obj
+
 
 def quantile_transform_trf(data, quantile_trfs):
     trf_data = torch.empty((data.shape))
