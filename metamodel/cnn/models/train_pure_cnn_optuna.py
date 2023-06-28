@@ -358,7 +358,8 @@ def prepare_sub_datasets(study, config, data_dir, serialize_path=None):
     for key, dset_config in config["sub_datasets"].items():
         prepare_dset_config = copy.deepcopy(config)
         prepare_dset_config["log_input"] = dset_config["log_input"]
-        prepare_dset_config["init_norm"] = dset_config["init_norm"]
+        if "init_norm" in dset_config:
+            prepare_dset_config["init_norm"] = dset_config["init_norm"]
         prepare_dset_config["normalize_input"] = dset_config["normalize_input"]
         prepare_dset_config["log_output"] = dset_config["log_output"]
         prepare_dset_config["normalize_output"] = dset_config["normalize_output"]
@@ -377,12 +378,15 @@ def prepare_sub_datasets(study, config, data_dir, serialize_path=None):
                 _append_dataset(complete_val_set, sub_val_set)
             _append_dataset(complete_test_set, sub_test_set)
 
-    data_input_transform, data_output_transform = prepare_dataset(study, config, data_dir, train_dataset=complete_train_set)
+    data_init_transform, data_input_transform, data_output_transform = prepare_dataset(study, config, data_dir, train_dataset=complete_train_set)
+    complete_train_set.init_transform = data_init_transform
     complete_train_set.input_transform = data_input_transform
     complete_train_set.output_transform = data_output_transform
     if len(complete_val_set) > 0:
+        complete_val_set.init_transform = data_init_transform
         complete_val_set.input_transform = data_input_transform
         complete_val_set.output_transform = data_output_transform
+    complete_test_set.init_transform = data_init_transform
     complete_test_set.input_transform = data_input_transform
     complete_test_set.output_transform = data_output_transform
 
@@ -459,6 +463,7 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
     if config["normalize_input"] or config["normalize_output"]:
         if train_dataset is not None:
             dataset_for_mean_std = train_dataset
+            dataset_for_mean_std.init_transform = init_transform
             dataset_for_mean_std.input_transform = input_transform
             dataset_for_mean_std.output_transform = output_transform
         else:
@@ -663,7 +668,7 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
         study.set_user_attr("output_quantiles", output_quantiles)
 
     if train_dataset is not None:
-        return data_input_transform, data_output_transform
+        return data_init_transform, data_input_transform, data_output_transform
 
     if serialize_path is not None:
         joblib.dump(dataset, os.path.join(serialize_path, "dataset.pkl"))
