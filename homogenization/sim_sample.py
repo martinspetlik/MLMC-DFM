@@ -961,7 +961,9 @@ class DFMSim(Simulation):
 
         if not gen_hom_samples:
             if "flow_sim" in config["sim_config"] and config["sim_config"]["flow_sim"]:
-                fine_res, status = DFMSim._run_sample(fine_flow, config)
+                fine_res, status, conv_check = DFMSim._run_sample(fine_flow, config)
+                if not conv_check:
+                    raise Exception("fine sample not converged")
                 fine_res = [fine_res[0], fine_res[0], fine_res[0]]
             else:
                 done = []
@@ -1094,7 +1096,9 @@ class DFMSim(Simulation):
                     shutil.rmtree("flow_fields")
 
                 if "flow_sim" in config["sim_config"] and config["sim_config"]["flow_sim"]:
-                    coarse_res, status = DFMSim._run_sample(coarse_flow, config)
+                    coarse_res, status, conv_check = DFMSim._run_sample(coarse_flow, config)
+                    if not conv_check:
+                        raise Exception("coarse sample not converged")
                     coarse_res = [coarse_res[0], coarse_res[0], coarse_res[0]]
                 else:
                     done = []
@@ -1169,11 +1173,15 @@ class DFMSim(Simulation):
                     coarse_flow.make_fields()
 
                     if "flow_sim" in config["sim_config"] and config["sim_config"]["flow_sim"]:
-                        coarse_res, status = DFMSim._run_sample(coarse_flow, config)
+                        coarse_res, status, conv_check = DFMSim._run_sample(coarse_flow, config)
+                        if not conv_check:
+                            raise Exception("pred coarse sample not converged")
                         coarse_res = [coarse_res[0], coarse_res[0], coarse_res[0]]
                     else:
                         done = []
                         status, p_loads, outer_reg_names, conv_check = DFMSim._run_homogenization_sample(coarse_flow, config)
+                        if not conv_check:
+                            raise Exception("pred coarse sample not converged")
                         done.append(coarse_flow)
                         cond_tn, diff = coarse_flow.effective_tensor_from_bulk(p_loads, outer_reg_names, coarse_flow.basename)
                         cond_tn = cond_tn[0]
@@ -1374,7 +1382,7 @@ class DFMSim(Simulation):
         conv_check = DFMSim.check_conv_reasons(os.path.join(out_dir, "flow123.0.log"))
         print("converged: ", conv_check)
 
-        return DFMSim._extract_result(os.getcwd()), status # and conv_check
+        return DFMSim._extract_result(os.getcwd()), status, conv_check # and conv_check
         #return  status, p_loads, outer_reg_names  # and conv_check
 
     @staticmethod
