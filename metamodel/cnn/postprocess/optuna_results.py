@@ -198,6 +198,7 @@ def load_dataset(results_dir, study):
     data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/homogenization_samples_MLMC-DFM_5LMC_L1_cl_v_0_overlap"
     data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/homogenization_samples_MLMC-DFM_hom_nn_rho_5_0_no_fractures"
     data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/homogenization_samples_MLMC-DFM_hom_nn_rho_7_5_no_sigma_rast_3"
+    data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/homogenization_samples_MLMC-DFM_hom_nn_rho_10_0_no_sigma_step_1_871_rast_3"
     config = {#"num_epochs": trials_config["num_epochs"],
               "batch_size_train": 32,
               # "batch_size_test": 250,
@@ -349,7 +350,7 @@ def get_transform(study):
 
     data_input_transform, data_output_transform = None, None
     # Standardize input
-    if "log_input" in study.user_attrs and study.user_attrs["log_input"]:
+    if "input_log" in study.user_attrs and study.user_attrs["input_log"]:
         if "log_all_input_channels" in study.user_attrs and study.user_attrs["log_all_input_channels"]:
             input_transformations.append(transforms.Lambda(log_all_data))
         else:
@@ -516,16 +517,16 @@ def plot_target_data(train_loader, validation_loader, test_loader):
         k_yy_list_input.extend(inputs[2].ravel())
 
     print("kxx shape ", np.array(k_xx_list_input).shape)
-    plt.hist(k_xx_list_input, bins=25, color="red", label="k_xx", density=True)
+    plt.hist(k_xx_list_input, bins=25, color="red", label="input k_xx", density=True)
     #plt.xlim([-0.001, 1])
     plt.legend()
     plt.show()
 
-    plt.hist(k_xy_list_input, bins=60, color="red", label="k_xy", density=True)
+    plt.hist(k_xy_list_input, bins=60, color="red", label="input k_xy", density=True)
     plt.legend()
     plt.show()
 
-    plt.hist(k_yy_list_input, bins=60, color="red", label="k_yy", density=True)
+    plt.hist(k_yy_list_input, bins=60, color="red", label="input k_yy", density=True)
     plt.legend()
     plt.show()
 
@@ -554,16 +555,19 @@ def plot_target_data(train_loader, validation_loader, test_loader):
     for i in range(n_channels):
         print("train targets shape ", train_targets.shape)
         k_train_targets = train_targets[:, i]
+
+        #k_train_targets = k_train_targets[k_train_targets < 0.6]
         #k_val_targets = val_targets[:, i]
         #k_test_targets = test_targets[:, i]
         print("min: {}, max: {}, avg:{} ".format(np.min(k_train_targets),
                                                  np.max(k_train_targets),
                                                  np.mean(k_train_targets)))
+        print("k_train_targets[:100] ", k_train_targets[:100])
         print("k_train_targets ", k_train_targets.shape)
+        print("k train targets ")
 
         density = False
-
-        plt.hist(k_train_targets, bins=1000, color="red", label="train", alpha=0.5, density=density)
+        plt.hist(k_train_targets, bins=1000, color="red", label="train, ch: {}".format(i), alpha=0.5, density=density)
         #plt.hist(k_val_targets, bins=60, color="blue", label="val", alpha=0.5, density=density)
         #plt.hist(k_test_targets, bins=60, color="green", label="test", alpha=0.5, density=density)
         #plt.xlabel(xlabel)
@@ -631,8 +635,12 @@ def load_models(args, study):
     # train_set.output_transform = None
     # validation_set.output_transform = None
     # test_set.output_transform = None
-    # plot_target_data(train_loader, validation_loader, test_loader)
-    # exit()
+    print("train_set.init_transform ", train_set.init_transform)
+    print("train_set.input_transform ", train_set.input_transform)
+    print("train_set.output_transform ", train_set.output_transform)
+    #exit()
+    #plot_target_data(train_loader, validation_loader, test_loader)
+    #exit()
 
     # train_inputs = []
     # train_outputs = []
@@ -642,7 +650,7 @@ def load_models(args, study):
     #     train_outputs.append(output)
 
     inverse_transform = get_inverse_transform(study)
-    input_inverse_transform = None #get_inverse_transform_input(study)
+    input_inverse_transform = get_inverse_transform_input(study)
 
     plot_separate_images = False
     # Disable grad
@@ -903,47 +911,51 @@ def load_models(args, study):
 
         nrmse = 0
 
-        if input_inverse_transform is not None:
-            import copy
-            tst_input_transform = copy.deepcopy(test_set.input_transform)
-            print("test_set.input_transform ", test_set.input_transform)
-            test_set.init_transform = None
-            test_set.input_transform = None
+        # if input_inverse_transform is not None:
+        #     import copy
+        #     tst_input_transform = copy.deepcopy(test_set.input_transform)
+        #     print("test_set.input_transform ", test_set.input_transform)
+        #     test_set.init_transform = None
+        #     test_set.input_transform = None
 
-        for i, test_sample in enumerate(train_loader): #@TODO: SET TEST LOADER (test_loader)
+        for i, test_sample in enumerate(test_loader): #@TODO: SET TEST LOADER (test_loader)
             inputs, targets = test_sample
             #print("intputs ", inputs)
 
-            if input_inverse_transform is not None:
-                #print("inputs ", inputs)
-                inv_transformed_inputs = inputs#input_inverse_transform(inputs)
-                #print("inv tra inputs ", inv_transformed_inputs)
-
-                inv_input_avg = torch.mean(inv_transformed_inputs)
-                #print("inv input avg ", inv_input_avg)
-
-                inv_transformed_inputs /= inv_input_avg
-                #print("inv transformed inputs ", inv_transformed_inputs)
-                #print("inv transformed inputs shape", inv_transformed_inputs.shape)
-                inv_transformed_inputs_shape = inv_transformed_inputs.shape
-                inputs = tst_input_transform(torch.squeeze(inv_transformed_inputs))
-
-                inputs = torch.reshape(inputs, inv_transformed_inputs_shape)
-                #print("final inputs ", inputs)
-                #print("final inputs shape ", inputs.shape)
-                #exit()
             inputs = inputs.float()
 
             if args.cuda and torch.cuda.is_available():
                 inputs = inputs.cuda()
             predictions = model(inputs)
+
+            if test_set.init_transform is not None and input_inverse_transform is not None:
+                print("inputs ", inputs)
+                print("test_set._bulk_features_avg ", test_set._bulk_features_avg)
+                inv_transformed_inputs = input_inverse_transform(inputs)
+                print("inv tra inputs ", inv_transformed_inputs)
+
+                inv_input_avg = test_set._bulk_features_avg #torch.mean(inv_transformed_inputs)
+                #print("inv input avg ", inv_input_avg)
+                #exit()
+
+                #inv_transformed_inputs /= inv_input_avg
+                #print("inv transformed inputs ", inv_transformed_inputs)
+                #print("inv transformed inputs shape", inv_transformed_inputs.shape)
+
+                #inv_transformed_inputs_shape = inv_transformed_inputs.shape
+                #inputs = tst_input_transform(torch.squeeze(inv_transformed_inputs))
+
+                #inputs = torch.reshape(inputs, inv_transformed_inputs_shape)
+                #print("final inputs ", inputs)
+                #print("final inputs shape ", inputs.shape)
+                #exit()
             #print("targets size ", targets.size())
 
             if len(targets.size()) > 1 and np.sum(targets.size())/len(targets.size()) != 1:
                 targets = torch.squeeze(targets.float())
 
-            print("predictions ", predictions)
-            print("targets ", targets)
+            # print("predictions ", predictions)
+            # print("targets ", targets)
             #print("targets_np.shape ", targets_np.shape)
 
             # if calibrate:
@@ -998,14 +1010,15 @@ def load_models(args, study):
                 inv_targets = inverse_transform(torch.reshape(targets, (*targets.shape, 1, 1)))
                 inv_predictions = inverse_transform(torch.reshape(predictions, (*predictions.shape, 1, 1)))
 
-                if input_inverse_transform is not None:
-                    print("inv targets ", inv_targets)
-                    print("inv prediction ", inv_predictions)
+                if test_set.init_transform is not None and input_inverse_transform is not None:
+                    # print("inv targets ", inv_targets)
+                    # print("inv prediction ", inv_predictions)
+                    # print("inv input avg ", inv_input_avg)
                     inv_predictions *= inv_input_avg
                     inv_targets *= inv_input_avg
 
-                    print("inv targets ", inv_targets)
-                    print("inv prediction ", inv_predictions)
+                    # print("mult inv targets ", inv_targets)
+                    # print("mult inv prediction ", inv_predictions)
                     #
                     #
                     # print("inv predictins mult ", inv_predictions)

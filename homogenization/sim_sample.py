@@ -269,7 +269,7 @@ class DFMSim(Simulation):
         job_weight = 17000000  # 4000000 - 20 min, 2000000 - cca 10 min
 
         return LevelSimulation(config_dict=config,
-                               task_size=1/fine_step,  #len(fine_mesh_data['points']) / job_weight,
+                               task_size=1/fine_step/5,  #len(fine_mesh_data['points']) / job_weight,
                                calculate=DFMSim.calculate,
                                # method which carries out the calculation, will be called from PBS processs
                                need_sample_workspace=True # If True, a sample directory is created
@@ -398,7 +398,6 @@ class DFMSim(Simulation):
                 #j = 8
                 #k = 53
                 #print("k ", k)
-
                 subdir_name = "i_{}_j_{}_k_{}".format(i, j, k)
                 #print("subdir_name ", subdir_name)
                 os.mkdir(subdir_name)
@@ -662,6 +661,7 @@ class DFMSim(Simulation):
 
                 DFMSim.inverse_transform = get_inverse_transform(study)
                 DFMSim.transform = get_transform(study)
+                #print("DFMSim.transform ", DFMSim.transform)
 
                 #DFMSim.dataset = joblib.load(os.path.join(config["sim_config"]["nn_path"], "dataset.pkl"))
 
@@ -713,8 +713,12 @@ class DFMSim(Simulation):
                     predictions = DFMSim.model(inputs)
                     predictions = np.squeeze(predictions)
 
+                    #print("predictions ", predictions)
+
                     inv_predictions = torch.squeeze(
                         DFMSim.inverse_transform(torch.reshape(predictions, (*predictions.shape, 1, 1))))
+
+                    #print("inv predictions ", inv_predictions)
 
                     pred_cond_tn = np.array([[inv_predictions[0], inv_predictions[1]],
                                              [inv_predictions[1], inv_predictions[2]]])
@@ -747,12 +751,10 @@ class DFMSim(Simulation):
 
         # print("np.mean(percentage_sym_tn_diff) ", np.mean(percentage_sym_tn_diff))
         # print("time_measurements ", time_measurements)
-
         os.chdir(sample_dir)
 
         # print("cond tensors ", cond_tensors)
         # print("pred cond tensors ", pred_cond_tensors)
-
         return cond_tensors, pred_cond_tensors
 
     @staticmethod
@@ -785,6 +787,18 @@ class DFMSim(Simulation):
             os.remove("water_balance.yaml")
         if os.path.exists("flow_fields.msh"):
             os.remove("flow_fields.msh")
+
+
+    @staticmethod
+    def _calculate_subdomains(coarse_step, geometry):
+        if coarse_step > 0:
+            hom_box_size = coarse_step * 1.5
+            domain_box_size = geometry["domain_box"][0]
+            large_box = domain_box_size + hom_box_size
+            n_centers = np.round(large_box / (hom_box_size/2) + 1)
+        else:
+            return geometry["subdomain_box"], 4
+        return [hom_box_size, hom_box_size], n_centers**2
 
     @staticmethod
     def calculate(config, seed):
@@ -848,12 +862,23 @@ class DFMSim(Simulation):
         ####################
         if "steps" in config["sim_config"]:
             fine_step_key = np.round(fine_step, 3)
-            #print("fine step key ", fine_step_key)
-            geometry = config["sim_config"]["steps"][fine_step_key]["geometry"]
-            config["sim_config"]["geometry"]["domain_box"] = geometry["domain_box"]
-            config["sim_config"]["geometry"]["subdomain_box"] = geometry["subdomain_box"]
-            config["sim_config"]["geometry"]["fractures_box"] = geometry["fractures_box"]
-            config["sim_config"]["geometry"]["n_subdomains"] = geometry["n_subdomains"]
+            if fine_step_key in config["sim_config"]["steps"]:
+                #print("fine step key ", fine_step_key)
+                geometry = config["sim_config"]["steps"][fine_step_key]["geometry"]
+                config["sim_config"]["geometry"]["domain_box"] = geometry["domain_box"]
+                config["sim_config"]["geometry"]["subdomain_box"] = geometry["subdomain_box"]
+                config["sim_config"]["geometry"]["fractures_box"] = geometry["fractures_box"]
+                config["sim_config"]["geometry"]["n_subdomains"] = geometry["n_subdomains"]
+
+            else:
+                print("domain box", config["sim_config"]["geometry"]["domain_box"])
+                # print("orig domain box from config", orig_domain_box)
+                print("fractures box ", config["sim_config"]["geometry"]["fractures_box"])
+
+                subdomain_box, n_subdomains = DFMSim._calculate_subdomains(coarse_step, config["sim_config"]["geometry"])
+
+                config["sim_config"]["geometry"]["subdomain_box"] = subdomain_box
+                config["sim_config"]["geometry"]["n_subdomains"] = n_subdomains
 
         if coarse_step > 0 and "use_larger_domain" in config["sim_config"] and config["sim_config"]["use_larger_domain"]:
             # Larger bulk domain
@@ -862,9 +887,9 @@ class DFMSim(Simulation):
             sub_domain_box = config["sim_config"]["geometry"]["subdomain_box"]
             orig_frac_box = config["sim_config"]["geometry"]["fractures_box"]
 
-            config["sim_config"]["geometry"]["domain_box"] = [orig_domain_box[0] + 2*sub_domain_box[0], orig_domain_box[1]+ 2*sub_domain_box[1]]
+            config["sim_config"]["geometry"]["domain_box"] = [orig_domain_box[0] + 2 * sub_domain_box[0], orig_domain_box[1]+ 2 * sub_domain_box[1]]
             hom_domain_box = [orig_domain_box[0] + sub_domain_box[0], orig_domain_box[1]+ sub_domain_box[1]]
-            #print("domain box ", config["sim_config"]["geometry"]["domain_box"])
+            print("use larger domain domain box ", config["sim_config"]["geometry"]["domain_box"])
 
             #larger_domain_box = config["sim_config"]["geometry"]["domain_box"]
 
@@ -935,21 +960,21 @@ class DFMSim(Simulation):
         fractures_for_coarse_sample = copy.deepcopy(fractures._reduced_fractures)
 
         if not gen_hom_samples:
-            # fine_res, status = DFMSim._run_sample(fine_flow, config)
-            # fine_res = fine_res[0]
-            # print("fine res ", fine_res)
-            done = []
-            status, p_loads, outer_reg_names, conv_check = DFMSim._run_homogenization_sample(fine_flow, config)
-            if not conv_check:
-                raise Exception("fine sample not converged")
-            done.append(fine_flow)
-            cond_tn, diff = fine_flow.effective_tensor_from_bulk(p_loads, outer_reg_names, fine_flow.basename)
-
-            print("fine cond tn ", cond_tn)
-            cond_tn = cond_tn[0]
-            cond_tn[0, 1] = (cond_tn[0, 1] + cond_tn[1, 0]) / 2
-            fine_res = cond_tn.flatten()
-            fine_res = [fine_res[0], fine_res[1], fine_res[3]]
+            if "flow_sim" in config["sim_config"] and config["sim_config"]["flow_sim"]:
+                fine_res, status = DFMSim._run_sample(fine_flow, config)
+                fine_res = [fine_res[0], fine_res[0], fine_res[0]]
+            else:
+                done = []
+                status, p_loads, outer_reg_names, conv_check = DFMSim._run_homogenization_sample(fine_flow, config)
+                if not conv_check:
+                    raise Exception("fine sample not converged")
+                done.append(fine_flow)
+                cond_tn, diff = fine_flow.effective_tensor_from_bulk(p_loads, outer_reg_names, fine_flow.basename)
+                print("fine cond tn ", cond_tn)
+                cond_tn = cond_tn[0]
+                cond_tn[0, 1] = (cond_tn[0, 1] + cond_tn[1, 0]) / 2
+                fine_res = cond_tn.flatten()
+                fine_res = [fine_res[0], fine_res[1], fine_res[3]]
             print("fine res ", fine_res)
 
             if os.path.exists("flow_fields.pvd"):
@@ -1036,12 +1061,13 @@ class DFMSim(Simulation):
 
                 print("config[coarsesample_cond_tns ", config["coarse"]["sample_cond_tns"])
 
-                shutil.copy(os.path.abspath(DFMSim.COND_TN_FILE), config["coarse"]["sample_cond_tns"])
-                os.rename(os.path.join(config["coarse"]["sample_cond_tns"], DFMSim.COND_TN_FILE),
-                          os.path.join(config["coarse"]["sample_cond_tns"], sample_id + "_" + DFMSim.COND_TN_FILE))
-                shutil.copy(os.path.abspath(DFMSim.PRED_COND_TN_FILE), config["coarse"]["sample_cond_tns"])
-                os.rename(os.path.join(config["coarse"]["sample_cond_tns"], DFMSim.PRED_COND_TN_FILE),
-                          os.path.join(config["coarse"]["sample_cond_tns"], sample_id + "_" + DFMSim.PRED_COND_TN_FILE))
+                # shutil.copy(os.path.abspath(DFMSim.COND_TN_FILE), config["coarse"]["sample_cond_tns"])
+                # os.rename(os.path.join(config["coarse"]["sample_cond_tns"], DFMSim.COND_TN_FILE),
+                #           os.path.join(config["coarse"]["sample_cond_tns"], sample_id + "_" + DFMSim.COND_TN_FILE))
+
+                # shutil.copy(os.path.abspath(DFMSim.PRED_COND_TN_FILE), config["coarse"]["sample_cond_tns"])
+                # os.rename(os.path.join(config["coarse"]["sample_cond_tns"], DFMSim.PRED_COND_TN_FILE),
+                #           os.path.join(config["coarse"]["sample_cond_tns"], sample_id + "_" + DFMSim.PRED_COND_TN_FILE))
 
                 config["cond_tns_yaml_file"] = os.path.abspath(DFMSim.COND_TN_FILE)
                 config["pred_cond_tns_yaml_file"] = os.path.abspath(DFMSim.PRED_COND_TN_FILE)
@@ -1064,27 +1090,39 @@ class DFMSim(Simulation):
                 # print("coarse flow ", coarse_flow)
                 # print("config ", config)
 
-                # coarse_res, status = DFMSim._run_sample(coarse_flow, config)
-                # print("coarse res ", coarse_res)
-                # print("status ", status)
-                # coarse_res = coarse_res[0]
-
                 if os.path.exists("flow_fields"):
                     shutil.rmtree("flow_fields")
 
-                done = []
-                status, p_loads, outer_reg_names, conv_check = DFMSim._run_homogenization_sample(coarse_flow, config)
-                if not conv_check:
-                    raise Exception("coarse sample not converged")
-                done.append(coarse_flow)
-                cond_tn, diff = coarse_flow.effective_tensor_from_bulk(p_loads, outer_reg_names, coarse_flow.basename)
-                print("coarse cond tn ", cond_tn)
-                #
-                cond_tn = cond_tn[0]
-                cond_tn[0, 1] = (cond_tn[0, 1] + cond_tn[1, 0]) / 2
-                coarse_res = cond_tn.flatten()
-                coarse_res = [coarse_res[0], coarse_res[1], coarse_res[3]]
+                if "flow_sim" in config["sim_config"] and config["sim_config"]["flow_sim"]:
+                    coarse_res, status = DFMSim._run_sample(coarse_flow, config)
+                    coarse_res = [coarse_res[0], coarse_res[0], coarse_res[0]]
+                else:
+                    done = []
+                    status, p_loads, outer_reg_names, conv_check = DFMSim._run_homogenization_sample(coarse_flow, config)
+                    if not conv_check:
+                        raise Exception("coarse sample not converged")
+                    done.append(coarse_flow)
+                    cond_tn, diff = coarse_flow.effective_tensor_from_bulk(p_loads, outer_reg_names, coarse_flow.basename)
+                    print("coarse cond tn ", cond_tn)
+                    cond_tn = cond_tn[0]
+                    cond_tn[0, 1] = (cond_tn[0, 1] + cond_tn[1, 0]) / 2
+                    coarse_res = cond_tn.flatten()
+                    coarse_res = [coarse_res[0], coarse_res[1], coarse_res[3]]
                 print("coarse res ", coarse_res)
+
+                # print("centers cond[0].shape ", np.array(coarse_flow._center_cond[0]).shape)
+                # print("centers cond[1].shape ", np.array(coarse_flow._center_cond[1]).shape)
+                #
+                # centers_cond = np.array(coarse_flow._center_cond)
+
+                shutil.copy(os.path.abspath(DFMSim.COND_TN_FILE), config["coarse"]["sample_cond_tns"])
+                np.save(os.path.join(config["coarse"]["sample_cond_tns"], sample_id + "_" + DFMSim.COND_TN_FILE + "_centers"),
+                        np.array( np.array(coarse_flow._center_cond[0])))
+
+                shutil.copy(os.path.abspath(DFMSim.COND_TN_FILE), config["coarse"]["sample_cond_tns"])
+                np.save(os.path.join(config["coarse"]["sample_cond_tns"],
+                                     sample_id + "_" + DFMSim.COND_TN_FILE + "_cond_tns"),
+                        np.array( np.array(coarse_flow._center_cond[1])))
 
                 if os.path.exists("flow_fields.pvd"):
                     os.remove("flow_fields.pvd")
@@ -1129,21 +1167,19 @@ class DFMSim(Simulation):
                     coarse_flow.fr_range = [config["coarse"]["step"], coarse_flow.fr_range[1]]
                     coarse_flow.make_mesh()
                     coarse_flow.make_fields()
-                    done = []
-                    # fine_flow.run() # @TODO replace fine_flow.run by DFMSim._run_sample()
-                    # print("run samples ")
-                    # coarse_res, status = DFMSim._run_sample(coarse_flow, config)
-                    # coarse_res = coarse_res[0]
 
-                    done = []
-                    status, p_loads, outer_reg_names, conv_check = DFMSim._run_homogenization_sample(coarse_flow, config)
-                    done.append(coarse_flow)
-                    cond_tn, diff = coarse_flow.effective_tensor_from_bulk(p_loads, outer_reg_names, coarse_flow.basename)
-
-                    cond_tn = cond_tn[0]
-                    cond_tn[0, 1] = (cond_tn[0, 1] + cond_tn[1, 0]) / 2
-                    coarse_res = cond_tn.flatten()
-                    coarse_res = [coarse_res[0], coarse_res[1], coarse_res[3]]
+                    if "flow_sim" in config["sim_config"] and config["sim_config"]["flow_sim"]:
+                        coarse_res, status = DFMSim._run_sample(coarse_flow, config)
+                        coarse_res = [coarse_res[0], coarse_res[0], coarse_res[0]]
+                    else:
+                        done = []
+                        status, p_loads, outer_reg_names, conv_check = DFMSim._run_homogenization_sample(coarse_flow, config)
+                        done.append(coarse_flow)
+                        cond_tn, diff = coarse_flow.effective_tensor_from_bulk(p_loads, outer_reg_names, coarse_flow.basename)
+                        cond_tn = cond_tn[0]
+                        cond_tn[0, 1] = (cond_tn[0, 1] + cond_tn[1, 0]) / 2
+                        coarse_res = cond_tn.flatten()
+                        coarse_res = [coarse_res[0], coarse_res[1], coarse_res[3]]
                     print("coarse res ", coarse_res)
 
                     if os.path.exists("flow_fields.pvd"):
@@ -1678,7 +1714,8 @@ class DFMSim(Simulation):
         pos_gen = fracture.UniformBoxPosition(fracture_box)
         fractures = pop.sample(pos_distr=pos_gen, keep_nonempty=False)
 
-        #print("fractures len ", len(fractures))
+        print("fractures len ", len(fractures))
+
         #print("fractures ", fractures)
         #print("fr_size_range[0] ", fr_size_range[0])
 
