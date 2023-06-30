@@ -583,8 +583,9 @@ class DFMSim(Simulation):
                     if n_subdomains > 1:
                         cond_tn_flatten = cond_tn[0].flatten()
                         if not np.any(np.isnan(cond_tn_flatten)):
-                            cond_tensors[(center_x, center_y)] = cond_tn_flatten
-                            # print("cond tn ", cond_tn_flatten)
+                            #print("cond_tn_flatten ", cond_tn_flatten)
+                            cond_tensors[(center_x, center_y)] = [cond_tn_flatten[0], (cond_tn_flatten[1]+cond_tn_flatten[2])/2, cond_tn_flatten[3]]
+                            #print("symmetric cond tn ",  cond_tensors[(center_x, center_y)])
 
                             # if pred_cond_tn is not None:
                             #     pred_cond_tn_flatten = pred_cond_tn.flatten()
@@ -727,7 +728,7 @@ class DFMSim(Simulation):
                         pred_cond_tn_flatten = pred_cond_tn.flatten()
 
                         if not np.any(np.isnan(pred_cond_tn_flatten)):
-                            pred_cond_tensors[center] = pred_cond_tn_flatten
+                            pred_cond_tensors[center] = [pred_cond_tn_flatten[0], (pred_cond_tn_flatten[1]+pred_cond_tn_flatten[2])/2, pred_cond_tn_flatten[3]]
                             # pred_cond_tn_pop_file = os.path.join(config["coarse"]["common_files_dir"],
                             #                                      DFMSim.PRED_COND_TN_POP_FILE)
                             # with NpyAppendArray(pred_cond_tn_pop_file, delete_if_exists=False) as npaa:

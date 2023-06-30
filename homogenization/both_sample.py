@@ -852,8 +852,7 @@ class BulkHomogenizationFineSample(BulkBase):
         #print("avg len scale list ", avg_len_scale_list)
 
         #print("self. cond tn ", self._cond_tns)
-
-        self._cond_tns = BulkHomogenizationFineSample.symmetrize_cond_tns(self._cond_tns)
+        #self._cond_tns = BulkHomogenizationFineSample.symmetrize_cond_tns(self._cond_tns)
 
         self._rf_sample = None
         srf_model = SpatialCorrelatedFieldHom(corr_exp="exp", corr_length=1) # np.mean(avg_len_scale_list))#, sigma=np.sqrt(np.mean(avg_var_list)))
@@ -1123,7 +1122,7 @@ class BulkHomogenization(BulkBase):
         tria = sc_spatial.Delaunay(list(self._cond_tns.keys()))
         self._mean_val = np.mean(list(self._cond_tns.values()))
 
-        values = np.array(list(self._cond_tns.values()))[:, [0,1,3]]
+        values = np.array(list(self._cond_tns.values()))#[:, [0,1,3]]
         self._interp = sc_interpolate.LinearNDInterpolator(tria, values, fill_value=0)
         self._interp_nearest = sc_interpolate.NearestNDInterpolator(tria, values)
         #print("self._cond_tns ", self._cond_tns)
