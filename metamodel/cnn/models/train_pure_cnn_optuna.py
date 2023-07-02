@@ -328,7 +328,7 @@ def features_transform(config, data_dir, output_file_name, input_transform_list,
                 else:
                     output_data = np.concatenate([output_data, output], axis=1)
 
-    if "input_transform" in config:
+    if "input_transform" in config and len(config["input_transform"]) > 0:
         quantile_trfs = quantile_transform_fit(input_data,
                                                 indices=config["input_transform"]["indices"],
                                                 transform_type=config["input_transform"]["type"])
@@ -336,7 +336,7 @@ def features_transform(config, data_dir, output_file_name, input_transform_list,
         quantile_trf_obj.quantile_trfs_in = quantile_trfs
         input_transform_list.append(transforms.Lambda(quantile_trf_obj.quantile_transform_in))
 
-    if "output_transform" in config:
+    if "output_transform" in config and len(config["output_transform"]) > 0:
         quantile_trfs_out = quantile_transform_fit(output_data,
                                                    indices=config["output_transform"]["indices"],
                                                    transform_type=config["output_transform"]["type"])
@@ -360,6 +360,11 @@ def prepare_sub_datasets(study, config, data_dir, serialize_path=None):
         prepare_dset_config["log_input"] = dset_config["log_input"]
         if "init_norm" in dset_config:
             prepare_dset_config["init_norm"] = dset_config["init_norm"]
+        if "input_transform" in dset_config:
+            prepare_dset_config["input_transform"] = dset_config["input_transform"]
+        if "output_transform" in dset_config:
+            prepare_dset_config["output_transform"] = dset_config["output_transform"]
+
         prepare_dset_config["normalize_input"] = dset_config["normalize_input"]
         prepare_dset_config["log_output"] = dset_config["log_output"]
         prepare_dset_config["normalize_output"] = dset_config["normalize_output"]
@@ -406,6 +411,29 @@ def prepare_sub_datasets(study, config, data_dir, serialize_path=None):
     return complete_train_set, complete_val_set, complete_test_set
 
 
+def _split_dataset(dataset, config, n_train_samples):
+    if n_train_samples is None:
+        n_train_samples = int(len(dataset) * config["train_samples_ratio"])
+
+    n_train_samples = np.min([n_train_samples, int(len(dataset) * config["train_samples_ratio"])])
+
+    train_val_set = dataset[:n_train_samples]
+    if config["val_samples_ratio"] == 0.0:
+        train_set = train_val_set
+        validation_set = []
+    else:
+        train_set = train_val_set[:-int(n_train_samples * config["val_samples_ratio"])]
+        validation_set = train_val_set[-int(n_train_samples * config["val_samples_ratio"]):]
+
+    if "n_test_samples" in config and config["n_test_samples"] is not None:
+        n_test_samples = config["n_test_samples"]
+        test_set = dataset[-n_test_samples:]
+    else:
+        test_set = dataset[n_train_samples:]
+
+    return train_set, validation_set, test_set
+
+
 def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=None):
     output_file_name = "output_tensor.npy"
     if "vel_avg" in config and config["vel_avg"]:
@@ -433,14 +461,14 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
     if config["init_norm"]:
         init_transform.append(transforms.Lambda(init_norm))
 
-    ########################
-    ## Quantile Transform ##
-    ########################
-    input_transform_list, output_transform_list = features_transform(config,
-                                                                     data_dir,
-                                                                     output_file_name,
-                                                                     input_transform_list,
-                                                                     output_transform_list)
+    # ########################
+    # ## Quantile Transform ##
+    # ########################
+    # input_transform_list, output_transform_list = features_transform(config,
+    #                                                                  data_dir,
+    #                                                                  output_file_name,
+    #                                                                  input_transform_list,
+    #                                                                  output_transform_list)
     ####################
     ## Log transforms ##
     ####################
@@ -536,10 +564,6 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
     if len(init_transform) > 0:
         data_init_transform = transforms.Compose(init_transform)
 
-    if "input_transform" in config or "output_transform" in config:
-        input_transformations, output_transformations = features_transform(config, data_dir, output_file_name, input_transformations,
-                                                                           output_transformations, train_set)
-
     data_input_transform, data_output_transform = None, None
     # Standardize input
     if config["log_input"]:
@@ -587,24 +611,33 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
                              )
         dataset.shuffle(config["seed"])
 
-        if n_train_samples is None:
-            n_train_samples = int(len(dataset) * config["train_samples_ratio"])
+        train_set, validation_set, test_set = _split_dataset(dataset, config, n_train_samples)
 
-        n_train_samples = np.min([n_train_samples, int(len(dataset) * config["train_samples_ratio"])])
+    if "input_transform" in config or "output_transform" in config:
+        if train_dataset is not None:
+            train_set = train_dataset
+        input_transformations, output_transformations = features_transform(config, data_dir, output_file_name,
+                                                                           input_transformations,
+                                                                           output_transformations, train_set)
+        if len(output_transformations) > 0:
+            data_output_transform = transforms.Compose(output_transformations)
 
-        train_val_set = dataset[:n_train_samples]
-        if config["val_samples_ratio"] == 0.0:
-            train_set = train_val_set
-            validation_set = []
-        else:
-            train_set = train_val_set[:-int(n_train_samples * config["val_samples_ratio"])]
-            validation_set = train_val_set[-int(n_train_samples * config["val_samples_ratio"]):]
+        if len(input_transformations) > 0:
+            data_input_transform = transforms.Compose(input_transformations)
 
-        if "n_test_samples" in config and config["n_test_samples"] is not None:
-            n_test_samples = config["n_test_samples"]
-            test_set = dataset[-n_test_samples:]
-        else:
-            test_set = dataset[n_train_samples:]
+        dataset = DFMDataset(data_dir=data_dir,
+                             output_file_name=output_file_name,
+                             input_transform=data_input_transform,
+                             output_transform=data_output_transform,
+                             init_transform=data_init_transform,
+                             input_channels=config["input_channels"] if "input_channels" in config else None,
+                             output_channels=config["output_channels"] if "output_channels" in config else None,
+                             fractures_sep=config["fractures_sep"] if "fractures_sep" in config else False,
+                             vel_avg=config["vel_avg"] if "vel_avg" in config else False
+                             )
+        dataset.shuffle(config["seed"])
+
+        train_set, validation_set, test_set = _split_dataset(dataset, config, n_train_samples)
 
         # train_loader_mean_std = torch.utils.data.DataLoader(train_set, batch_size=config["batch_size_train"],
         #                                                     shuffle=False)
