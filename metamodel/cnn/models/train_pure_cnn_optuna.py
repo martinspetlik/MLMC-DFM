@@ -307,7 +307,9 @@ def features_transform(config, data_dir, output_file_name, input_transform_list,
                                            fractures_sep=config["fractures_sep"] if "fractures_sep" in config else False,
                                            vel_avg=config["vel_avg"] if "vel_avg" in config else False
                                            )
-    input_data, output_data = np.array([]), np.array([])
+    input_data = np.array([])
+    output_data = np.array([])
+
     n_data_input = 1000000
     n_data_output = 300000
     if "input_transform" in config or "output_transform" in config:
@@ -321,7 +323,7 @@ def features_transform(config, data_dir, output_file_name, input_transform_list,
                 else:
                     input_data = np.concatenate([input_data, input], axis=1)
 
-            if output_data.shape[-1] * index < n_data_output:
+            if output_data.shape[-1] < n_data_output:
                 output = np.reshape(output, (output.shape[0], 1))
                 if len(output_data) == 0:
                     output_data = output
@@ -519,7 +521,7 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
         else:
             train_set = train_val_set[:-int(n_train_samples * config["val_samples_ratio"])]
 
-        train_loader_mean_std = torch.utils.data.DataLoader(dataset_for_mean_std, batch_size=config["batch_size_train"], shuffle=False)
+        train_loader_mean_std = torch.utils.data.DataLoader(train_set, batch_size=config["batch_size_train"], shuffle=False)
         iqr = []
         if "output_iqr_scale" in config:
             iqr = config["output_iqr_scale"]
