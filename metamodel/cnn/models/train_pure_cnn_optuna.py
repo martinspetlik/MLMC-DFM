@@ -336,7 +336,7 @@ def features_transform(config, data_dir, output_file_name, input_transform_list,
                                                 transform_type=config["input_transform"]["type"])
         joblib.dump(quantile_trfs, os.path.join(config["output_dir"], "input_transform.pkl"))
         quantile_trf_obj.quantile_trfs_in = quantile_trfs
-        input_transform_list.append(transforms.Lambda(quantile_trf_obj.quantile_transform_in))
+        input_transform_list.append(quantile_trf_obj.quantile_transform_in)
 
     if "output_transform" in config and len(config["output_transform"]) > 0:
         quantile_trfs_out = quantile_transform_fit(output_data,
@@ -344,8 +344,7 @@ def features_transform(config, data_dir, output_file_name, input_transform_list,
                                                    transform_type=config["output_transform"]["type"])
         joblib.dump(quantile_trfs_out, os.path.join(config["output_dir"], "output_transform.pkl"))
         quantile_trf_obj.quantile_trfs_out = quantile_trfs_out
-        output_transform_list.append(transforms.Lambda(quantile_trf_obj.quantile_transform_out))
-
+        output_transform_list.append(quantile_trf_obj.quantile_transform_out)
     return input_transform_list, output_transform_list
 
 
@@ -614,6 +613,10 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
         dataset.shuffle(config["seed"])
 
         train_set, validation_set, test_set = _split_dataset(dataset, config, n_train_samples)
+    else:
+        train_dataset.init_transform = data_init_transform
+        train_dataset.input_transform = data_input_transform
+        train_dataset.output_transform = data_output_transform
 
     if "input_transform" in config or "output_transform" in config:
         if train_dataset is not None:
