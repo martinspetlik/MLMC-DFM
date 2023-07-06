@@ -20,7 +20,7 @@ from homogenization.both_sample import FlowProblem, BothSample
 #from metamodel.cnn.datasets import create_dataset
 from metamodel.cnn.postprocess.optuna_results import load_study, load_models, get_saved_model_path, get_inverse_transform, get_transform
 from metamodel.cnn.datasets.dfm_dataset import DFMDataset
-from npy_append_array import NpyAppendArray
+#from npy_append_array import NpyAppendArray
 
 
 def create_corr_field(model='gauss', corr_length=0.125, dim=2, log=True, sigma=1, mode_no=1000):
@@ -714,12 +714,11 @@ class DFMSim(Simulation):
                     predictions = DFMSim.model(inputs)
                     predictions = np.squeeze(predictions)
 
-                    #print("predictions ", predictions)
-
                     inv_predictions = torch.squeeze(
                         DFMSim.inverse_transform(torch.reshape(predictions, (*predictions.shape, 1, 1))))
 
-                    #print("inv predictions ", inv_predictions)
+                    if dataset_for_prediction.init_transform is not None:
+                        inv_predictions *= dataset_for_prediction._bulk_features_avg
 
                     pred_cond_tn = np.array([[inv_predictions[0], inv_predictions[1]],
                                              [inv_predictions[1], inv_predictions[2]]])
@@ -878,6 +877,8 @@ class DFMSim(Simulation):
 
                 subdomain_box, n_subdomains = DFMSim._calculate_subdomains(coarse_step, config["sim_config"]["geometry"])
 
+                print("calculated subdomain box: {}, n subdomains: {}".format(subdomain_box, n_subdomains))
+
                 config["sim_config"]["geometry"]["subdomain_box"] = subdomain_box
                 config["sim_config"]["geometry"]["n_subdomains"] = n_subdomains
 
@@ -966,6 +967,12 @@ class DFMSim(Simulation):
                 if not conv_check:
                     raise Exception("fine sample not converged")
                 fine_res = [fine_res[0], fine_res[0], fine_res[0]]
+                if os.path.exists("flow_fields.pvd"):
+                    shutil.move("flow_fields.pvd", "flow_field_fine.pvd")
+                if os.path.exists("flow_fields"):
+                    shutil.move("flow_fields", "flow_fields_fine")
+                if os.path.exists("flow_fields.msh"):
+                    shutil.move("flow_fields.msh", "flow_fields_fine.msh")
             else:
                 done = []
                 status, p_loads, outer_reg_names, conv_check = DFMSim._run_homogenization_sample(fine_flow, config)
@@ -973,7 +980,7 @@ class DFMSim(Simulation):
                     raise Exception("fine sample not converged")
                 done.append(fine_flow)
                 cond_tn, diff = fine_flow.effective_tensor_from_bulk(p_loads, outer_reg_names, fine_flow.basename)
-                print("fine cond tn ", cond_tn)
+                #print("fine cond tn ", cond_tn)
                 cond_tn = cond_tn[0]
                 cond_tn[0, 1] = (cond_tn[0, 1] + cond_tn[1, 0]) / 2
                 fine_res = cond_tn.flatten()
@@ -1062,8 +1069,6 @@ class DFMSim(Simulation):
                 file_path_split = os.path.split(os.path.split(os.path.abspath(DFMSim.COND_TN_FILE))[0])
                 sample_id = file_path_split[1].split("_")[1]
 
-                print("config[coarsesample_cond_tns ", config["coarse"]["sample_cond_tns"])
-
                 # shutil.copy(os.path.abspath(DFMSim.COND_TN_FILE), config["coarse"]["sample_cond_tns"])
                 # os.rename(os.path.join(config["coarse"]["sample_cond_tns"], DFMSim.COND_TN_FILE),
                 #           os.path.join(config["coarse"]["sample_cond_tns"], sample_id + "_" + DFMSim.COND_TN_FILE))
@@ -1101,6 +1106,12 @@ class DFMSim(Simulation):
                     if not conv_check:
                         raise Exception("coarse sample not converged")
                     coarse_res = [coarse_res[0], coarse_res[0], coarse_res[0]]
+                    if os.path.exists("flow_fields.pvd"):
+                        shutil.move("flow_fields.pvd", "flow_field_coarse.pvd")
+                    if os.path.exists("flow_fields"):
+                        shutil.move("flow_fields", "flow_fields_coarse")
+                    if os.path.exists("flow_fields.msh"):
+                        shutil.move("flow_fields.msh", "flow_fields_coarse.msh")
                 else:
                     done = []
                     status, p_loads, outer_reg_names, conv_check = DFMSim._run_homogenization_sample(coarse_flow, config)
@@ -1108,7 +1119,7 @@ class DFMSim(Simulation):
                         raise Exception("coarse sample not converged")
                     done.append(coarse_flow)
                     cond_tn, diff = coarse_flow.effective_tensor_from_bulk(p_loads, outer_reg_names, coarse_flow.basename)
-                    print("coarse cond tn ", cond_tn)
+                    #print("coarse cond tn ", cond_tn)
                     cond_tn = cond_tn[0]
                     cond_tn[0, 1] = (cond_tn[0, 1] + cond_tn[1, 0]) / 2
                     coarse_res = cond_tn.flatten()
@@ -1120,14 +1131,16 @@ class DFMSim(Simulation):
                 #
                 # centers_cond = np.array(coarse_flow._center_cond)
 
+                #print("np.array(coarse_flow._center_cond[1])shape ", np.array(coarse_flow._center_cond[1]).shape)
+
                 shutil.copy(os.path.abspath(DFMSim.COND_TN_FILE), config["coarse"]["sample_cond_tns"])
-                np.save(os.path.join(config["coarse"]["sample_cond_tns"], sample_id + "_" + DFMSim.COND_TN_FILE + "_centers"),
-                        np.array( np.array(coarse_flow._center_cond[0])))
+                np.save(os.path.join(config["coarse"]["sample_cond_tns"], sample_id + "_centers_" + DFMSim.COND_TN_FILE),
+                        np.array(coarse_flow._center_cond[0]))
 
                 shutil.copy(os.path.abspath(DFMSim.COND_TN_FILE), config["coarse"]["sample_cond_tns"])
                 np.save(os.path.join(config["coarse"]["sample_cond_tns"],
-                                     sample_id + "_" + DFMSim.COND_TN_FILE + "_cond_tns"),
-                        np.array( np.array(coarse_flow._center_cond[1])))
+                                     sample_id + "_cond_tns_" + DFMSim.COND_TN_FILE),
+                        np.array(coarse_flow._center_cond[1])[:,[0, 1, 3, 4]])
 
                 if os.path.exists("flow_fields.pvd"):
                     os.remove("flow_fields.pvd")
@@ -1178,6 +1191,12 @@ class DFMSim(Simulation):
                         if not conv_check:
                             raise Exception("pred coarse sample not converged")
                         coarse_res = [coarse_res[0], coarse_res[0], coarse_res[0]]
+                        if os.path.exists("flow_fields.pvd"):
+                            shutil.move("flow_fields.pvd", "flow_field_coarse_pred.pvd")
+                        if os.path.exists("flow_fields"):
+                            shutil.move("flow_fields", "flow_fields_coarse_pred")
+                        if os.path.exists("flow_fields.msh"):
+                            shutil.move("flow_fields.msh", "flow_fields_coarse_pred.msh")
                     else:
                         done = []
                         status, p_loads, outer_reg_names, conv_check = DFMSim._run_homogenization_sample(coarse_flow, config)

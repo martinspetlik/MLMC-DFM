@@ -39,6 +39,7 @@ import shutil
 import gstools
 from mlmc.random import correlated_field as cf
 from sklearn.mixture import GaussianMixture
+from sklearn.preprocessing import QuantileTransformer
 
 
 logging.getLogger('bgem').disabled = True
@@ -760,16 +761,59 @@ class BulkFromFine(BulkBase):
         return 1.0, cond
 
 
-class BulkChoose(BulkBase):
-    def __init__(self, finer_level_path):
-        self.cond_tn = np.array(pandas.read_csv(finer_level_path, sep=' '))
+# class BulkChoose(BulkBase):
+#     def __init__(self, finer_level_path):
+#         self.cond_tn = np.array(pandas.read_csv(finer_level_path, sep=' '))
+#
+#     def element_data(self, mesh, eid):
+#         idx = np.random.randint(len(self.cond_tn))
+#         return 1.0, self.cond_tn[idx].reshape(2,2)
 
-    def element_data(self, mesh, eid):
-        idx = np.random.randint(len(self.cond_tn))
-        return 1.0, self.cond_tn[idx].reshape(2,2)
+class SpatialCorrelatedFieldHomSVD(cf.SpatialCorrelatedField):
+
+    def _initialize(self, **kwargs):
+        self._cond_tensors = None
+        ### Attributes computed in precalculation.
+        self.cov_mat = None
+        # Covariance matrix (dense).
+        self._n_approx_terms = None
+        # Length of the sample vector, number of KL (Karhunen-Loe?ve) expansion terms.
+        self._cov_l_factor = None
+        # (Reduced) L factor of the SVD decomposition of the covariance matrix.
+        self._sqrt_ev = None
+        # (Reduced) square roots of singular values.
+        self._config_dict = {}
+
+    def _set_config_dict(self, config_dict):
+        self._config_dict = config_dict
+
+    def _sample(self):
+        """
+        :param uncorelated: Random samples from standard normal distribution.
+        :return: Random field evaluated in points given by 'set_points'.
+        """
+        if self._cov_l_factor is None:
+            self.svd_dcmp()
+        #print("self._cond_tensors.shape ", self._cond_tensors.shape)
+        #print("self._cond_tensors ", self._cond_tensors)
+        # print("len(self._cond_tensors) ", len(self._cond_tensors))
+        # print("type self.n_approx_terms ", type(self.n_approx_terms))
+        # print("self.n_approx_terms ", self.n_approx_terms)
+
+        # size = self.n_points
+        #
+        size = self.n_approx_terms
+        print("size ", size)
+        uncorelated_indices = np.random.choice(len(self._cond_tensors), size=size) #np.random.choice(len(self._cond_tensors), size=self._n_approx_terms)
+        #print("uncorelated indices", uncorelated_indices)
+        uncorelated = self._cond_tensors[uncorelated_indices]
+        #print("uncorelated ", uncorelated)
+        print("uncorelated.shape ", uncorelated.shape)
+        print("self._cov_l_factor ", self._cov_l_factor.shape)
+        return self._cov_l_factor.dot(uncorelated)
 
 
-class SpatialCorrelatedFieldHom(cf.SpatialCorrelatedField):
+class SpatialCorrelatedFieldHomGMM(cf.SpatialCorrelatedField):
 
     def _initialize(self, **kwargs):
         self._cond_tensors = None
@@ -783,7 +827,6 @@ class SpatialCorrelatedFieldHom(cf.SpatialCorrelatedField):
         self._sqrt_ev = None
         # (Reduced) square roots of singular values.
 
-
     def _sample(self):
         cond_tn_values = self._cond_tensors
         # Remove nans if there are any
@@ -792,10 +835,6 @@ class SpatialCorrelatedFieldHom(cf.SpatialCorrelatedField):
 
         mult_coef = 1 / np.abs(np.min(cond_tn_values))
         values = cond_tn_values * mult_coef
-
-        # values[:, 0] = np.log10(values[:, 0])
-        # values[:, 2] = np.log10(values[:, 2])
-
         # Fit a Gaussian Mixture Model (GMM)
         n_components = 250
         gmm = GaussianMixture(n_components=n_components)  # Choose the number of components
@@ -804,64 +843,70 @@ class SpatialCorrelatedFieldHom(cf.SpatialCorrelatedField):
 
         size = self.n_points
         samples, _ = gmm.sample(n_samples=size)
-
         samples /= mult_coef
-
         return samples
 
-    # def _sample(self):
-    #     """
-    #     :param uncorelated: Random samples from standard normal distribution.
-    #     :return: Random field evaluated in points given by 'set_points'.
-    #     """
-    #     if self._cov_l_factor is None:
-    #         self.svd_dcmp()
-    #     #print("self._cond_tensors.shape ", self._cond_tensors.shape)
-    #     #print("self._cond_tensors ", self._cond_tensors)
-    #     # print("len(self._cond_tensors) ", len(self._cond_tensors))
-    #     # print("type self.n_approx_terms ", type(self.n_approx_terms))
-    #     # print("self.n_approx_terms ", self.n_approx_terms)
-    #
-    #     size = self.n_points
-    #     #size = self.n_approx_terms
-    #     uncorelated_indices = np.random.choice(len(self._cond_tensors), size=size) #np.random.choice(len(self._cond_tensors), size=self._n_approx_terms)
-    #     #print("uncorelated indices", uncorelated_indices)
-    #     uncorelated = self._cond_tensors[uncorelated_indices]
-    #     #print("uncorelated ", uncorelated)
-    #     print("uncorelated.shape ", uncorelated.shape)
-    #     print("self._cov_l_factor ", self._cov_l_factor.shape)
-    #
-    #     return uncorelated #self._cov_l_factor.dot(uncorelated)
+
+class SpatialCorrelatedFieldHomChoice(cf.SpatialCorrelatedField):
+
+    def _initialize(self, **kwargs):
+        self._cond_tensors = None
+        ### Attributes computed in precalculation.
+        self.cov_mat = None
+        # Covariance matrix (dense).
+        self._n_approx_terms = None
+        # Length of the sample vector, number of KL (Karhunen-Loe?ve) expansion terms.
+        self._cov_l_factor = None
+        # (Reduced) L factor of the SVD decomposition of the covariance matrix.
+        self._sqrt_ev = None
+        # (Reduced) square roots of singular values.
+
+    def _sample(self):
+        size = self.n_points
+        uncorelated_indices = np.random.choice(len(self._cond_tensors), size=size)
+        return self._cond_tensors[uncorelated_indices]
 
 
 class BulkHomogenizationFineSample(BulkBase):
     def __init__(self, config_dict):
         self._cond_tns = None
+        self._cofing_dict = config_dict
         self._get_tensors(config_dict)
+        self._srf_gstools_model = None
+        self._svd_model = {}
 
         self.mean_log_conductivity = None
         if "mean_log_conductivity" in config_dict:
             self.mean_log_conductivity = config_dict["mean_log_conductivity"]
 
-        #print("config dict ", config_dict)
-
-        #@TODO: use coarse SRF values, not effective tensors calculated at particular points
-        avg_var_list, avg_len_scale_list = self._calc_var_len_scale(config_dict)
-
-        #print("avg var list ", avg_var_list)
-        #print("avg len scale list ", avg_len_scale_list)
-
-        #print("self. cond tn ", self._cond_tns)
-        #self._cond_tns = BulkHomogenizationFineSample.symmetrize_cond_tns(self._cond_tns)
-
         self._rf_sample = None
-        srf_model = SpatialCorrelatedFieldHom(corr_exp="exp", corr_length=1) # np.mean(avg_len_scale_list))#, sigma=np.sqrt(np.mean(avg_var_list)))
-        srf_model._cond_tensors = self._cond_tns
 
-        print("SRF MODEL corr length: {}, sigma: {}".format(srf_model._corr_length, srf_model.sigma))
+        if config_dict["sim_config"]["bulk_fine_sample_model"] == "choice":
+            srf_model = SpatialCorrelatedFieldHomChoice()
+            srf_model._cond_tensors = self._cond_tns
+            field_cond_tn = cf.Field('cond_tn', srf_model)
+            self._fields = cf.Fields([field_cond_tn])
 
-        field_cond_tn = cf.Field('cond_tn', srf_model)
-        self._fields = cf.Fields([field_cond_tn])
+        elif config_dict["sim_config"]["bulk_fine_sample_model"] == "srf_gstools":
+            self._srf_gstools_model = FineHomSRFGstools(self._cond_tns, config_dict)
+            self._fields = self._srf_gstools_model._fields
+
+        elif config_dict["sim_config"]["bulk_fine_sample_model"] == "svd":
+            avg_len_scale_list, avg_var_list = FineHomSRFGstools._calc_var_len_scale(config_dict)
+            cond_tn_values, transform_obj = FineHomSRFGstools.normalize_cond_tns(self._cond_tns)
+            self._svd_model["transform_obj"] = transform_obj
+            srf_model = SpatialCorrelatedFieldHomSVD(corr_exp="exp", corr_length=np.mean(avg_len_scale_list))
+            srf_model._cond_tensors = cond_tn_values
+            field_cond_tn = cf.Field('cond_tn', srf_model)
+            self._fields = cf.Fields([field_cond_tn])
+
+        else:  # Distr fit by GaussianMixtures
+            srf_model = SpatialCorrelatedFieldHomGMM()
+            srf_model._cond_tensors = self._cond_tns
+            field_cond_tn = cf.Field('cond_tn', srf_model)
+            self._fields = cf.Fields([field_cond_tn])
+            print("SRF MODEL corr length: {}, sigma: {}".format(srf_model._corr_length, srf_model.sigma))
+
 
     @staticmethod
     def symmetrize_cond_tns(cond_tns):
@@ -875,107 +920,7 @@ class BulkHomogenizationFineSample(BulkBase):
             cond_pop_file = config_dict["fine"]["pred_cond_tn_pop_file"]
         else:
             cond_pop_file = config_dict["fine"]["cond_tn_pop_file"]
-
-        #print("cond_pop_file ", cond_pop_file)
-        #cond_pop_file =
-        #print("cond pop file ", cond_pop_file)
         self._cond_tns = np.load(cond_pop_file)
-        #print("self._cond_tns ", self._cond_tns)
-        #self._cond_tns = self._cond_tns.reshape(int(len(self._cond_tns)/4), 4)
-
-        # cond_file = "/home/martin/Documents/MLMC-DFM/test/01_cond_field/output_good_backup/L01_S0000000/cond_tensors.yaml"
-        # with open(cond_file, "r") as f:
-        #     cond_tns = ruamel.yaml.load(f)
-        #
-        # self._cond_tns = cond_tns
-
-    @staticmethod
-    def get_len_scales(cond_tns):
-        #print("cond tns keys ()", cond_tns.keys())
-        coords = np.array(list(cond_tns.keys()))
-        x_coord, y_coord = coords[:, 0], coords[:, 1]
-        rf_values = np.array(list(cond_tns.values()))
-
-        # print("coords ", coords)
-        # print("coords.shape ", coords.shape)
-        # print("rf values .shape ", rf_values.shape)
-
-        bin_center, gamma = gstools.vario_estimate((x_coord, y_coord), rf_values[:, 0])
-        fit_model = gstools.Exponential(dim=2)
-        k_xx_params = fit_model.fit_variogram(bin_center, gamma, nugget=False)
-        # print("k xx params ", k_xx_params)
-        # print("np.var(rf_values[:, 0]) ", np.var(rf_values[:, 0]))
-
-        bin_center, gamma = gstools.vario_estimate((x_coord, y_coord), rf_values[:, 1])
-        fit_model = gstools.Stable(dim=2)
-        k_xy_params = fit_model.fit_variogram(bin_center, gamma, nugget=False)
-
-        # ax = fit_model.plot()
-        # print("bin center ", bin_center)
-        # print("gamma ", gamma)
-        # ax.scatter(bin_center, gamma)
-        # plt.plot()
-        # print(fit_model)
-        # print("k xy params ", k_xy_params)
-        # print("np.var(rf_values[:, 1]) ", np.var(rf_values[:, 1]))
-
-        bin_center, gamma = gstools.vario_estimate((x_coord, y_coord), rf_values[:, 2])
-        fit_model = gstools.Exponential(dim=2)
-        k_yy_params = fit_model.fit_variogram(bin_center, gamma, nugget=False)
-        # print("k yy params ", k_yy_params)
-        # print("np.var(rf_values[:, 2]) ", np.var(rf_values[:, 2]))
-        # exit()
-
-        return k_xx_params, k_xy_params, k_yy_params
-
-    @staticmethod
-    def get_vars(cond_tns):
-        rf_values = np.array(list(cond_tns.values()))
-        return np.var(rf_values[:, 0]), np.var(rf_values[:, 1]), np.var(rf_values[:, 2])
-
-    def _calc_var_len_scale(self, config_dict):
-        sample_id = 0
-        avg_len_scale_list = []
-        avg_var_list = []
-        while True:
-            cond_file = os.path.join(config_dict["fine"]["sample_cond_tns"], "S{:07d}_{}".format(sample_id, sim_sample.DFMSim.COND_TN_FILE))
-            pred_cond_file = os.path.join(config_dict["fine"]["sample_cond_tns"],
-                                     "S{:07d}_{}".format(sample_id, sim_sample.DFMSim.PRED_COND_TN_FILE))
-
-            if not os.path.exists(cond_file):
-                break
-
-            with open(cond_file, "r") as f:
-                cond_tns = ruamel.yaml.load(f)
-
-            with open(pred_cond_file, "r") as f:
-                pred_cond_tns = ruamel.yaml.load(f)
-
-            if len(pred_cond_tns) > 0:
-                k_xx_params, k_xy_params, k_yy_params = BulkHomogenizationFineSample.get_len_scales(pred_cond_tns)
-                k_xx_var, k_xy_var, k_yy_var = BulkHomogenizationFineSample.get_vars(pred_cond_tns)
-            else:
-                k_xx_params, k_xy_params, k_yy_params = BulkHomogenizationFineSample.get_len_scales(cond_tns)
-                k_xx_var, k_xy_var, k_yy_var = BulkHomogenizationFineSample.get_vars(cond_tns)
-
-
-            k_xx_len_scale = k_xx_params[0]['len_scale']
-            k_xy_len_scale = k_xy_params[0]['len_scale']
-            k_yy_len_scale = k_yy_params[0]['len_scale']
-
-            #print("LEN SCALE k_xx: {}, k_xy: {}, k_yy:{}".format(k_xx_len_scale, k_xy_len_scale, k_yy_len_scale))
-            #print("VAR k_xx: {}, k_xy: {}, k_yy:{}".format(k_xx_var, k_xy_var, k_yy_var))
-
-            avg_len_scale = (k_xx_len_scale + k_xy_len_scale + k_yy_len_scale) / 3
-            avg_var = (k_xx_var + k_xy_var + k_yy_var) / 3
-
-            avg_len_scale_list.append(avg_len_scale)
-            avg_var_list.append(avg_var)
-
-            sample_id += 1
-
-        return avg_var_list, avg_len_scale_list
-
 
     def element_data(self, mesh, eid):
         if self._rf_sample is None:
@@ -985,107 +930,58 @@ class BulkHomogenizationFineSample(BulkBase):
                                     self._mesh_data['region_map'])
             self._rf_sample = self._fields.sample()
 
-            xv = self._mesh_data['points'][:, 0]
-            yv = self._mesh_data['points'][:, 1]
+            if self._srf_gstools_model is not None:
+                srf_data = np.array([self._rf_sample["k_xx"], self._rf_sample["k_xy"], self._rf_sample["k_yy"]])
+                inv_srf_data = np.matmul(srf_data.T, self._srf_gstools_model.projection_matrix.T)
 
-            #print("self._rf_sample[cond_tn].shape ", self._rf_sample["cond_tn"].shape)
+                inv_trf_data = np.empty((inv_srf_data.shape)).T
+                if len(self._srf_gstools_model.transform_obj) > 0:
+                    for i in range(inv_srf_data.shape[1]):
+                        if self._srf_gstools_model.transform_obj[i] is not None:
+                            inv_transformed_data = self._srf_gstools_model.transform_obj[i].inverse_transform(inv_srf_data[:, i].reshape(-1, 1))
+                            if i != 1:
+                                inv_trf_data[i][...] = np.exp(np.reshape(inv_transformed_data, inv_srf_data[:, i].shape))
+                            else:
+                                inv_trf_data[i][...] = np.reshape(inv_transformed_data, inv_srf_data[:, i].shape)
+                        else:
+                            inv_trf_data[i][...] = inv_srf_data[:, i]
+                    inv_srf_data = inv_trf_data.T
 
-            # import matplotlib
-            # #matplotlib.rcParams.update({'font.size': 34})
-            #
-            # bins=60
-            # # np_bins = np.linspace(np.min(values[:, 0]), np.max(values[:, 0]), 50)  # Define histogram bins
-            # plt.hist(self._rf_sample["cond_tn"][:, 0], bins=bins, color="red", label="k_xx", density=True)
-            # # plt.hist(samples[:, 0], bins=bins, color="blue", label="k_xy sampled", alpha=0.65, density=True)
-            # plt.legend()
-            # plt.show()
-            #
-            # # np_bins = np.linspace(np.min(values[:, 0]), np.max(values[:, 0]), 50)  # Define histogram bins
-            # plt.hist(np.abs(self._rf_sample["cond_tn"][:, 0]), bins=bins, color="red", label="abs k_xx", density=True)
-            # # plt.hist(samples[:, 0], bins=bins, color="blue", label="k_xy sampled", alpha=0.65, density=True)
-            # plt.legend()
-            # plt.show()
-            #
-            # # np_bins = np.linspace(np.min(values[:, 0]), np.max(values[:, 0]), 50)  # Define histogram bins
-            # plt.hist(np.exp(self._rf_sample["cond_tn"][:, 0]), bins=bins, color="red", label="abs k_xx", density=True)
-            # # plt.hist(samples[:, 0], bins=bins, color="blue", label="k_xy sampled", alpha=0.65, density=True)
-            # plt.legend()
-            # plt.show()
-            #
-            #
-            # try:
-            #     fig, ax = plt.subplots(1, 1, figsize=(15, 10))
-            #     cont = ax.tricontourf(xv, yv, self._rf_sample["cond_tn"][:, 0], level=32)
-            #     fig.colorbar(cont)
-            #     plt.title(r"$k_{xx}$")
-            #     plt.show()
-            # except Exception as e:
-            #     print(e)
-            #
-            # try:
-            #     fig, ax = plt.subplots(1, 1, figsize=(15, 10))
-            #     cont = ax.tricontourf(xv, yv, np.abs(self._rf_sample["cond_tn"][:, 0]), level=32)
-            #     fig.colorbar(cont)
-            #     plt.title(r"$abs k_{xx}$")
-            #     plt.show()
-            # except Exception as e:
-            #     print(e)
-            #
-            # # np_bins = np.linspace(np.min(values[:, 0]), np.max(values[:, 0]), 50)  # Define histogram bins
-            # plt.hist(np.abs(self._rf_sample["cond_tn"][:, 1]), bins=bins, color="red", label="abs k_xy",
-            #          density=True)
-            # # plt.hist(samples[:, 0], bins=bins, color="blue", label="k_xy sampled", alpha=0.65, density=True)
-            # plt.legend()
-            # plt.show()
-            #
-            # try:
-            #     fig, ax = plt.subplots(1, 1, figsize=(15, 10))
-            #     cont = ax.tricontourf(xv, yv, self._rf_sample["cond_tn"][:, 1], level=32)
-            #     fig.colorbar(cont)
-            #     plt.title(r"$k_{xy}$")
-            #     plt.show()
-            # except Exception as e:
-            #     print(e)
-            #
-            # # bins = 60
-            # # # np_bins = np.linspace(np.min(values[:, 0]), np.max(values[:, 0]), 50)  # Define histogram bins
-            # # plt.hist(self._rf_sample["cond_tn"][:, 3], bins=bins, color="red", label="k_yy", density=True)
-            # # # plt.hist(samples[:, 0], bins=bins, color="blue", label="k_xy sampled", alpha=0.65, density=True)
-            # # plt.legend()
-            # # plt.show()
-            # #
-            # # # np_bins = np.linspace(np.min(values[:, 0]), np.max(values[:, 0]), 50)  # Define histogram bins
-            # # plt.hist(np.abs(self._rf_sample["cond_tn"][:,3]), bins=bins, color="red", label="abs k_yy", density=True)
-            # # # plt.hist(samples[:, 0], bins=bins, color="blue", label="k_xy sampled", alpha=0.65, density=True)
-            # # plt.legend()
-            # # plt.show()
-            # #
-            # # try:
-            # #     fig, ax = plt.subplots(1, 1, figsize=(15, 10))
-            # #     cont = ax.tricontourf(xv, yv, self._rf_sample["cond_tn"][:, 3], level=32)
-            # #     fig.colorbar(cont)
-            # #     plt.title(r"$k_{yy}$")
-            # #     plt.show()
-            # # except Exception as e:
-            # #     print(e)
-            # #
-            # # try:
-            # #     fig, ax = plt.subplots(1, 1, figsize=(15, 10))
-            # #     cont = ax.tricontourf(xv, yv, np.abs(self._rf_sample["cond_tn"][:, 3]), level=32)
-            # #     fig.colorbar(cont)
-            # #     plt.title(r"$abs k_{yy}$")
-            # #     plt.show()
-            # # except Exception as e:
-            # #     print(e)
-            #
-            # print("self._rf_sample ", self._rf_sample)
+                self._rf_sample["k_xx"] = inv_srf_data[:, 0]
+                self._rf_sample["k_xy"] = inv_srf_data[:, 1]
+                self._rf_sample["k_yy"] = inv_srf_data[:, 2]
+            elif len(self._svd_model) > 0:
+                transform_obj = self._svd_model["transform_obj"]
+                inv_srf_data = self._rf_sample["cond_tn"]
+                inv_trf_data = np.empty((inv_srf_data.shape)).T
+                if len(transform_obj) > 0:
+                    for i in range(inv_srf_data.shape[1]):
+                        if transform_obj[i] is not None:
+                            inv_transformed_data = transform_obj[i].inverse_transform(
+                                inv_srf_data[:, i].reshape(-1, 1))
+                            if i != 1:
+                                inv_trf_data[i][...] = np.exp(
+                                    np.reshape(inv_transformed_data, inv_srf_data[:, i].shape))
+                            else:
+                                inv_trf_data[i][...] = np.reshape(inv_transformed_data, inv_srf_data[:, i].shape)
+                        else:
+                            inv_trf_data[i][...] = inv_srf_data[:, i]
+                    inv_srf_data = inv_trf_data.T
+                self._rf_sample["cond_tn"] = inv_srf_data
 
         ele_idx = np.where(self._mesh_data["ele_ids"] == eid)
-        cond_tn = self._rf_sample["cond_tn"][ele_idx]
+
+        if self._srf_gstools_model is None:
+            cond_tn = self._rf_sample["cond_tn"][ele_idx]
+            cond_tn = [[cond_tn[0][0], cond_tn[0][1]], [cond_tn[0][1], cond_tn[0][2]]]
+        else:
+            k_xx = self._rf_sample["k_xx"][ele_idx][0]
+            k_xy = self._rf_sample["k_xy"][ele_idx][0]
+            k_yy = self._rf_sample["k_yy"][ele_idx][0]
+            cond_tn = [[k_xx, k_xy], [k_xy, k_yy]]
 
         #print("cond tn ", cond_tn)
-
-        cond_tn = [[cond_tn[0][0], cond_tn[0][1]], [cond_tn[0][1], cond_tn[0][2]]]
+        #cond_tn = [[cond_tn[0][0], cond_tn[0][1]], [cond_tn[0][1], cond_tn[0][2]]]
 
         # cond_tn = cond_tn.reshape(2, 2)
         # sym_value = (cond_tn[0,1] + cond_tn[1,0])/2
@@ -1097,18 +993,244 @@ class BulkHomogenizationFineSample(BulkBase):
         return 1.0, cond_tn
 
 
+class FineHomSRFGstools:
+
+    def __init__(self, cond_tns, config_dict):
+        self._cond_tns = cond_tns
+        avg_len_scale_list, avg_var_list = FineHomSRFGstools._calc_var_len_scale(config_dict)
+        gmm, mult_coef, self.transform_obj = FineHomSRFGstools.get_distrs(self._cond_tns)
+        len_scales = avg_len_scale_list
+        self._fields, self.projection_matrix = FineHomSRFGstools.pca(gmm, mult_coef, len_scales, self.transform_obj)
+
+    @staticmethod
+    def _calc_var_len_scale(config_dict):
+        ###
+        # Len scales and variances of normalized data
+        ###
+        sample_id = 0
+        len_scales_list = []
+        vars_list = []
+        while True:
+            data_dir = config_dict["fine"]["sample_cond_tns"]
+            sample_file = os.path.join(data_dir, "S{:07d}".format(sample_id))
+
+            cond_centers_file = sample_file + "_centers_" + sim_sample.DFMSim.COND_TN_FILE + ".npy"
+            cond_tns_file = sample_file + "_cond_tns_" + sim_sample.DFMSim.COND_TN_FILE + ".npy"
+            pred_cond_centers_file = sample_file + "_centers_" + sim_sample.DFMSim.COND_TN_FILE + ".npy"
+            pred_cond_tns_file = sample_file + "_cond_tns_" + sim_sample.DFMSim.COND_TN_FILE + ".npy"
+
+            if not os.path.exists(cond_centers_file):
+                break
+
+            centers = np.load(cond_centers_file)
+            cond_tns = np.load(cond_tns_file)
+
+            if os.path.exists(pred_cond_centers_file):
+                centers = np.load(pred_cond_centers_file)
+                cond_tns = np.load(pred_cond_tns_file)
+
+            cond_tns = FineHomSRFGstools.symmetrize_cond_tns(cond_tns)
+            cond_tns, _ = FineHomSRFGstools.normalize_cond_tns(cond_tns)
+
+            k_xx_params, k_xy_params, k_yy_params = FineHomSRFGstools.get_len_scales(centers, cond_tns)
+            k_xx_var, k_xy_var, k_yy_var = FineHomSRFGstools.get_vars(cond_tns)
+
+            k_xx_len_scale = k_xx_params[0]['len_scale']
+            k_xy_len_scale = k_xy_params[0]['len_scale']
+            k_yy_len_scale = k_yy_params[0]['len_scale']
+
+            len_scales_list.append([k_xx_len_scale, k_xy_len_scale, k_yy_len_scale])
+            vars_list.append([k_xx_var, k_xy_var, k_yy_var])
+
+            sample_id += 1
+
+            if len(len_scales_list) > 15:
+                break
+
+        print("len_scales list ", len_scales_list)
+        print("vars list ", vars_list)
+
+        avg_len_scales = np.mean(np.array(len_scales_list), axis=0)
+        avg_vars = np.mean(np.array(vars_list), axis=0)
+
+        return avg_len_scales, avg_vars
+
+    @staticmethod
+    def get_vars(cond_tns):
+        rf_values = cond_tns
+        return np.var(rf_values[:, 0]), np.var(rf_values[:, 1]), np.var(rf_values[:, 2])
+
+    @staticmethod
+    def get_len_scales(centers, cond_tns):
+        coords = centers
+        x_coord, y_coord = coords[:, 0], coords[:, 1]
+        rf_values = cond_tns
+
+        print("coords ", coords)
+        print("coords.shape ", coords.shape)
+        print("rf values .shape ", rf_values.shape)
+
+        bin_center, gamma = gstools.vario_estimate((x_coord, y_coord), rf_values[:, 0])
+        fit_model = gstools.Exponential(dim=2)
+        k_xx_params = fit_model.fit_variogram(bin_center, gamma, nugget=False)
+        print("k xx params ", k_xx_params)
+        print("np.var(rf_values[:, 0]) ", np.var(rf_values[:, 0]))
+
+        bin_center, gamma = gstools.vario_estimate((x_coord, y_coord), rf_values[:, 1])
+        fit_model = gstools.Stable(dim=2)
+        k_xy_params = fit_model.fit_variogram(bin_center, gamma, nugget=False)
+
+        # ax = fit_model.plot()
+        # print("bin center ", bin_center)
+        # print("gamma ", gamma)
+        # ax.scatter(bin_center, gamma)
+        # plt.plot()
+        # print(fit_model)
+        print("k xy params ", k_xy_params)
+        print("np.var(rf_values[:, 1]) ", np.var(rf_values[:, 1]))
+
+        bin_center, gamma = gstools.vario_estimate((x_coord, y_coord), rf_values[:, 2])
+        fit_model = gstools.Exponential(dim=2)
+        k_yy_params = fit_model.fit_variogram(bin_center, gamma, nugget=False)
+        print("k yy params ", k_yy_params)
+        print("np.var(rf_values[:, 2]) ", np.var(rf_values[:, 2]))
+
+        return k_xx_params, k_xy_params, k_yy_params
+
+    @staticmethod
+    def symmetrize_cond_tns(cond_tns):
+        cond_tns[:, 1] = cond_tns[:, 2] = (cond_tns[:, 1] + cond_tns[:, 2]) / 2
+        return np.delete(cond_tns, 1, axis=1)
+
+    @staticmethod
+    def normalize_cond_tns(cond_tns, n_quantiles=10000):
+        cond_tns_val = copy.deepcopy(cond_tns)
+        trf_data = np.empty((cond_tns_val.shape)).T
+        transform_obj = []
+        for i in range(cond_tns_val.shape[1]):
+            transformer = QuantileTransformer(n_quantiles=n_quantiles, random_state=0, output_distribution="normal")
+            if i != 1:
+                transform_obj.append(transformer.fit(np.log(cond_tns_val[:, i]).reshape(-1, 1)))
+            else:
+                transform_obj.append(transformer.fit(cond_tns_val[:, i].reshape(-1, 1)))
+
+        for i in range(cond_tns_val.shape[1]):
+            if i != 1:
+                transformed_data = transform_obj[i].transform(np.log(cond_tns_val[:, i]).reshape(-1, 1))
+            else:
+                transformed_data = transform_obj[i].transform(cond_tns_val[:, i].reshape(-1, 1))
+            trf_data[i][...] = np.reshape(transformed_data, cond_tns_val[:, i].shape)
+
+        # # trf_data = cond_tn_values.T
+        # bins = 60
+        # # p_bins = np.linspace(np.min(values[:, 0]), np.max(values[:, 0]), 50)  # Define histogram bins
+        # plt.hist(cond_tns[:, 0], bins=bins, color="red", label="k_xx", density=True)
+        # # plt.hist(values[:, 0], bins=bins, color="blue", label="log(k_xx)", alpha=0.65, density=True)
+        # plt.legend()
+        # plt.show()
+        #
+        # # p_bins = np.linspace(np.min(values[:, 0]), np.max(values[:, 0]), 50)  # Define histogram bins
+        # plt.hist(trf_data[0, :], bins=bins, color="red", label="k_xx", density=True)
+        # # plt.hist(values[:, 0], bins=bins, color="blue", label="log(k_xx)", alpha=0.65, density=True)
+        # plt.legend()
+        # plt.show()
+
+        return trf_data.T, transform_obj
+
+    @staticmethod
+    def get_distrs(cond_tns):
+        n_samples = 5000
+        n_components = 5 #250
+        #########################
+        ##  QuantileTransform  ##
+        #########################
+        cond_tn_values, transform_obj = FineHomSRFGstools.normalize_cond_tns(cond_tns)
+
+        ######################
+        ## Fit distribution ##
+        ######################
+        gmm = GaussianMixture(n_components=n_components)
+        mult_coef = 1  # / np.abs(np.min(cond_tn_values[:, 1]))
+        values = copy.deepcopy(cond_tn_values)
+        values[:, 1] = values[:, 1] * mult_coef
+        gmm.fit(values)
+        # Generate new samples from the fitted distribution
+        samples, _ = gmm.sample(n_samples=n_samples)
+        samples[:, 1] /= mult_coef
+
+        # Print the means and covariances of the fitted components
+        for i in range(gmm.n_components):
+            print(f"Component {i + 1}:")
+            print("Mean:", gmm.means_[i])
+            print("Covariance Matrix:")
+            print(gmm.covariances_[i])
+
+        return gmm, mult_coef, transform_obj
+
+    @staticmethod
+    def pca(gmm, mult_coef, len_scales, transform_obj):
+        # Number of sample for PCA
+        n_samples = 5000
+        anis_angles = [0, 0, 0]
+        k_xx_len_scale, k_xy_len_scale, k_yy_len_scale = len_scales[0], len_scales[1], len_scales[2]
+
+        ########################################
+        # Sample from normalized distribution  #
+        ########################################
+        samples, _ = gmm.sample(n_samples=n_samples)
+        samples /= mult_coef
+
+        ######################
+        # Get PCA components #
+        ######################
+        covariance_matrix = np.cov(samples.T)
+        eigen_values, eigen_vectors = np.linalg.eig(covariance_matrix)
+        projection_matrix = (eigen_vectors.T[:][:]).T
+        p_components = samples.dot(projection_matrix)
+
+        pc_means = [np.mean(p_components[:, 0]), np.mean(p_components[:, 1]), np.mean(p_components[:, 2])]
+        pc_vars = [np.var(p_components[:, 0]), np.var(p_components[:, 1]), np.var(p_components[:, 2])]
+
+        print("pc means: {} vars: {}".format(pc_means, pc_vars))
+        print("LEN SCALES k_xx: {}, k_xy: {}, k_yy:{}".format(k_xx_len_scale, k_xy_len_scale, k_yy_len_scale))
+
+        ############
+        ## Models ##
+        ############
+        mode_no = 10000
+        model_k_xx = gstools.Exponential(dim=2, var=pc_vars[0], len_scale=k_xx_len_scale, angles=anis_angles[0])
+        model_k_xy = gstools.Exponential(dim=2, var=pc_vars[1], len_scale=k_xy_len_scale, angles=anis_angles[1])
+        model_k_yy = gstools.Exponential(dim=2, var=pc_vars[2], len_scale=k_yy_len_scale, angles=anis_angles[2])
+
+        field_k_xx = cf.Field('k_xx', cf.GSToolsSpatialCorrelatedField(model_k_xx,  # log=self.log,
+                                                                       # sigma=np.sqrt(self.cov_log_conductivity[0,0]),
+                                                                       mode_no=mode_no,
+                                                                       # mu=pca_means[0]
+                                                                       ))
+
+        field_k_xy = cf.Field('k_xy', cf.GSToolsSpatialCorrelatedField(model_k_xy,  # log=self.log,
+                                                                       # sigma=np.sqrt(self.cov_log_conductivity[1,1]),
+                                                                       mode_no=mode_no,
+                                                                       # mu=pca_means[1]
+                                                                       ))
+
+        field_k_yy = cf.Field('k_yy', cf.GSToolsSpatialCorrelatedField(model_k_yy,  # log=self.log,
+                                                                       # sigma=np.sqrt(self.cov_log_conductivity[1,1]),
+                                                                       mode_no=mode_no,
+                                                                       # mu=pca_means[1]
+                                                                       ))
+
+        fields = cf.Fields([field_k_xx, field_k_xy, field_k_yy])
+        return fields, projection_matrix
+
 
 class BulkHomogenization(BulkBase):
     def __init__(self, config_dict):
         self._cond_tns = None
-        #print("config_dict ", config_dict)
-
         self._get_tensors(config_dict)
         self.mean_log_conductivity = None
-
         if "mean_log_conductivity" in config_dict:
             self.mean_log_conductivity = config_dict["mean_log_conductivity"]
-
         self._center_points = np.asarray(list(self._cond_tns.keys()))
 
     def _get_tensors(self, config):
@@ -1134,10 +1256,6 @@ class BulkHomogenization(BulkBase):
         cond_tn = self._cond_tns[tuple(self._center_points[np.argmin(dist_2)])]
 
         interp_value = self._interp(center)
-
-        # print("cond tn ", cond_tn)
-        # print("cond tn ", cond_tn.shape)
-        # print("interp ", interp_value)
 
         if np.all(interp_value == 0):
             interp_value = self._interp_nearest(center)
@@ -1800,59 +1918,17 @@ class FlowProblem:
 
         mesh_centers_eids = self.get_centers(self.mesh)
 
-        # print("center_cond_tn_field[0] ", center_cond_tn_field[0])
-        # print("center_cond_tn_field[1] ", center_cond_tn_field[1])
-        # print("mesh_centers_eids[0] ", mesh_centers_eids[0])
-
-        #print("center cond tn field ", center_cond_tn_field)
-
         grid_fine = np.array(center_cond_tn_field[0])[:, :2]
         values = np.array(center_cond_tn_field[1])[:, [0,1,4]]
         grid_hom = np.array(mesh_centers_eids[0])[:, :2]
 
-        # print("grid fine ", grid_fine)
-        # # print("values ", values)
-        # print("grid hom ", grid_hom)
-        # print("grid fine ", grid_fine.shape)
-        # print("values ", values.shape)
-        # print("grid hom ", grid_hom.shape)
-        # x_fine = grid_fine[:, 0]
-        # y_fine = grid_fine[:, 1]
-        #
-        # xy = np.zeros((2, np.size(x_fine)))
-        # xy[0] = x_fine
-        # xy[1] = y_fine
-        # xy = xy.T
-
-        # print("values ", values)
-        # exit()
-
-        # import cProfile
-        # import pstats
-        # pr = cProfile.Profile()
-        # pr.enable()
         tria = sc_spatial.Delaunay(grid_fine)
         mean_val = np.mean(values)
         interp = sc_interpolate.LinearNDInterpolator(tria, values, fill_value=0)
         value_hom = interp(grid_hom)
-        # pr.disable()
-        # ps = pstats.Stats(pr).sort_stats('cumtime')
-        # ps.print_stats(100)
-
-
-        # print("value hom ", value_hom)
-        # exit()
-
-        #print("value hom shape ", value_hom.shape)
 
         zero_rows = np.where(np.all(value_hom == 0, axis=1))[0]
         value_hom[zero_rows] = [mean_val, 0, mean_val]
-
-        # for index, row in enumerate(value_hom):
-        #     if np.alltrue(row == 0):
-        #         print("row ", row)
-        #         v = [mean_val, 0, mean_val]
-        #         value_hom[index] = v
 
         interp_data = [mesh_centers_eids, value_hom]
 
