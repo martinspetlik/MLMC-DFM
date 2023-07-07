@@ -1066,15 +1066,15 @@ class FineHomSRFGstools:
         x_coord, y_coord = coords[:, 0], coords[:, 1]
         rf_values = cond_tns
 
-        print("coords ", coords)
-        print("coords.shape ", coords.shape)
-        print("rf values .shape ", rf_values.shape)
+        # print("coords ", coords)
+        # print("coords.shape ", coords.shape)
+        # print("rf values .shape ", rf_values.shape)
 
         bin_center, gamma = gstools.vario_estimate((x_coord, y_coord), rf_values[:, 0])
         fit_model = gstools.Exponential(dim=2)
         k_xx_params = fit_model.fit_variogram(bin_center, gamma, nugget=False)
-        print("k xx params ", k_xx_params)
-        print("np.var(rf_values[:, 0]) ", np.var(rf_values[:, 0]))
+        # print("k xx params ", k_xx_params)
+        # print("np.var(rf_values[:, 0]) ", np.var(rf_values[:, 0]))
 
         bin_center, gamma = gstools.vario_estimate((x_coord, y_coord), rf_values[:, 1])
         fit_model = gstools.Stable(dim=2)
@@ -1085,15 +1085,15 @@ class FineHomSRFGstools:
         # print("gamma ", gamma)
         # ax.scatter(bin_center, gamma)
         # plt.plot()
-        # print(fit_model)
-        print("k xy params ", k_xy_params)
-        print("np.var(rf_values[:, 1]) ", np.var(rf_values[:, 1]))
+        # # print(fit_model)
+        # print("k xy params ", k_xy_params)
+        # print("np.var(rf_values[:, 1]) ", np.var(rf_values[:, 1]))
 
         bin_center, gamma = gstools.vario_estimate((x_coord, y_coord), rf_values[:, 2])
         fit_model = gstools.Exponential(dim=2)
         k_yy_params = fit_model.fit_variogram(bin_center, gamma, nugget=False)
-        print("k yy params ", k_yy_params)
-        print("np.var(rf_values[:, 2]) ", np.var(rf_values[:, 2]))
+        # print("k yy params ", k_yy_params)
+        # print("np.var(rf_values[:, 2]) ", np.var(rf_values[:, 2]))
 
         return k_xx_params, k_xy_params, k_yy_params
 
