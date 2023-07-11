@@ -7,6 +7,7 @@ import logging
 
 import os
 import sys
+import glob
 import numpy as np
 import threading
 import subprocess
@@ -1010,8 +1011,9 @@ class FineHomSRFGstools:
         sample_id = 0
         len_scales_list = []
         vars_list = []
+        data_dir = config_dict["fine"]["sample_cond_tns"]
+        n_files = len(glob.glob(data_dir + '/*'))
         while True:
-            data_dir = config_dict["fine"]["sample_cond_tns"]
             sample_file = os.path.join(data_dir, "S{:07d}".format(sample_id))
 
             cond_centers_file = sample_file + "_centers_" + sim_sample.DFMSim.COND_TN_FILE + ".npy"
@@ -1020,7 +1022,7 @@ class FineHomSRFGstools:
             pred_cond_tns_file = sample_file + "_cond_tns_" + sim_sample.DFMSim.COND_TN_FILE + ".npy"
 
             if not os.path.exists(cond_centers_file):
-                break
+                continue
 
             centers = np.load(cond_centers_file)
             cond_tns = np.load(cond_tns_file)
@@ -1044,7 +1046,7 @@ class FineHomSRFGstools:
 
             sample_id += 1
 
-            if len(len_scales_list) > 15:
+            if len(len_scales_list) > 15 or sample_id > n_files:
                 break
 
         print("len_scales list ", len_scales_list)
