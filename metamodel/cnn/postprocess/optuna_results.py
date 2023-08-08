@@ -24,9 +24,10 @@ from metamodel.cnn.models.train_pure_cnn_optuna import prepare_dataset
 #from statsmodels.regression.quantile_regression import QuantReg
 #from sklearn.linear_model import LogisticRegression
 #from sklearn.calibration import CalibratedClassifierCV
+from sklearn.preprocessing import QuantileTransformer, RobustScaler
 
 
-def preprocess_dataset(config, user_attrs, data_dir):
+def preprocess_dataset(config, user_attrs, data_dir, results_dir=None):
     print("user attrs ", user_attrs)
     output_file_name = "output_tensor.npy"
     if "vel_avg" in config and config["vel_avg"]:
@@ -74,14 +75,38 @@ def preprocess_dataset(config, user_attrs, data_dir):
         data_normalizer.output_std = user_attrs["output_std"]
         output_transformations.append(data_normalizer.normalize_output)
 
+    print("data dir ", data_dir)
+    print("results dir ", results_dir)
+    if os.path.exists(os.path.join(results_dir, "output_transform.pkl")):
+        out_trans_obj = joblib.load(os.path.join(results_dir, "output_transform.pkl"))
+        quantile_trf_obj = QuantileTRF()
+        quantile_trf_obj.quantile_trfs_out = out_trans_obj
+        output_transformations.append(quantile_trf_obj.quantile_transform_out)
+    else:
+        if "output_transform" in config and config["output_transform"]:
+            raise Exception("{} not exists".format(os.path.join(results_dir, "output_transform.pkl")))
+
     if len(output_transformations) > 0:
         data_output_transform = transforms.Compose(output_transformations)
+
+    init_transform = []
+    data_init_transform = None
+    if "init_norm" in study.user_attrs and study.user_attrs["init_norm"]:
+        init_transform.append(transforms.Lambda(init_norm))
+
+    if len(init_transform) > 0:
+        data_init_transform = transforms.Compose(init_transform)
+
+    print("preprocess data input transform ", data_input_transform)
+    print("preprocess data output transform ", data_output_transform)
+
 
     # ============================
     # Datasets and data loaders
     # ============================
     dataset = DFMDataset(data_dir=data_dir,
                          output_file_name=output_file_name,
+                         init_transform=data_init_transform,
                          input_transform=data_input_transform,
                          output_transform=data_output_transform,
                          two_dim=True,
@@ -174,6 +199,19 @@ def load_dataset(results_dir, study):
         if not hasattr(dataset.output_transform, 'output_quantiles'):
             dataset.output_transform.output_quantiles = []
 
+    print("dataset.output_transform ", dataset.output_transform)
+
+    if os.path.exists(os.path.join(results_dir, "output_transform.pkl")) or os.path.exists(os.path.join(results_dir, "input_transform.pkl")):
+        quantile_trf_obj = QuantileTRF()
+        if os.path.exists(os.path.join(results_dir, "output_transform.pkl")):
+            out_trans_obj = joblib.load(os.path.join(results_dir, "output_transform.pkl"))
+            quantile_trf_obj.quantile_trfs_out = out_trans_obj
+            print("out trans obj ", out_trans_obj)
+        if os.path.exists(os.path.join(results_dir, "input_transform.pkl")):
+            in_trans_obj = joblib.load(os.path.join(results_dir, "input_transform.pkl"))
+            quantile_trf_obj.quantile_trfs_in = in_trans_obj
+
+
     n_train_samples = study.user_attrs["n_train_samples"]
     n_val_samples = study.user_attrs["n_val_samples"]
     # print("len(dataset) ", len(dataset))
@@ -196,9 +234,13 @@ def load_dataset(results_dir, study):
     #data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/homogenization_samples_MLMC-DFM_5LMC-L4_cl_6"
     #data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/homogenization_samples_charon"
     data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/homogenization_samples_MLMC-DFM_5LMC_L1_cl_v_0_overlap"
-    data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/homogenization_samples_MLMC-DFM_hom_nn_rho_5_0_no_fractures"
-    data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/homogenization_samples_MLMC-DFM_hom_nn_rho_7_5_no_sigma_rast_3"
-    data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/homogenization_samples_MLMC-DFM_hom_nn_rho_10_0_no_sigma_step_1_871_rast_3"
+    #data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/homogenization_samples_MLMC-DFM_hom_nn_rho_5_0_no_fractures"
+    data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/homogenization_samples_MLMC-DFM_hom_nn_rho_10_0_no_sigma_rast_3"
+    #data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/homogenization_samples_MLMC-DFM_hom_nn_rho_10_0_no_sigma_step_1_871_rast_3"
+    #data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/homogenization_samples_MLMC-DFM_hom_nn_rho_10_0_no_sigma_step_4_325_fr_mult_2_5"
+    #data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/homogenization_samples_MLMC-DFM_hom_nn_rho_10_0_no_sigma_step_1_871_fr_div_10_rast_3"
+    #data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/MLMC-DFM_general_dataset/test_datasets/homogenization_samples_MLMC-DFM_hom_nn_rho_10_0_no_sigma_mean_min_8"
+    data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/MLMC-DFM_general_dataset_2/test_datasets/homogenization_samples_MLMC-DFM_hom_nn_rho_10_0_no_sigma_fr_div_0_1"
     config = {#"num_epochs": trials_config["num_epochs"],
               "batch_size_train": 32,
               # "batch_size_test": 250,
@@ -207,13 +249,18 @@ def load_dataset(results_dir, study):
               "train_samples_ratio": 0.8,
               "val_samples_ratio":  0.2,
               "print_batches": 10,
+              "init_norm": study.user_attrs["init_norm"],
               "log_input": study.user_attrs["input_log"],
               "normalize_input": study.user_attrs["normalize_input"],
               "log_output": study.user_attrs["output_log"],
               "normalize_output": study.user_attrs["normalize_output"],
+              #"output_transform": study.user_attrs["output_transform"],
               "seed": 12345}
 
-    return preprocess_dataset(config, study.user_attrs, data_dir=data_dir)
+    if "output_transform" in study.user_attrs:
+        config["output_transform"] = study.user_attrs["output_transform"]
+
+    return preprocess_dataset(config, study.user_attrs, data_dir=data_dir, results_dir=results_dir)
 
 
 def get_rotation_angles(model, loader, inverse_transform):
@@ -326,7 +373,7 @@ def get_inverse_transform_input(study):
     return inverse_transform
 
 
-def get_transform(study):
+def get_transform(study, results_dir=None):
     input_transformations = []
     output_transformations = []
     init_transform = []
@@ -377,16 +424,31 @@ def get_transform(study):
             data_normalizer.output_quantiles = study.user_attrs["output_quantiles"]
         output_transformations.append(data_normalizer.normalize_output)
 
+    transforms_list = []
+    if ("output_transform" in study.user_attrs and len(study.user_attrs["output_transform"]) > 0) \
+            or os.path.exists(os.path.join(results_dir, "output_transform.pkl")):
+        output_transform = joblib.load(os.path.join(results_dir, "output_transform.pkl"))
+        quantile_trf_obj = QuantileTRF()
+        quantile_trf_obj.quantile_trfs_out = output_transform
+        transforms_list.append(quantile_trf_obj.quantile_inv_transform_out)
+
     if len(output_transformations) > 0:
         data_output_transform = transforms.Compose(output_transformations)
-
 
     return data_init_transform, data_input_transform, data_output_transform
 
 
-def get_inverse_transform(study):
+def get_inverse_transform(study, results_dir=None):
     inverse_transform = None
     print("study.user_attrs", study.user_attrs)
+
+    transforms_list = []
+    if ("output_transform" in study.user_attrs and len(study.user_attrs["output_transform"]) > 0) \
+            or os.path.exists(os.path.join(results_dir, "output_transform.pkl")):
+        output_transform = joblib.load(os.path.join(results_dir, "output_transform.pkl"))
+        quantile_trf_obj = QuantileTRF()
+        quantile_trf_obj.quantile_trfs_out = output_transform
+        transforms_list.append(quantile_trf_obj.quantile_inv_transform_out)
 
     if "normalize_output" in study.user_attrs and study.user_attrs["normalize_output"]:
         std = 1/study.user_attrs["output_std"]
@@ -398,8 +460,8 @@ def get_inverse_transform(study):
         ones_std = np.ones(len(zeros_mean))
         mean = -study.user_attrs["output_mean"]
 
-        transforms_list = [transforms.Normalize(mean=zeros_mean, std=std),
-                            transforms.Normalize(mean=mean, std=ones_std)]
+        transforms_list.extend([transforms.Normalize(mean=zeros_mean, std=std),
+                            transforms.Normalize(mean=mean, std=ones_std)])
 
         if "output_log" in study.user_attrs and study.user_attrs["output_log"]:
             print("output log to transform list")
@@ -407,8 +469,8 @@ def get_inverse_transform(study):
 
         inverse_transform = transforms.Compose(transforms_list)
 
-    # if "init_norm" in study.user_attrs and study.user_attrs["init_norm"]:
-    #     print("init norm ")
+    print("inverse transform ", inverse_transform)
+
     return inverse_transform
 
 
@@ -551,6 +613,32 @@ def plot_target_data(train_loader, validation_loader, test_loader):
     #val_targets = np.array(val_targets)
     #test_targets = np.array(test_targets)
 
+    # ########################
+    # # Quantile transform  ##
+    # ########################
+    # print("QUANTILE TRANSFORM")
+    # quantile_trf_obj = QuantileTRF()
+    # quantile_trfs_out = quantile_transform_fit(train_targets.T,
+    #                                            indices=[1],
+    #                                            transform_type="QuantileTransform")
+    # quantile_trf_obj.quantile_trfs_out = quantile_trfs_out
+    #
+    # print("train targets shape ", train_targets.shape)
+    # trf_train_targets = quantile_trf_obj.quantile_transform_out_real(train_targets.T)
+    #
+    # print("trf train tragets shape ", trf_train_targets.shape)
+    # plt.hist(trf_train_targets[1, :], bins=1000, color="red", label="QuantileTRF train", alpha=0.5, density=True)
+    # plt.legend()
+    # plt.show()
+
+    # trf_test_targets = quantile_trf_obj.quantile_transform_out_real(test_targets.T)
+    #
+    # print("trf test tragets shape ", trf_test_targets.shape)
+    # print("trf test targets data ", trf_test_targets[1, :100])
+    # plt.hist(trf_test_targets[1, :], bins=1000, color="red", label="QuantileTRF test", alpha=0.5, density=True)
+    # plt.legend()
+    # plt.show()
+
     n_channels = 3
     for i in range(n_channels):
         print("train targets shape ", train_targets.shape)
@@ -566,16 +654,35 @@ def plot_target_data(train_loader, validation_loader, test_loader):
         print("k_train_targets ", k_train_targets.shape)
         print("k train targets ")
 
-        density = False
+        density = True
         plt.hist(k_train_targets, bins=1000, color="red", label="train, ch: {}".format(i), alpha=0.5, density=density)
+
         #plt.hist(k_val_targets, bins=60, color="blue", label="val", alpha=0.5, density=density)
         #plt.hist(k_test_targets, bins=60, color="green", label="test", alpha=0.5, density=density)
         #plt.xlabel(xlabel)
         # plt.ylabel("Frequency for relative")
-        #plt.xlim([0.0001, 0.01])
+        # if i == 1:
+        #     plt.xlim([-1, 1])
         plt.legend()
         #plt.savefig("hist_" + title + ".pdf")
         plt.show()
+        # if i == 1:
+        #     b = 0.1
+        #     # normal_sample = k_train_targets / (b * np.sqrt(2))
+        #     # plt.hist(normal_sample, bins=1000, color="red", label="train, ch: {}".format(i), alpha=0.5, density=density)
+        #     # plt.legend()
+        #     # plt.show()
+        #
+        #     n_quantiles = 10000
+        #     transformer = QuantileTransformer(n_quantiles=n_quantiles, random_state=0, output_distribution="normal")
+        #     transform_obj = transformer.fit(k_train_targets.reshape(-1, 1))
+        #
+        #     transformed_data = transform_obj.transform(k_train_targets.reshape(-1, 1))
+        #     plt.hist(transformed_data, bins=1000, color="red", label="train, ch: {}".format(i), alpha=0.5, density=density)
+        #     plt.legend()
+        #     plt.show()
+        #
+        #     exit()
 
         # exit()
 
@@ -626,20 +733,20 @@ def load_models(args, study):
     #test_loader = renormalize_data(test_set, study, output=True, input=True)
     #
 
-    # train_set.init_transform = None
-    # validation_set.init_transform = None
-    # test_set.init_transform = None
-    # train_set.input_transform = None
-    # validation_set.input_transform = None
-    # test_set.input_transform = None
-    # train_set.output_transform = None
-    # validation_set.output_transform = None
-    # test_set.output_transform = None
+    train_set.init_transform = None
+    validation_set.init_transform = None
+    test_set.init_transform = None
+    train_set.input_transform = None
+    validation_set.input_transform = None
+    test_set.input_transform = None
+    train_set.output_transform = None
+    validation_set.output_transform = None
+    test_set.output_transform = None
     print("train_set.init_transform ", train_set.init_transform)
     print("train_set.input_transform ", train_set.input_transform)
     print("train_set.output_transform ", train_set.output_transform)
     #exit()
-    #plot_target_data(train_loader, validation_loader, test_loader)
+    plot_target_data(train_loader, validation_loader, test_loader)
     #exit()
 
     # train_inputs = []
@@ -649,7 +756,7 @@ def load_models(args, study):
     #     train_inputs.append(input)
     #     train_outputs.append(output)
 
-    inverse_transform = get_inverse_transform(study)
+    inverse_transform = get_inverse_transform(study, results_dir)
     input_inverse_transform = get_inverse_transform_input(study)
 
     plot_separate_images = False
@@ -929,10 +1036,10 @@ def load_models(args, study):
             predictions = model(inputs)
 
             if test_set.init_transform is not None and input_inverse_transform is not None:
-                print("inputs ", inputs)
-                print("test_set._bulk_features_avg ", test_set._bulk_features_avg)
+                #print("inputs ", inputs)
+                #print("test_set._bulk_features_avg ", test_set._bulk_features_avg)
                 inv_transformed_inputs = input_inverse_transform(inputs)
-                print("inv tra inputs ", inv_transformed_inputs)
+                #print("inv tra inputs ", inv_transformed_inputs)
 
                 inv_input_avg = test_set._bulk_features_avg #torch.mean(inv_transformed_inputs)
                 #print("inv input avg ", inv_input_avg)

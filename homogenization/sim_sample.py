@@ -637,7 +637,7 @@ class DFMSim(Simulation):
             # print("process.stdout.decode('ascii') ", process.stdout.decode('ascii'))
 
             if process.returncode != 0:
-                raise Exception(process.stderr.decode('ascii'))
+                raise Exception(process.stderr)
             # else:
             #     print("dataset sample created ", os.getcwd())
             cr_dset_end_time = time.time()
@@ -660,8 +660,8 @@ class DFMSim(Simulation):
                     DFMSim.checkpoint = torch.load(model_path)
                 # DFMSim.checkpoint = torch.load(model_path)
 
-                DFMSim.inverse_transform = get_inverse_transform(study)
-                DFMSim.transform = get_transform(study)
+                DFMSim.inverse_transform = get_inverse_transform(study, results_dir=nn_path)
+                DFMSim.transform = get_transform(study, results_dir=nn_path)
                 #print("DFMSim.transform ", DFMSim.transform)
 
                 #DFMSim.dataset = joblib.load(os.path.join(config["sim_config"]["nn_path"], "dataset.pkl"))
@@ -732,6 +732,8 @@ class DFMSim(Simulation):
                             #                                      DFMSim.PRED_COND_TN_POP_FILE)
                             # with NpyAppendArray(pred_cond_tn_pop_file, delete_if_exists=False) as npaa:
                             #     npaa.append(pred_cond_tn_flatten)
+
+                            #print("cond tn: {}, pred cond tn: {}".format(cond_tensors[center],pred_cond_tensors[center]))
 
                 dset_pred_end_time = time.time()
 
