@@ -16,6 +16,9 @@ class QuantileTRF():
     def quantile_transform_out(self, passed_data):
         return quantile_transform_trf(passed_data, self.quantile_trfs_out)
 
+    def quantile_inv_transform_out(self, passed_data):
+        return quantile_inv_transform_trf(passed_data, self.quantile_trfs_out)
+
 
 class NormalizeData():
     def __init__(self):
@@ -122,6 +125,16 @@ def quantile_transform_trf(data, quantile_trfs):
     for i in range(data.shape[0]):
         if quantile_trfs[i] is not None:
             transformed_data = quantile_trfs[i].transform(data[i].reshape(-1, 1).numpy())
+            trf_data[i][...] = torch.from_numpy(np.reshape(transformed_data, data[i].shape))
+        else:
+            trf_data[i][...] = data[i]
+    return trf_data
+
+def quantile_inv_transform_trf(data, quantile_trfs):
+    trf_data = torch.empty((data.shape))
+    for i in range(data.shape[0]):
+        if quantile_trfs[i] is not None:
+            transformed_data = quantile_trfs[i].inverse_transform(data[i].reshape(-1, 1).numpy())
             trf_data[i][...] = torch.from_numpy(np.reshape(transformed_data, data[i].shape))
         else:
             trf_data[i][...] = data[i]

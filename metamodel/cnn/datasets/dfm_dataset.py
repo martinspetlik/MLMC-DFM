@@ -18,7 +18,7 @@ class DFMDataset(Dataset):
 
     def __init__(self, data_dir, bulk_file_name="bulk.npz", fracture_file_name="fractures.npz",
                  output_file_name="output_tensor.npy", input_transform=None, output_transform=None, init_transform=None,
-                 two_dim=True, input_channels=None, output_channels=None, fractures_sep=False, vel_avg=False, plot=False):
+                 two_dim=True, input_channels=None, output_channels=None, fractures_sep=False, vel_avg=False, plot=False, init_norm_use_all_features=False):
         self._data_dir = data_dir
         self._bulk_file_name = bulk_file_name
         self._fracture_file_name = fracture_file_name
@@ -31,6 +31,7 @@ class DFMDataset(Dataset):
         self._output_channels = output_channels
         self._fractures_sep = fractures_sep
         self._vel_avg = vel_avg
+        self._init_transform_use_all_features = init_norm_use_all_features
 
         self._bulk_file_paths = []
         self._fracture_file_paths = []
@@ -94,7 +95,9 @@ class DFMDataset(Dataset):
             new_dataset._output_file_paths = output_path
             return new_dataset
 
+        #print("bulk path ", bulk_path)
         bulk_features = np.load(bulk_path)["data"]
+        #print("bulk features shape ", bulk_features.shape)
 
         if len(fractures_path) > 0:
             fractures_features = np.load(fractures_path)["data"]
@@ -123,6 +126,7 @@ class DFMDataset(Dataset):
 
         if self.init_transform is not None:
             bulk_features_avg = np.mean(bulk_features)
+            self._bulk_features_avg = bulk_features_avg
 
         flatten_bulk_features = bulk_features.reshape(-1)
         if fractures_features is not None:
@@ -143,6 +147,10 @@ class DFMDataset(Dataset):
 
         final_features = flatten_bulk_features.reshape(bulk_features_shape)
 
+        if self.init_transform is not None and self._init_transform_use_all_features:
+            bulk_features_avg = np.mean(bulk_features)
+            self._bulk_features_avg = bulk_features_avg
+
         if self._fractures_sep:
             final_features = np.concatenate((final_features, np.expand_dims(fractures_channel, axis=0)), axis=0)
 
@@ -159,6 +167,18 @@ class DFMDataset(Dataset):
             final_features, reshaped_features = self.init_transform((bulk_features_avg, final_features, reshaped_output))
         else:
             reshaped_output = torch.reshape(output_features, (*output_features.shape, 1, 1))
+
+        # if reshaped_output[0] > 1.0:
+        #     print("bulk path ", bulk_path)
+        #     print("reshaped output ", reshaped_output)
+        #     print("not nan indices ", not_nan_indices)
+        # else:
+        #     print("else reshaped output ", reshaped_output)
+        #
+        #
+        #     #print("reshaped output shape", reshaped_output.shape)
+        #
+        #     #exit()
 
         if self.input_transform is not None:
             final_features = self.input_transform(final_features)

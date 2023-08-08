@@ -23,7 +23,7 @@ from metamodel.cnn.models.cond_net import CondNet
 from metamodel.vit.model.vit_model import ViTRegressor
 #from metamodel.vit.model.vit_model_2 import ViTRegressor2
 from metamodel.cnn.datasets.dfm_dataset import DFMDataset
-from torch.utils.tensorboard import SummaryWriter
+#from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
 from metamodel.cnn.models.auxiliary_functions import get_mean_std, log_data, check_shapes, get_loss_fn
 from metamodel.cnn.models.train_pure_cnn_optuna import train_one_epoch, prepare_sub_datasets, prepare_dataset, validate, load_trials_config,\
@@ -349,6 +349,7 @@ if __name__ == '__main__':
               "val_samples_ratio": trials_config["val_samples_ratio"] if "val_samples_ratio" in trials_config else 0.2,
               "print_batches": 10,
               "init_norm": trials_config["init_norm"] if "init_norm" in trials_config else False,
+              "init_norm_use_all_features": trials_config["init_norm_use_all_features"] if "init_norm_use_all_features" in trials_config else False,
               "log_all_input_channels": trials_config["log_all_input_channels"] if "log_all_input_channels" in trials_config else False,
               "log_input": trials_config["log_input"] if "log_input" in trials_config else True,
               "normalize_input": trials_config["normalize_input"] if "normalize_input" in trials_config else True,

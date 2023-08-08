@@ -501,6 +501,7 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
                                               input_transform=input_transform,
                                               output_transform=output_transform,
                                               init_transform=init_transform,
+                                              init_norm_use_all_features=config["init_norm_use_all_features"] if "init_norm_use_all_features" in config else False,
                                               two_dim=True,
                                               input_channels=config["input_channels"] if "input_channels" in config else None,
                                               output_channels=config["output_channels"] if "output_channels" in config else None,
@@ -605,6 +606,8 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
                              input_transform=data_input_transform,
                              output_transform=data_output_transform,
                              init_transform=data_init_transform,
+                             init_norm_use_all_features=config[
+                                 "init_norm_use_all_features"] if "init_norm_use_all_features" in config else False,
                              input_channels=config["input_channels"] if "input_channels" in config else None,
                              output_channels=config["output_channels"] if "output_channels" in config else None,
                              fractures_sep=config["fractures_sep"] if "fractures_sep" in config else False,
@@ -635,6 +638,8 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
                              input_transform=data_input_transform,
                              output_transform=data_output_transform,
                              init_transform=data_init_transform,
+                             init_norm_use_all_features=config[
+                                 "init_norm_use_all_features"] if "init_norm_use_all_features" in config else False,
                              input_channels=config["input_channels"] if "input_channels" in config else None,
                              output_channels=config["output_channels"] if "output_channels" in config else None,
                              fractures_sep=config["fractures_sep"] if "fractures_sep" in config else False,
@@ -690,6 +695,12 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
 
         if "log_all_input_channels" in config:
             study.set_user_attr("log_all_input_channels", config["log_all_input_channels"])
+
+        if "output_transform" in config:
+            study.set_user_attr("output_transform", config["output_transform"])
+
+        if "input_transform" in config:
+            study.set_user_attr("input_transform", config["input_transform"])
 
         study.set_user_attr("init_norm", config["init_norm"])
         study.set_user_attr("normalize_input", config["normalize_input"])
