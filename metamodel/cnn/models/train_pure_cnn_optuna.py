@@ -702,6 +702,9 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
         if "input_transform" in config:
             study.set_user_attr("input_transform", config["input_transform"])
 
+        if "init_norm_use_all_features" in config:
+            study.set_user_attr("init_norm_use_all_features", config["init_norm_use_all_features"])
+
         study.set_user_attr("init_norm", config["init_norm"])
         study.set_user_attr("normalize_input", config["normalize_input"])
         study.set_user_attr("normalize_output", config["normalize_output"])
