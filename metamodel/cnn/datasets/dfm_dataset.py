@@ -148,7 +148,7 @@ class DFMDataset(Dataset):
         final_features = flatten_bulk_features.reshape(bulk_features_shape)
 
         if self.init_transform is not None and self._init_transform_use_all_features:
-            bulk_features_avg = np.mean(bulk_features)
+            bulk_features_avg = np.mean(final_features)
             self._bulk_features_avg = bulk_features_avg
 
         if self._fractures_sep:
