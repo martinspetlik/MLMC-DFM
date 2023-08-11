@@ -311,6 +311,239 @@ class DFMSim(Simulation):
 
         return [bl_corner, br_corner, tr_corner, tl_corner]
 
+
+    @staticmethod
+    def split_domain(config, dataset_path, n_split_subdomains, fractures, sample_dir):
+        domain_box = config["sim_config"]["geometry"]["domain_box"]
+        x_subdomains = int(np.sqrt(n_split_subdomains))
+        subdomain_box = [domain_box[0]/x_subdomains, domain_box[1]/x_subdomains]
+
+        if x_subdomains == 1:
+            sample_0_path = os.path.join(dataset_path, "sample_0")
+            os.mkdir(sample_0_path)
+            shutil.copy(os.path.join(sample_dir, "fields_fine_to_rast.msh"), os.path.join(sample_0_path, "fields_fine.msh"))
+            shutil.copy(os.path.join(sample_dir, "mesh_fine_to_rast.msh"), os.path.join(sample_0_path, "mesh_fine.msh"))
+            return sample_0_path
+        else:
+            lx, ly = domain_box
+            k = 0
+            sample_center = {}
+            for i in range(x_subdomains):
+                center_x = subdomain_box[0] / 2 + (lx - subdomain_box[0]) / (n_split_subdomains - 1) * i - lx / 2
+                for j in range(x_subdomains):
+                    k += 1
+                    # subdir_name = "i_{}_j_{}_k_{}".format(i, j, k)
+                    # os.mkdir(subdir_name)
+                    # os.chdir(subdir_name)
+                    center_y = subdomain_box[1] / 2 + (lx - subdomain_box[1]) / (n_split_subdomains - 1) * j - lx / 2
+                    box_size_x = subdomain_box[0]
+                    box_size_y = subdomain_box[1]
+                    outer_polygon = DFMSim.get_outer_polygon(center_x, center_y, box_size_x, box_size_y)
+                    config["sim_config"]["geometry"]["outer_polygon"] = outer_polygon
+
+                    while True:
+                        if fractures is None:
+                            fractures = DFMSim.generate_fractures(config)
+
+                        fine_flow = FlowProblem.make_fine((config["fine"]["step"],
+                                                           config["sim_config"]["geometry"]["fr_max_size"]),
+                                                          fractures,
+                                                          config)
+                        fine_flow.fr_range = [config["fine"]["step"], config["coarse"]["step"]]
+
+                        cond_fields = config["center_cond_field"]
+                        if "center_larger_cond_field" in config:
+                            cond_fields = config["center_larger_cond_field"]
+
+                        center_cond_field = DFMSim.eliminate_far_points(outer_polygon,
+                                                                        cond_fields,
+                                                                        fine_step=config["fine"]["step"])
+                        try:
+                            fine_flow.make_mesh(center_box=([center_x, center_y], subdomain_box))
+                        except:
+                            pass
+
+                        if not os.path.exists("mesh_fine.msh"):
+                            box_size_x += box_size_x * 0.05
+                            box_size_y += box_size_y * 0.05
+                            outer_polygon = DFMSim.get_outer_polygon(center_x, center_y, box_size_x, box_size_y)
+                            config["sim_config"]["geometry"]["outer_polygon"] = outer_polygon
+                            print("new outer polygon make_mesh failed", outer_polygon)
+                            continue
+
+                        #print("center cond field ", center_cond_field)
+                        #fine_flow.interpolate_fields(center_cond_field, mode="linear")
+
+                        fine_flow.interpolate_fields(center_cond_field, mode="linear")
+
+                        # fine_flow.make_fields()
+                        break
+
+                    sample_name = "sample_{}".format(k - 1)
+                    dset_sample_dir = os.path.join(dataset_path, sample_name)
+                    os.mkdir(dset_sample_dir)
+                    shutil.copy("fields_fine.msh", dset_sample_dir)
+                    shutil.copy("mesh_fine.msh", dset_sample_dir)
+                    # shutil.copy("summary.yaml", dset_dir)
+                    sample_center[sample_name] = (center_x, center_y)
+
+    @staticmethod
+    def rasterize_at_once(sample_dir, dataset_path, config, n_subdomains, fractures, hom_dir):
+        n_non_overlapping_subdomains = n_subdomains - ((n_subdomains-1)/2)
+
+        # import psutil
+        # float_size_bytes = 8  # Assuming double precision (8 bytes)
+        # available_memory = psutil.virtual_memory().available
+        # print(f"Available memory: {available_memory} bytes")
+        # max_floats = (available_memory // float_size_bytes) * 0.8
+        max_floats = 10000000000 # 10 Gb
+
+        #print("n subdomains ", n_subdomains)
+
+        n_pixels = 256
+        total_n_pixels_x = n_pixels**2 * n_non_overlapping_subdomains **2
+        #total_n_pixels_x = 4**2
+        split_exp = 0
+        if total_n_pixels_x >= max_floats:
+            split_exp = 1
+            tot_pixels = total_n_pixels_x
+
+            tot_pixels /= 4**split_exp
+            while tot_pixels >= max_floats:
+                split_exp += 1
+                tot_pixels /= 4 ** split_exp
+
+        if split_exp > 1:
+            raise Exception("Total number of pixels: {} does not fit into memory. Not supported yet".format(total_n_pixels_x))
+
+        sample_0_path = DFMSim.split_domain(config, dataset_path, n_split_subdomains=4**split_exp, fractures=fractures, sample_dir=sample_dir)
+
+        ####################
+        ## Create dataset ##
+        ####################
+        process = subprocess.run(["bash", config["sim_config"]["create_dataset_script"], dataset_path, "{}".format(int(np.sqrt(total_n_pixels_x)))],
+                                 capture_output=True, text=True)
+        pred_cond_tensors = {}
+
+        if process.returncode == 0:
+            bulk_path = os.path.join(sample_0_path, "bulk.npz")
+            fractures_path = os.path.join(sample_0_path, "fractures.npz")
+            bulk = np.load(bulk_path)["data"]
+            fractures = np.load(fractures_path)["data"]
+            domain_box = config["sim_config"]["geometry"]["domain_box"]
+            subdomain_box = config["sim_config"]["geometry"]["subdomain_box"]
+
+            # print("bulk.shape ", bulk.shape)
+            # print("fractures.shape ", fractures.shape)
+
+            final_dataset_path = os.path.join(hom_dir, "final_dataset")
+            os.mkdir(final_dataset_path)
+            subdomain_size = 256
+            sample_center = {}
+            lx, ly = domain_box
+            k = 0
+
+            # print("bulk[0, ...] ", bulk[0, ...])
+            # print("rasterize n subdomains ", n_subdomains)
+            for i in range(n_subdomains):
+                center_y = -(subdomain_box[0] / 2 + (lx - subdomain_box[0]) / (n_subdomains - 1) * i - lx / 2)
+                for j in range(n_subdomains):
+                    sample_name = "sample_{}".format(k)
+                    f_dset_sample_dir = os.path.join(final_dataset_path, sample_name)
+                    os.mkdir(f_dset_sample_dir)
+
+                    center_x = (subdomain_box[1] / 2 + (lx - subdomain_box[1]) / (n_subdomains - 1) * j - lx / 2)
+
+                    # print("center(i: {}, j:{}) x: {}, y: {}".format(i, j, center_x, center_y))
+                    # print("x from: {}, to: {}".format(i*int((subdomain_size)/2), i*int((subdomain_size)/2) + subdomain_size))
+                    # print("y from: {} to: {}".format(j*int((subdomain_size)/2), j*int((subdomain_size)/2) + subdomain_size))
+                    # print("j*int((subdomain_size)/2) + subdomain_size ", j*int((subdomain_size)/2) + subdomain_size)
+
+                    bulk_subdomain = bulk[:, i*int((subdomain_size)/2): i*int((subdomain_size)/2) + subdomain_size,
+                                     j*int((subdomain_size)/2): j*int((subdomain_size)/2) + subdomain_size]
+                    fractures_subdomain = fractures[:, i * int((subdomain_size) / 2): i * int((subdomain_size) / 2) + subdomain_size,
+                                     j * int((subdomain_size) / 2): j * int((subdomain_size) / 2) + subdomain_size]
+
+                    #print("bulk_subdomain[0,...] ", bulk_subdomain[0,...])
+
+                    np.savez_compressed(os.path.join(f_dset_sample_dir, "bulk"), data=bulk_subdomain)
+                    np.savez_compressed(os.path.join(f_dset_sample_dir, "fractures"), data=fractures_subdomain)
+
+                    sample_center[sample_name] = (center_x, center_y)
+                    k += 1
+
+
+            if DFMSim.model is None:
+                nn_path = config["sim_config"]["nn_path"]
+                study = load_study(nn_path)
+                model_path = get_saved_model_path(nn_path, study.best_trial)
+                model_kwargs = study.best_trial.user_attrs["model_kwargs"]
+                DFMSim.model = study.best_trial.user_attrs["model_class"](**model_kwargs)
+                if not torch.cuda.is_available():
+                    DFMSim.checkpoint = torch.load(model_path, map_location=torch.device('cpu'))
+                else:
+                    DFMSim.checkpoint = torch.load(model_path)
+                DFMSim.inverse_transform = get_inverse_transform(study, results_dir=nn_path)
+                DFMSim.transform = get_transform(study, results_dir=nn_path)
+
+            ##
+            # Create dataset
+            ##
+            dataset_for_prediction = DFMDataset(data_dir=final_dataset_path,
+                                                init_transform=DFMSim.transform[0],
+                                                input_transform=DFMSim.transform[1],
+                                                output_transform=DFMSim.transform[2],
+                                                two_dim=True)
+
+            dset_prediction_loader = torch.utils.data.DataLoader(dataset_for_prediction, shuffle=False)
+            with torch.no_grad():
+                DFMSim.model.load_state_dict(DFMSim.checkpoint['best_model_state_dict'])
+                DFMSim.model.eval()
+
+                for i, sample in enumerate(dset_prediction_loader):
+                    inputs, targets = sample
+                    # print("intputs ", inputs)
+                    inputs = inputs.float()
+                    sample_n = dataset_for_prediction._bulk_file_paths[i].split('/')[-2]
+                    center = sample_center[sample_n]
+                    # if args.cuda and torch.cuda.is_available():
+                    #    inputs = inputs.cuda()
+                    predictions = DFMSim.model(inputs)
+                    predictions = np.squeeze(predictions)
+
+                    # if np.any(predictions < 0):
+                    #     print("inputs ", inputs)
+                    #     print("negative predictions ", predictions)
+
+                    inv_predictions = torch.squeeze(
+                        DFMSim.inverse_transform(torch.reshape(predictions, (*predictions.shape, 1, 1))))
+
+                    #print("inv predictions ", inv_predictions)
+
+                    if dataset_for_prediction.init_transform is not None:
+                        inv_predictions *= dataset_for_prediction._bulk_features_avg
+
+                    pred_cond_tn = np.array([[inv_predictions[0], inv_predictions[1]],
+                                             [inv_predictions[1], inv_predictions[2]]])
+
+                    if pred_cond_tn is not None:
+                        pred_cond_tn_flatten = pred_cond_tn.flatten()
+
+                        if not np.any(np.isnan(pred_cond_tn_flatten)):
+                            pred_cond_tensors[center] = [pred_cond_tn_flatten[0],
+                                                         (pred_cond_tn_flatten[1] + pred_cond_tn_flatten[2]) / 2,
+                                                         pred_cond_tn_flatten[3]]
+
+                            #print("pred cond tn: {}".format(pred_cond_tensors[center]))
+                            # if pred_cond_tn_flatten[0] < 0:
+                            #     print("inputs ", inputs)
+
+
+        else:
+            raise Exception(process.stderr)
+
+        return pred_cond_tensors
+
     @staticmethod
     def homogenization(config, fractures=None):
         #print("config ", config)
@@ -324,9 +557,10 @@ class DFMSim(Simulation):
 
         os.mkdir("dataset")
         dataset_path = os.path.join(h_dir, "dataset")
-
         sim_config = config["sim_config"]
+
         #print("sim config ", sim_config)
+        #print("rasterize at once ", config["sim_config"]["rasterize_at_once"])
 
         domain_box = sim_config["geometry"]["domain_box"]
         subdomain_box = sim_config["geometry"]["subdomain_box"]
@@ -381,375 +615,382 @@ class DFMSim(Simulation):
         # print("subdomain box ", subdomain_box)
         # exit()
 
-        create_hom_samples_start_time = time.time()
-        for i in range(n_subdomains):
-            #print("subdomain box ", subdomain_box)
-            #if "outer_polygon" not in sim_config["geometry"]:
-            # print("i ", i)
-            # print("(lx - subdomain_box[0]) ", (lx - subdomain_box[0]))
-            # print("(n_subdomains - 1) * i ", (n_subdomains - 1) * i)
-            #i = 3
-            center_x = subdomain_box[0] / 2 + (lx - subdomain_box[0]) / (n_subdomains - 1) * i - lx / 2
-            #print("center x ", center_x)
+        #if rasterize_at_once
 
-            for j in range(n_subdomains):
-                start_time = time.time()
-                k += 1
-                #j = 8
-                #k = 53
-                #print("k ", k)
-                subdir_name = "i_{}_j_{}_k_{}".format(i, j, k)
-                #print("subdir_name ", subdir_name)
-                os.mkdir(subdir_name)
-                os.chdir(subdir_name)
+        if config["sim_config"]["rasterize_at_once"]:
+            pred_cond_tensors = DFMSim.rasterize_at_once(sample_dir, dataset_path, config, n_subdomains, fractures, h_dir)
+            #print("pred cond tensors ", pred_cond_tensors)
+        else:
 
-                center_y = subdomain_box[1] / 2 + (lx - subdomain_box[1]) / (n_subdomains - 1) * j - lx / 2
+            create_hom_samples_start_time = time.time()
+            for i in range(n_subdomains):
+                #print("subdomain box ", subdomain_box)
+                #if "outer_polygon" not in sim_config["geometry"]:
+                # print("i ", i)
+                # print("(lx - subdomain_box[0]) ", (lx - subdomain_box[0]))
+                # print("(n_subdomains - 1) * i ", (n_subdomains - 1) * i)
+                #i = 3
+                center_x = subdomain_box[0] / 2 + (lx - subdomain_box[0]) / (n_subdomains - 1) * i - lx / 2
+                #print("center x ", center_x)
 
-                #print("center x:{} y:{}".format(center_x, center_y))
-                #center_x += center_x *0.01
-                #center_y += center_y * 0.01
-                #print("new center x:{} y:{}".format(center_x, center_y))
+                for j in range(n_subdomains):
+                    start_time = time.time()
+                    k += 1
+                    #j = 8
+                    #k = 53
+                    #print("k ", k)
+                    subdir_name = "i_{}_j_{}_k_{}".format(i, j, k)
+                    #print("subdir_name ", subdir_name)
+                    os.mkdir(subdir_name)
+                    os.chdir(subdir_name)
 
-                box_size_x = subdomain_box[0]
-                box_size_y = subdomain_box[1]
+                    center_y = subdomain_box[1] / 2 + (lx - subdomain_box[1]) / (n_subdomains - 1) * j - lx / 2
 
-                outer_polygon = DFMSim.get_outer_polygon(center_x, center_y, box_size_x, box_size_y)
-                sim_config["geometry"]["outer_polygon"] = outer_polygon
-                #print("work_dir ", work_dir)
+                    #print("center x:{} y:{}".format(center_x, center_y))
+                    #center_x += center_x *0.01
+                    #center_y += center_y * 0.01
+                    #print("new center x:{} y:{}".format(center_x, center_y))
 
-                #print("outer polygon ", outer_polygon)
-                #print("center x:{} y:{}".format(center_x, center_y))
+                    box_size_x = subdomain_box[0]
+                    box_size_y = subdomain_box[1]
 
-                sim_config["work_dir"] = work_dir
-                #config["homogenization"] = True
+                    outer_polygon = DFMSim.get_outer_polygon(center_x, center_y, box_size_x, box_size_y)
+                    sim_config["geometry"]["outer_polygon"] = outer_polygon
+                    #print("work_dir ", work_dir)
 
-                # if fractures is None:
-                #     fractures = DFMSim.generate_fractures(config)
-                #
-                #
-                # fine_flow = FlowProblem.make_fine((config["fine"]["step"],
-                #                                    config["sim_config"]["geometry"]["fr_max_size"]),
-                #                                   fractures,
-                #                                   config)
-                # fine_flow.fr_range = [config["fine"]["step"], config["coarse"]["step"]]
-                #
-                # cond_fields = config["center_cond_field"]
-                # if "center_larger_cond_field" in config:
-                #     cond_fields = config["center_larger_cond_field"]
-                #
-                # print("=== HOMOGENIZATION SAMPLE ===")
-                #
-                # # try:
-                # center_cond_field = DFMSim.eliminate_far_points(outer_polygon,
-                #                                                 cond_fields,
-                #                                                 fine_step=config["fine"]["step"])
-                # try:
-                #     fine_flow.make_mesh()
-                # except:
-                #     pass
+                    #print("outer polygon ", outer_polygon)
+                    #print("center x:{} y:{}".format(center_x, center_y))
 
-                #sim_config["work_dir"] = work_dir
+                    sim_config["work_dir"] = work_dir
+                    #config["homogenization"] = True
 
-                while True:
-                    if fractures is None:
-                        fractures = DFMSim.generate_fractures(config)
+                    # if fractures is None:
+                    #     fractures = DFMSim.generate_fractures(config)
+                    #
+                    #
+                    # fine_flow = FlowProblem.make_fine((config["fine"]["step"],
+                    #                                    config["sim_config"]["geometry"]["fr_max_size"]),
+                    #                                   fractures,
+                    #                                   config)
+                    # fine_flow.fr_range = [config["fine"]["step"], config["coarse"]["step"]]
+                    #
+                    # cond_fields = config["center_cond_field"]
+                    # if "center_larger_cond_field" in config:
+                    #     cond_fields = config["center_larger_cond_field"]
+                    #
+                    # print("=== HOMOGENIZATION SAMPLE ===")
+                    #
+                    # # try:
+                    # center_cond_field = DFMSim.eliminate_far_points(outer_polygon,
+                    #                                                 cond_fields,
+                    #                                                 fine_step=config["fine"]["step"])
+                    # try:
+                    #     fine_flow.make_mesh()
+                    # except:
+                    #     pass
 
-                    fine_flow = FlowProblem.make_fine((config["fine"]["step"],
-                                                       config["sim_config"]["geometry"]["fr_max_size"]),
-                                                      fractures,
-                                                      config)
-                    fine_flow.fr_range = [config["fine"]["step"], config["coarse"]["step"]]
+                    #sim_config["work_dir"] = work_dir
 
-                    cond_fields = config["center_cond_field"]
-                    if "center_larger_cond_field" in config:
-                        cond_fields = config["center_larger_cond_field"]
+                    while True:
+                        if fractures is None:
+                            fractures = DFMSim.generate_fractures(config)
 
-                    center_cond_field = DFMSim.eliminate_far_points(outer_polygon,
-                                                                    cond_fields,
-                                                                    fine_step=config["fine"]["step"])
-                    try:
-                        fine_flow.make_mesh(center_box=([center_x, center_y], subdomain_box))
-                    except:
-                        pass
+                        fine_flow = FlowProblem.make_fine((config["fine"]["step"],
+                                                           config["sim_config"]["geometry"]["fr_max_size"]),
+                                                          fractures,
+                                                          config)
+                        fine_flow.fr_range = [config["fine"]["step"], config["coarse"]["step"]]
 
-                    if not os.path.exists("mesh_fine.msh"):
-                        box_size_x += box_size_x * 0.05
-                        box_size_y += box_size_y * 0.05
-                        outer_polygon = DFMSim.get_outer_polygon(center_x, center_y, box_size_x, box_size_y)
-                        sim_config["geometry"]["outer_polygon"] = outer_polygon
-                        print("new outer polygon make_mesh failed", outer_polygon)
-                        continue
+                        cond_fields = config["center_cond_field"]
+                        if "center_larger_cond_field" in config:
+                            cond_fields = config["center_larger_cond_field"]
 
-                    #print("center cond field ", center_cond_field)
-                    #fine_flow.interpolate_fields(center_cond_field, mode="linear")
+                        center_cond_field = DFMSim.eliminate_far_points(outer_polygon,
+                                                                        cond_fields,
+                                                                        fine_step=config["fine"]["step"])
+                        try:
+                            fine_flow.make_mesh(center_box=([center_x, center_y], subdomain_box))
+                        except:
+                            pass
 
-                    fine_flow.interpolate_fields(center_cond_field, mode="linear")
+                        if not os.path.exists("mesh_fine.msh"):
+                            box_size_x += box_size_x * 0.05
+                            box_size_y += box_size_y * 0.05
+                            outer_polygon = DFMSim.get_outer_polygon(center_x, center_y, box_size_x, box_size_y)
+                            sim_config["geometry"]["outer_polygon"] = outer_polygon
+                            print("new outer polygon make_mesh failed", outer_polygon)
+                            continue
 
-                    # fine_flow.make_fields()
+                        #print("center cond field ", center_cond_field)
+                        #fine_flow.interpolate_fields(center_cond_field, mode="linear")
 
-                    if "nn_path" in config["sim_config"] and "run_only_hom" in config["sim_config"] and config["sim_config"]["run_only_hom"]:
+                        fine_flow.interpolate_fields(center_cond_field, mode="linear")
+
+                        # fine_flow.make_fields()
+
+                        if "nn_path" in config["sim_config"] and "run_only_hom" in config["sim_config"] and config["sim_config"]["run_only_hom"]:
+                            break
+
+                        done = []
+                        # exit()
+                        # fine_flow.run() # @TODO replace fine_flow.run by DFMSim._run_sample()
+                        # print("run samples ")
+                        status, p_loads, outer_reg_names, conv_check = DFMSim._run_homogenization_sample(fine_flow, config)
+
+                        done.append(fine_flow)
+                        try:
+                            if not conv_check:
+                                raise Exception("homogenization sample not converged")
+                            cond_tn, diff = fine_flow.effective_tensor_from_bulk(p_loads, outer_reg_names, fine_flow.basename)
+                        except:
+                            box_size_x += box_size_x * 0.05
+                            box_size_y += box_size_y * 0.05
+                            outer_polygon = DFMSim.get_outer_polygon(center_x, center_y, box_size_x, box_size_y)
+                            sim_config["geometry"]["outer_polygon"] = outer_polygon
+                            print("new outer polygon flow123d failed", outer_polygon)
+                            os.remove("mesh_fine.msh")
+                            continue
+                        DFMSim.make_summary(done)
+                        percentage_sym_tn_diff.append(diff)
                         break
 
-                    done = []
-                    # exit()
-                    # fine_flow.run() # @TODO replace fine_flow.run by DFMSim._run_sample()
-                    # print("run samples ")
-                    status, p_loads, outer_reg_names, conv_check = DFMSim._run_homogenization_sample(fine_flow, config)
+                    # if n_subdomains == 1:
+                    #     mesh_file = "/home/martin/Desktop/mesh_fine.msh"
+                    #     shutil.copy(mesh_file, os.getcwd())
+                    #     elids_same_value = {18: 17, 20: 19, 22: 21, 24: 23, 26: 25, 28: 27, 30: 29, 32: 31, 34: 33}
+                    #
+                    #     fine_flow.make_mesh(mesh_file)
+                    #     fine_flow.make_fields(elids_same_value=elids_same_value)
+                    #
+                    #     #fine_flow.make_mesh()
+                    #     #fine_flow.make_fields()
+                    #     done = []
+                    #     #exit()
+                    #     # fine_flow.run() # @TODO replace fine_flow.run by DFMSim._run_sample()
+                    #     #print("run samples ")
+                    #     status, p_loads, outer_reg_names, conv_check = DFMSim._run_homogenization_sample(fine_flow, config)
+                    #
+                    #     done.append(fine_flow)
+                    #     cond_tn, diff = fine_flow.effective_tensor_from_bulk(p_loads, outer_reg_names, fine_flow.basename, elids_same_value)
+                    #     #print("cond_tn ", cond_tn)
+                    #     #exit()
+                    #     DFMSim.make_summary(done)
+                    #     percentage_sym_tn_diff.append(diff)
+                    # else:
 
-                    done.append(fine_flow)
+                    #fine_flow.mesh = config["fine_mesh"]
+                    #fine_flow.get_subdomain(outer_polygon)
+
+
+                        #except Exception as e:
+                        #    print("make mesh error", str(e))
+                        #    exit()
+                        #    continue
+
+
+                    # except Exception as e:
+                    #    print(str(e))
+
+                    #exit()
+
+                    pred_cond_tn = None
+                    ######################
+                    ## Employ metamodel ##
+                    #####################
+                    if "nn_path" in config["sim_config"]:
+                        # import cProfile
+                        # import pstats
+
+                        # print("cwd ", os.getcwd())
+                        # pr = cProfile.Profile()
+                        # pr.enable()
+
+                        start_time_nn = time.time()
+                        sample_name = "sample_{}".format(k - 1)
+                        dset_sample_dir = os.path.join(dataset_path, sample_name)
+                        os.mkdir(dset_sample_dir)
+                        shutil.copy("fields_fine.msh", dset_sample_dir)
+                        shutil.copy("mesh_fine.msh", dset_sample_dir)
+                        # shutil.copy("summary.yaml", dset_dir)
+                        sample_center[sample_name] = (center_x, center_y)
+
+                        # pred_cond_tensors[] = (center_x, center_y)
+
+                        # print("cond_tn ", cond_tn)
+                        # @TODO: save cond tn and center to npz file
+
+                    if "run_only_hom" not in config["sim_config"] or \
+                            ("run_only_hom" in config["sim_config"] and not config["sim_config"]["run_only_hom"]):
+                        if n_subdomains > 1:
+                            cond_tn_flatten = cond_tn[0].flatten()
+                            if not np.any(np.isnan(cond_tn_flatten)):
+                                #print("cond_tn_flatten ", cond_tn_flatten)
+                                cond_tensors[(center_x, center_y)] = [cond_tn_flatten[0], (cond_tn_flatten[1]+cond_tn_flatten[2])/2, cond_tn_flatten[3]]
+                                #print("symmetric cond tn ",  cond_tensors[(center_x, center_y)])
+
+                                # if pred_cond_tn is not None:
+                                #     pred_cond_tn_flatten = pred_cond_tn.flatten()
+                                #     pred_cond_tensors[(center_x, center_y)] = pred_cond_tn_flatten
+                                # print("pred cond tn ", pred_cond_tn_flatten)
+                                # print("config[coarse common_files_dir] ", config["coarse"]["common_files_dir"])
+
+
+                                # cond_tn_pop_file = os.path.join(config["coarse"]["common_files_dir"],
+                                #                                 DFMSim.COND_TN_POP_FILE)
+                                # with NpyAppendArray(cond_tn_pop_file, delete_if_exists=False) as npaa:
+                                #     npaa.append(cond_tn_flatten)
+
+                            dir_name = os.path.join(work_dir, subdir_name)
+                            config["dir_name"] = dir_name
+
                     try:
-                        if not conv_check:
-                            raise Exception("homogenization sample not converged")
-                        cond_tn, diff = fine_flow.effective_tensor_from_bulk(p_loads, outer_reg_names, fine_flow.basename)
+                        shutil.move("fine", dir_name)
+                        if os.path.exists(os.path.join(dir_name, "fields_fine.msh")):
+                            os.remove(os.path.join(dir_name, "fields_fine.msh"))
+                        shutil.move("fields_fine.msh", dir_name)
+                        if os.path.exists(os.path.join(dir_name, "summary.yaml")):
+                            shutil.move("summary.yaml", dir_name)
+                        if os.path.exists(os.path.join(dir_name, "flow_fields.msh")):
+                            shutil.move("flow_fields.msh", dir_name)
+                        shutil.move("mesh_fine.msh", dir_name)
+                        shutil.move("mesh_fine.brep", dir_name)
+                        shutil.move("mesh_fine.tmp.geo", dir_name)
+                        shutil.move("mesh_fine.tmp.msh", dir_name)
+                        shutil.rmtree("fine")
                     except:
-                        box_size_x += box_size_x * 0.05
-                        box_size_y += box_size_y * 0.05
-                        outer_polygon = DFMSim.get_outer_polygon(center_x, center_y, box_size_x, box_size_y)
-                        sim_config["geometry"]["outer_polygon"] = outer_polygon
-                        print("new outer polygon flow123d failed", outer_polygon)
-                        os.remove("mesh_fine.msh")
-                        continue
-                    DFMSim.make_summary(done)
-                    percentage_sym_tn_diff.append(diff)
-                    break
+                        pass
+                    os.chdir(h_dir)
+                    time_measurements.append(time.time() - start_time)
 
-                # if n_subdomains == 1:
-                #     mesh_file = "/home/martin/Desktop/mesh_fine.msh"
-                #     shutil.copy(mesh_file, os.getcwd())
-                #     elids_same_value = {18: 17, 20: 19, 22: 21, 24: 23, 26: 25, 28: 27, 30: 29, 32: 31, 34: 33}
-                #
-                #     fine_flow.make_mesh(mesh_file)
-                #     fine_flow.make_fields(elids_same_value=elids_same_value)
-                #
-                #     #fine_flow.make_mesh()
-                #     #fine_flow.make_fields()
-                #     done = []
-                #     #exit()
-                #     # fine_flow.run() # @TODO replace fine_flow.run by DFMSim._run_sample()
-                #     #print("run samples ")
-                #     status, p_loads, outer_reg_names, conv_check = DFMSim._run_homogenization_sample(fine_flow, config)
-                #
-                #     done.append(fine_flow)
-                #     cond_tn, diff = fine_flow.effective_tensor_from_bulk(p_loads, outer_reg_names, fine_flow.basename, elids_same_value)
-                #     #print("cond_tn ", cond_tn)
-                #     #exit()
-                #     DFMSim.make_summary(done)
-                #     percentage_sym_tn_diff.append(diff)
+            create_hom_samples_end_time = time.time()
+
+            print("create hom samples time ", create_hom_samples_end_time - create_hom_samples_start_time)
+
+            if "nn_path" in config["sim_config"]:
+                print("CREATE DATASET SCRIPT RUN")
+
+                cr_dset_start_time = time.time()
+                process = subprocess.run(["bash", config["sim_config"]["create_dataset_script"], dataset_path, "{}".format(256)],
+                                         capture_output=True, text=True)
+
+                # exit_code = subprocess.call('./sample.sh')
+
+                # print("process.stdout.decode('ascii') ", process.stdout.decode('ascii'))
+
+                if process.returncode != 0:
+                    raise Exception(process.stderr)
                 # else:
+                #     print("dataset sample created ", os.getcwd())
+                cr_dset_end_time = time.time()
 
-                #fine_flow.mesh = config["fine_mesh"]
-                #fine_flow.get_subdomain(outer_polygon)
+                # bulk_data_array, fractures_data_array = create_dataset.create_input(os.getcwd())
+                # print("bulk_data_array ", bulk_data_array)
 
+                load_model_start_time = time.time()
+                if DFMSim.model is None:
+                    nn_path = config["sim_config"]["nn_path"]
+                    study = load_study(nn_path)
 
-                    #except Exception as e:
-                    #    print("make mesh error", str(e))
-                    #    exit()
-                    #    continue
+                    # print(" study.user_attrs ",  study.user_attrs)
+                    model_path = get_saved_model_path(nn_path, study.best_trial)
+                    model_kwargs = study.best_trial.user_attrs["model_kwargs"]
+                    DFMSim.model = study.best_trial.user_attrs["model_class"](**model_kwargs)
+                    if not torch.cuda.is_available():
+                        DFMSim.checkpoint = torch.load(model_path, map_location=torch.device('cpu'))
+                    else:
+                        DFMSim.checkpoint = torch.load(model_path)
+                    # DFMSim.checkpoint = torch.load(model_path)
 
+                    DFMSim.inverse_transform = get_inverse_transform(study, results_dir=nn_path)
+                    DFMSim.transform = get_transform(study, results_dir=nn_path)
+                    #print("DFMSim.transform ", DFMSim.transform)
 
-                # except Exception as e:
-                #    print(str(e))
+                    #DFMSim.dataset = joblib.load(os.path.join(config["sim_config"]["nn_path"], "dataset.pkl"))
 
-                #exit()
+                load_model_end_time = time.time()
 
-                pred_cond_tn = None
-                ######################
-                ## Employ metamodel ##
-                #####################
-                if "nn_path" in config["sim_config"]:
-                    # import cProfile
-                    # import pstats
+                ##
+                # Create dataset
+                ##
+                # print("os.getcwd() ", os.getcwd())
+                cr_dset_loader_start_time = time.time()
+                dataset_for_prediction = DFMDataset(data_dir=dataset_path,
+                                                    # output_file_name=output_file_name,
+                                                    init_transform=DFMSim.transform[0],
+                                                    input_transform=DFMSim.transform[1],
+                                                    output_transform=DFMSim.transform[2],
+                                                    two_dim=True,
+                                                    # input_channels=config[
+                                                    #     "input_channels"] if "input_channels" in config else None,
+                                                    # output_channels=config[
+                                                    #     "output_channels"] if "output_channels" in config else None,
+                                                    # fractures_sep=config[
+                                                    #     "fractures_sep"] if "fractures_sep" in config else False,
+                                                    # vel_avg=config["vel_avg"] if "vel_avg" in config else False
+                                                    )
 
-                    # print("cwd ", os.getcwd())
-                    # pr = cProfile.Profile()
-                    # pr.enable()
+                # print("dataset for prediction ", dataset_for_prediction)
+                # print("len(dataset for predictin) ", len(dataset_for_prediction))
 
-                    start_time_nn = time.time()
-                    sample_name = "sample_{}".format(k - 1)
-                    dset_sample_dir = os.path.join(dataset_path, sample_name)
-                    os.mkdir(dset_sample_dir)
-                    shutil.copy("fields_fine.msh", dset_sample_dir)
-                    shutil.copy("mesh_fine.msh", dset_sample_dir)
-                    # shutil.copy("summary.yaml", dset_dir)
-                    sample_center[sample_name] = (center_x, center_y)
+                dset_prediction_loader = torch.utils.data.DataLoader(dataset_for_prediction, shuffle=False)
 
-                    # pred_cond_tensors[] = (center_x, center_y)
+                cr_dset_loader_end_time = time.time()
 
-                    # print("cond_tn ", cond_tn)
-                    # @TODO: save cond tn and center to npz file
+                # print("dset prediction loader ", dset_prediction_loader)
 
-                if "run_only_hom" not in config["sim_config"] or \
-                        ("run_only_hom" in config["sim_config"] and not config["sim_config"]["run_only_hom"]):
-                    if n_subdomains > 1:
-                        cond_tn_flatten = cond_tn[0].flatten()
-                        if not np.any(np.isnan(cond_tn_flatten)):
-                            #print("cond_tn_flatten ", cond_tn_flatten)
-                            cond_tensors[(center_x, center_y)] = [cond_tn_flatten[0], (cond_tn_flatten[1]+cond_tn_flatten[2])/2, cond_tn_flatten[3]]
-                            #print("symmetric cond tn ",  cond_tensors[(center_x, center_y)])
+                with torch.no_grad():
+                    DFMSim.model.load_state_dict(DFMSim.checkpoint['best_model_state_dict'])
+                    DFMSim.model.eval()
 
-                            # if pred_cond_tn is not None:
-                            #     pred_cond_tn_flatten = pred_cond_tn.flatten()
-                            #     pred_cond_tensors[(center_x, center_y)] = pred_cond_tn_flatten
-                            # print("pred cond tn ", pred_cond_tn_flatten)
-                            # print("config[coarse common_files_dir] ", config["coarse"]["common_files_dir"])
+                    dset_pred_start_time = time.time()
 
+                    for i, sample in enumerate(dset_prediction_loader):
+                        inputs, targets = sample
+                        # print("intputs ", inputs)
+                        inputs = inputs.float()
+                        sample_n = dataset_for_prediction._bulk_file_paths[i].split('/')[-2]
+                        center = sample_center[sample_n]
+                        # if args.cuda and torch.cuda.is_available():
+                        #    inputs = inputs.cuda()
+                        predictions = DFMSim.model(inputs)
+                        predictions = np.squeeze(predictions)
 
-                            # cond_tn_pop_file = os.path.join(config["coarse"]["common_files_dir"],
-                            #                                 DFMSim.COND_TN_POP_FILE)
-                            # with NpyAppendArray(cond_tn_pop_file, delete_if_exists=False) as npaa:
-                            #     npaa.append(cond_tn_flatten)
+                        inv_predictions = torch.squeeze(
+                            DFMSim.inverse_transform(torch.reshape(predictions, (*predictions.shape, 1, 1))))
 
-                        dir_name = os.path.join(work_dir, subdir_name)
-                        config["dir_name"] = dir_name
+                        if dataset_for_prediction.init_transform is not None:
+                            inv_predictions *= dataset_for_prediction._bulk_features_avg
 
-                try:
-                    shutil.move("fine", dir_name)
-                    if os.path.exists(os.path.join(dir_name, "fields_fine.msh")):
-                        os.remove(os.path.join(dir_name, "fields_fine.msh"))
-                    shutil.move("fields_fine.msh", dir_name)
-                    if os.path.exists(os.path.join(dir_name, "summary.yaml")):
-                        shutil.move("summary.yaml", dir_name)
-                    if os.path.exists(os.path.join(dir_name, "flow_fields.msh")):
-                        shutil.move("flow_fields.msh", dir_name)
-                    shutil.move("mesh_fine.msh", dir_name)
-                    shutil.move("mesh_fine.brep", dir_name)
-                    shutil.move("mesh_fine.tmp.geo", dir_name)
-                    shutil.move("mesh_fine.tmp.msh", dir_name)
-                    shutil.rmtree("fine")
-                except:
-                    pass
-                os.chdir(h_dir)
-                time_measurements.append(time.time() - start_time)
+                        pred_cond_tn = np.array([[inv_predictions[0], inv_predictions[1]],
+                                                 [inv_predictions[1], inv_predictions[2]]])
 
-        create_hom_samples_end_time = time.time()
+                        if pred_cond_tn is not None:
+                            pred_cond_tn_flatten = pred_cond_tn.flatten()
 
-        print("create hom samples time ", create_hom_samples_end_time - create_hom_samples_start_time)
+                            if not np.any(np.isnan(pred_cond_tn_flatten)):
+                                pred_cond_tensors[center] = [pred_cond_tn_flatten[0], (pred_cond_tn_flatten[1]+pred_cond_tn_flatten[2])/2, pred_cond_tn_flatten[3]]
+                                # pred_cond_tn_pop_file = os.path.join(config["coarse"]["common_files_dir"],
+                                #                                      DFMSim.PRED_COND_TN_POP_FILE)
+                                # with NpyAppendArray(pred_cond_tn_pop_file, delete_if_exists=False) as npaa:
+                                #     npaa.append(pred_cond_tn_flatten)
 
-        if "nn_path" in config["sim_config"]:
-            print("CREATE DATASET SCRIPT RUN")
+                                #print("cond tn: {}, pred cond tn: {}".format(cond_tensors[center],pred_cond_tensors[center]))
 
-            cr_dset_start_time = time.time()
-            process = subprocess.run(["bash", config["sim_config"]["create_dataset_script"], dataset_path],
-                                     capture_output=True, text=True)
+                    dset_pred_end_time = time.time()
 
-            # exit_code = subprocess.call('./sample.sh')
+                end_time_nn = time.time()
 
-            # print("process.stdout.decode('ascii') ", process.stdout.decode('ascii'))
+                # pr.disable()
+                # ps = pstats.Stats(pr).sort_stats('cumtime')
+                # ps.print_stats()
 
-            if process.returncode != 0:
-                raise Exception(process.stderr)
-            # else:
-            #     print("dataset sample created ", os.getcwd())
-            cr_dset_end_time = time.time()
-
-            # bulk_data_array, fractures_data_array = create_dataset.create_input(os.getcwd())
-            # print("bulk_data_array ", bulk_data_array)
-
-            load_model_start_time = time.time()
-            if DFMSim.model is None:
-                nn_path = config["sim_config"]["nn_path"]
-                study = load_study(nn_path)
-
-                # print(" study.user_attrs ",  study.user_attrs)
-                model_path = get_saved_model_path(nn_path, study.best_trial)
-                model_kwargs = study.best_trial.user_attrs["model_kwargs"]
-                DFMSim.model = study.best_trial.user_attrs["model_class"](**model_kwargs)
-                if not torch.cuda.is_available():
-                    DFMSim.checkpoint = torch.load(model_path, map_location=torch.device('cpu'))
-                else:
-                    DFMSim.checkpoint = torch.load(model_path)
-                # DFMSim.checkpoint = torch.load(model_path)
-
-                DFMSim.inverse_transform = get_inverse_transform(study, results_dir=nn_path)
-                DFMSim.transform = get_transform(study, results_dir=nn_path)
-                #print("DFMSim.transform ", DFMSim.transform)
-
-                #DFMSim.dataset = joblib.load(os.path.join(config["sim_config"]["nn_path"], "dataset.pkl"))
-
-            load_model_end_time = time.time()
-
-            ##
-            # Create dataset
-            ##
-            # print("os.getcwd() ", os.getcwd())
-            cr_dset_loader_start_time = time.time()
-            dataset_for_prediction = DFMDataset(data_dir=dataset_path,
-                                                # output_file_name=output_file_name,
-                                                init_transform=DFMSim.transform[0],
-                                                input_transform=DFMSim.transform[1],
-                                                output_transform=DFMSim.transform[2],
-                                                two_dim=True,
-                                                # input_channels=config[
-                                                #     "input_channels"] if "input_channels" in config else None,
-                                                # output_channels=config[
-                                                #     "output_channels"] if "output_channels" in config else None,
-                                                # fractures_sep=config[
-                                                #     "fractures_sep"] if "fractures_sep" in config else False,
-                                                # vel_avg=config["vel_avg"] if "vel_avg" in config else False
-                                                )
-
-            # print("dataset for prediction ", dataset_for_prediction)
-            # print("len(dataset for predictin) ", len(dataset_for_prediction))
-
-            dset_prediction_loader = torch.utils.data.DataLoader(dataset_for_prediction, shuffle=False)
-
-            cr_dset_loader_end_time = time.time()
-
-            # print("dset prediction loader ", dset_prediction_loader)
-
-            with torch.no_grad():
-                DFMSim.model.load_state_dict(DFMSim.checkpoint['best_model_state_dict'])
-                DFMSim.model.eval()
-
-                dset_pred_start_time = time.time()
-
-                for i, sample in enumerate(dset_prediction_loader):
-                    inputs, targets = sample
-                    # print("intputs ", inputs)
-                    inputs = inputs.float()
-                    sample_n = dataset_for_prediction._bulk_file_paths[i].split('/')[-2]
-                    center = sample_center[sample_n]
-                    # if args.cuda and torch.cuda.is_available():
-                    #    inputs = inputs.cuda()
-                    predictions = DFMSim.model(inputs)
-                    predictions = np.squeeze(predictions)
-
-                    inv_predictions = torch.squeeze(
-                        DFMSim.inverse_transform(torch.reshape(predictions, (*predictions.shape, 1, 1))))
-
-                    if dataset_for_prediction.init_transform is not None:
-                        inv_predictions *= dataset_for_prediction._bulk_features_avg
-
-                    pred_cond_tn = np.array([[inv_predictions[0], inv_predictions[1]],
-                                             [inv_predictions[1], inv_predictions[2]]])
-
-                    if pred_cond_tn is not None:
-                        pred_cond_tn_flatten = pred_cond_tn.flatten()
-
-                        if not np.any(np.isnan(pred_cond_tn_flatten)):
-                            pred_cond_tensors[center] = [pred_cond_tn_flatten[0], (pred_cond_tn_flatten[1]+pred_cond_tn_flatten[2])/2, pred_cond_tn_flatten[3]]
-                            # pred_cond_tn_pop_file = os.path.join(config["coarse"]["common_files_dir"],
-                            #                                      DFMSim.PRED_COND_TN_POP_FILE)
-                            # with NpyAppendArray(pred_cond_tn_pop_file, delete_if_exists=False) as npaa:
-                            #     npaa.append(pred_cond_tn_flatten)
-
-                            #print("cond tn: {}, pred cond tn: {}".format(cond_tensors[center],pred_cond_tensors[center]))
-
-                dset_pred_end_time = time.time()
-
-            end_time_nn = time.time()
-
-            # pr.disable()
-            # ps = pstats.Stats(pr).sort_stats('cumtime')
-            # ps.print_stats()
-
-            print("NN total time {}, cr_dset: {}, load_model: {}, dset_loader: {}, dset pred: {}".format(
-                end_time_nn - start_time_nn,
-                cr_dset_end_time - cr_dset_start_time,
-                load_model_end_time - load_model_start_time,
-                cr_dset_loader_end_time - cr_dset_loader_start_time,
-                dset_pred_end_time - dset_pred_start_time
-                ))
+                print("NN total time {}, cr_dset: {}, load_model: {}, dset_loader: {}, dset pred: {}".format(
+                    end_time_nn - start_time_nn,
+                    cr_dset_end_time - cr_dset_start_time,
+                    load_model_end_time - load_model_start_time,
+                    cr_dset_loader_end_time - cr_dset_loader_start_time,
+                    dset_pred_end_time - dset_pred_start_time
+                    ))
 
         # print("np.mean(percentage_sym_tn_diff) ", np.mean(percentage_sym_tn_diff))
         # print("time_measurements ", time_measurements)
@@ -795,12 +1036,13 @@ class DFMSim(Simulation):
     def _calculate_subdomains(coarse_step, geometry):
         if coarse_step > 0:
             hom_box_size = coarse_step * 1.5
-            domain_box_size = geometry["domain_box"][0]
-            large_box = domain_box_size + hom_box_size
-            n_centers = np.round(large_box / (hom_box_size/2) + 1)
+            domain_box_size = geometry["orig_domain_box"][0]
+            n_centers = np.round(domain_box_size / hom_box_size)
+            n_total_centers = n_centers * 2 + 1
+            hom_box_size = domain_box_size / n_centers
         else:
             return geometry["subdomain_box"], 4
-        return [hom_box_size, hom_box_size], n_centers**2
+        return [hom_box_size, hom_box_size], n_total_centers**2
 
     @staticmethod
     def calculate(config, seed):
@@ -871,7 +1113,6 @@ class DFMSim(Simulation):
                 config["sim_config"]["geometry"]["subdomain_box"] = geometry["subdomain_box"]
                 config["sim_config"]["geometry"]["fractures_box"] = geometry["fractures_box"]
                 config["sim_config"]["geometry"]["n_subdomains"] = geometry["n_subdomains"]
-
             else:
                 print("domain box", config["sim_config"]["geometry"]["domain_box"])
                 # print("orig domain box from config", orig_domain_box)
@@ -881,19 +1122,23 @@ class DFMSim(Simulation):
 
                 print("calculated subdomain box: {}, n subdomains: {}".format(subdomain_box, n_subdomains))
 
+                config["sim_config"]["geometry"]["domain_box"] = config["sim_config"]["geometry"]["orig_domain_box"]
                 config["sim_config"]["geometry"]["subdomain_box"] = subdomain_box
                 config["sim_config"]["geometry"]["n_subdomains"] = n_subdomains
 
+        orig_domain_box = config["sim_config"]["geometry"]["orig_domain_box"]
         if coarse_step > 0 and "use_larger_domain" in config["sim_config"] and config["sim_config"]["use_larger_domain"]:
             # Larger bulk domain
-            orig_domain_box = config["sim_config"]["geometry"]["domain_box"]
             #print("orig domain box from config", orig_domain_box)
             sub_domain_box = config["sim_config"]["geometry"]["subdomain_box"]
             orig_frac_box = config["sim_config"]["geometry"]["fractures_box"]
 
             config["sim_config"]["geometry"]["domain_box"] = [orig_domain_box[0] + 2 * sub_domain_box[0], orig_domain_box[1]+ 2 * sub_domain_box[1]]
             hom_domain_box = [orig_domain_box[0] + sub_domain_box[0], orig_domain_box[1]+ sub_domain_box[1]]
-            print("use larger domain domain box ", config["sim_config"]["geometry"]["domain_box"])
+            if config["sim_config"]["rasterize_at_once"]:
+                hom_domain_box = [orig_domain_box[0] + sub_domain_box[0]/2, orig_domain_box[1] + sub_domain_box[1]/2]
+
+            #print("use larger domain domain box ", config["sim_config"]["geometry"]["domain_box"])
 
             #larger_domain_box = config["sim_config"]["geometry"]["domain_box"]
 
@@ -923,10 +1168,31 @@ class DFMSim(Simulation):
 
             #print("orig domain box ", orig_domain_box)
             config["sim_config"]["geometry"]["domain_box"] = orig_domain_box
-            config["sim_config"]["geometry"]["fractures_box"] = orig_frac_box
+            config["sim_config"]["geometry"]["fractures_box"] = orig_domain_box
             DFMSim._remove_files()
 
         fine_res = [0,0,0]
+
+        if coarse_step > 0 and config["sim_config"]["rasterize_at_once"]:
+            config["sim_config"]["geometry"]["domain_box"] = hom_domain_box
+            config["sim_config"]["geometry"]["fractures_box"] = hom_domain_box
+            fine_flow = FlowProblem.make_fine(
+                (config["fine"]["step"], config["sim_config"]["geometry"]["fr_max_size"]), fractures, config)
+            fine_flow.fr_range = [config["fine"]["step"], config["coarse"]["step"]]
+            fine_flow.make_mesh()
+            if "center_larger_cond_field" in config:
+                # fine_flow.make_mesh()
+                center_cond_field = np.array(config["center_larger_cond_field"][0]), \
+                                    np.array(config["center_larger_cond_field"][1])
+                #print("center cond field ", center_cond_field)
+                fine_flow.interpolate_fields(center_cond_field, mode="linear")
+            shutil.move("fields_fine.msh", "fields_fine_to_rast.msh")
+            shutil.move("mesh_fine.msh", "mesh_fine_to_rast.msh")
+
+        config["sim_config"]["geometry"]["domain_box"] = orig_domain_box
+        config["sim_config"]["geometry"]["fractures_box"] = orig_domain_box
+
+        #print("domain box for fine ", config["sim_config"]["geometry"]["domain_box"])
         fine_flow = FlowProblem.make_fine((config["fine"]["step"], config["sim_config"]["geometry"]["fr_max_size"]), fractures, config)
         fine_flow.fr_range = [config["fine"]["step"], fine_flow.fr_range[1]]
         #fine_flow.fr_range = [25, fine_flow.fr_range[1]]
@@ -1042,11 +1308,10 @@ class DFMSim(Simulation):
             if config["sim_config"]["use_larger_domain"]:
                 #print("hom domain box ", hom_domain_box)
                 config["sim_config"]["geometry"]["domain_box"] = hom_domain_box
-            #
-            # import cProfile
-            # import pstats
-            # pr = cProfile.Profile()
-            # pr.enable()
+                config["sim_config"]["geometry"]["fractures_box"] = hom_domain_box
+                #print("config geometry ", config["sim_config"]["geometry"])
+
+            #print("domain box for homogenization ", config["sim_config"]["geometry"]["domain_box"])
             cond_tensors, pred_cond_tensors = DFMSim.homogenization(copy.deepcopy(config), fractures)
             #
             # pr.disable()

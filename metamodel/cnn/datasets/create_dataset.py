@@ -1,3 +1,4 @@
+import copy
 import os
 import sys
 import os.path
@@ -124,6 +125,7 @@ def create_input(sample_dir, n_pixels_x=256, feature_names=[['conductivity_tenso
 
             if k == 1:
                 try:
+                    #cvs_lines_np_off_diagonal = copy.deepcopy(cvs_lines_np)
                     cvs_lines_np_values = cvs_lines_np.values
                     cvs_lines_np_values_shape = cvs_lines_np_values.shape
                     flatten_fracture_features = cvs_lines_np_values.reshape(-1)
@@ -133,11 +135,13 @@ def create_input(sample_dir, n_pixels_x=256, feature_names=[['conductivity_tenso
                     cvs_lines_np.values = flatten_fracture_features.reshape(cvs_lines_np_values_shape)
                 except AttributeError:
                     pass
-                fractures_data_array[k] = cvs_lines_np
+            fractures_data_array[k] = cvs_lines_np
 
-        np.savez_compressed(os.path.join(sample_dir, "bulk"), data=bulk_data_array)
-        np.savez_compressed(os.path.join(sample_dir, "fractures"), data=fractures_data_array)
-
+        try:
+            np.savez_compressed(os.path.join(sample_dir, "bulk"), data=bulk_data_array)
+            np.savez_compressed(os.path.join(sample_dir, "fractures"), data=fractures_data_array)
+        except OSError as e:
+            print(str(e))
         #loaded_fractures = np.load(os.path.join(sample_dir, "fractures.npz"))["data"]
 
         # flatten_fracture_features = loaded_fractures.reshape(-1)
@@ -272,17 +276,20 @@ if __name__ == "__main__":
     parser.add_argument("-b", "--begin", type=int, default=-1, help="starting index")
     parser.add_argument("-e", "--end", type=int, default=-1, help="end index")
     parser.add_argument("-r", "--r_method", choices=['r1', 'r2', 'r3'], default="r1")
+    parser.add_argument("-n_px", "--n_pixels", type=int, default=256, help="number of pixels for x-axis")
+
+    #data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/test_sample_with_fractures_rho_5_0_no_sigma_rast_2"
 
     args = parser.parse_args(sys.argv[1:])
 
     start_time = time.time()
 
-    n_pixels_x = 256
+    n_pixels_x = args.n_pixels
 
     print("args.begin", args.begin)
     print("args.end ", args.end)
     print("args.r_method ", args.r_method)
-
+    print("n_pixels_x.n_pixels ", args.n_pixels)
 
     i = int(args.begin)
     if int(args.begin) == -1:
@@ -294,14 +301,14 @@ if __name__ == "__main__":
             break
         sample_dir = os.path.join(args.data_dir, "sample_{}".format(i))
         print("sample dir ", sample_dir)
+
         if os.path.exists(sample_dir):
-            if not os.path.exists(os.path.join(sample_dir, MESH_FILE)) \
-                    or not os.path.exists(os.path.join(sample_dir, SUMMARY_FILE)):
+            if not os.path.exists(os.path.join(sample_dir, MESH_FILE)):
                 i += 1
                 continue
             try:
                 _, _, avg_cs = create_input(sample_dir, n_pixels_x=n_pixels_x, avg_cs=avg_cs, lines_rast_method=args.r_method)
-                create_output(sample_dir, symmetrize=True)
+                #create_output(sample_dir, symmetrize=True)
             except Exception as e:
                 print(str(e))
             i += 1
