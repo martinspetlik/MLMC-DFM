@@ -433,8 +433,8 @@ class DFMSim(Simulation):
             domain_box = config["sim_config"]["geometry"]["orig_domain_box"]
             subdomain_box = config["sim_config"]["geometry"]["subdomain_box"]
 
-            # print("bulk.shape ", bulk.shape)
-            # print("fractures.shape ", fractures.shape)
+            #print("bulk.shape ", bulk.shape)
+            #print("fractures.shape ", fractures.shape)
 
             final_dataset_path = os.path.join(hom_dir, "final_dataset")
             os.mkdir(final_dataset_path)
@@ -448,7 +448,7 @@ class DFMSim(Simulation):
             #print("subdomain box ", subdomain_box)
 
             # print("bulk[0, ...] ", bulk[0, ...])
-            # print("rasterize n subdomains ", n_subdomains)
+            #print("rasterize n subdomains ", n_subdomains)
             for i in range(n_subdomains):
                 #print("lx ", lx)
                 center_y = -(subdomain_box[0] / 2 + (lx - subdomain_box[0]) / (n_subdomains - 1) * i - lx / 2)
@@ -480,7 +480,6 @@ class DFMSim(Simulation):
                     #print("sample name ", sample_name)
                     sample_center[sample_name] = (center_x, center_y)
                     k += 1
-
 
             if DFMSim.model is None:
                 nn_path = config["sim_config"]["nn_path"]
@@ -629,7 +628,7 @@ class DFMSim(Simulation):
         #print("lx ", lx)
         #print("n subdomains ", n_subdomains)
 
-        if config["sim_config"]["rasterize_at_once"]:
+        if "rasterize_at_once" in config["sim_config"] and config["sim_config"]["rasterize_at_once"]:
             pred_cond_tensors = DFMSim.rasterize_at_once(sample_dir, dataset_path, config, n_subdomains, fractures, h_dir)
             #print("pred cond tensors ", pred_cond_tensors)
         else:
@@ -1188,7 +1187,7 @@ class DFMSim(Simulation):
 
         fine_res = [0,0,0]
 
-        if coarse_step > 0 and config["sim_config"]["rasterize_at_once"]:
+        if coarse_step > 0 and ("rasterize_at_once" in config["sim_config"] and config["sim_config"]["rasterize_at_once"]):
             # print("domain box ", config["sim_config"]["geometry"]["domain_box"])
             # print("hom domain box ", hom_domain_box)
             config["sim_config"]["geometry"]["domain_box"] = hom_domain_box
@@ -1201,7 +1200,7 @@ class DFMSim(Simulation):
                 # fine_flow.make_mesh()
                 center_cond_field = np.array(config["center_larger_cond_field"][0]), \
                                     np.array(config["center_larger_cond_field"][1])
-                #print("center cond field ", center_cond_field)
+                #print("rast center cond field ", center_cond_field)
                 fine_flow.interpolate_fields(center_cond_field, mode="linear")
             shutil.move("fields_fine.msh", "fields_fine_to_rast.msh")
             shutil.move("mesh_fine.msh", "mesh_fine_to_rast.msh")
@@ -1235,6 +1234,7 @@ class DFMSim(Simulation):
                 #fine_flow.make_mesh()
                 center_cond_field = np.array(config["center_larger_cond_field"][0]), np.array(config["center_larger_cond_field"][1])
                 fine_flow.interpolate_fields(center_cond_field, mode="linear")
+                #print("fine center cond field ", center_cond_field)
             else:
                 fine_flow.make_fields()
 
