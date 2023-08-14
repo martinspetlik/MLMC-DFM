@@ -430,7 +430,7 @@ class DFMSim(Simulation):
             fractures_path = os.path.join(sample_0_path, "fractures.npz")
             bulk = np.load(bulk_path)["data"]
             fractures = np.load(fractures_path)["data"]
-            domain_box = config["sim_config"]["geometry"]["domain_box"]
+            domain_box = config["sim_config"]["geometry"]["orig_domain_box"]
             subdomain_box = config["sim_config"]["geometry"]["subdomain_box"]
 
             # print("bulk.shape ", bulk.shape)
@@ -441,20 +441,28 @@ class DFMSim(Simulation):
             subdomain_size = 256
             sample_center = {}
             lx, ly = domain_box
+            lx += subdomain_box[0]
+            ly += subdomain_box[1]
             k = 0
+
+            #print("subdomain box ", subdomain_box)
 
             # print("bulk[0, ...] ", bulk[0, ...])
             # print("rasterize n subdomains ", n_subdomains)
             for i in range(n_subdomains):
+                #print("lx ", lx)
                 center_y = -(subdomain_box[0] / 2 + (lx - subdomain_box[0]) / (n_subdomains - 1) * i - lx / 2)
                 for j in range(n_subdomains):
                     sample_name = "sample_{}".format(k)
                     f_dset_sample_dir = os.path.join(final_dataset_path, sample_name)
                     os.mkdir(f_dset_sample_dir)
 
+                    # print("subdomain box ", subdomain_box)
+                    # exit()
+
                     center_x = (subdomain_box[1] / 2 + (lx - subdomain_box[1]) / (n_subdomains - 1) * j - lx / 2)
 
-                    # print("center(i: {}, j:{}) x: {}, y: {}".format(i, j, center_x, center_y))
+                    #print("center(i: {}, j:{}) x: {}, y: {}".format(i, j, center_x, center_y))
                     # print("x from: {}, to: {}".format(i*int((subdomain_size)/2), i*int((subdomain_size)/2) + subdomain_size))
                     # print("y from: {} to: {}".format(j*int((subdomain_size)/2), j*int((subdomain_size)/2) + subdomain_size))
                     # print("j*int((subdomain_size)/2) + subdomain_size ", j*int((subdomain_size)/2) + subdomain_size)
@@ -469,6 +477,7 @@ class DFMSim(Simulation):
                     np.savez_compressed(os.path.join(f_dset_sample_dir, "bulk"), data=bulk_subdomain)
                     np.savez_compressed(os.path.join(f_dset_sample_dir, "fractures"), data=fractures_subdomain)
 
+                    #print("sample name ", sample_name)
                     sample_center[sample_name] = (center_x, center_y)
                     k += 1
 
@@ -617,6 +626,9 @@ class DFMSim(Simulation):
 
         #if rasterize_at_once
 
+        #print("lx ", lx)
+        #print("n subdomains ", n_subdomains)
+
         if config["sim_config"]["rasterize_at_once"]:
             pred_cond_tensors = DFMSim.rasterize_at_once(sample_dir, dataset_path, config, n_subdomains, fractures, h_dir)
             #print("pred cond tensors ", pred_cond_tensors)
@@ -630,6 +642,7 @@ class DFMSim(Simulation):
                 # print("(lx - subdomain_box[0]) ", (lx - subdomain_box[0]))
                 # print("(n_subdomains - 1) * i ", (n_subdomains - 1) * i)
                 #i = 3
+
                 center_x = subdomain_box[0] / 2 + (lx - subdomain_box[0]) / (n_subdomains - 1) * i - lx / 2
                 #print("center x ", center_x)
 
@@ -646,7 +659,9 @@ class DFMSim(Simulation):
 
                     center_y = subdomain_box[1] / 2 + (lx - subdomain_box[1]) / (n_subdomains - 1) * j - lx / 2
 
-                    #print("center x:{} y:{}".format(center_x, center_y))
+                    #print("center x:{} y:{}, k: {}".format(center_x, center_y, k))
+                    # print("subdomain box ", subdomain_box)
+                    # exit()
                     #center_x += center_x *0.01
                     #center_y += center_y * 0.01
                     #print("new center x:{} y:{}".format(center_x, center_y))
@@ -1135,8 +1150,8 @@ class DFMSim(Simulation):
 
             config["sim_config"]["geometry"]["domain_box"] = [orig_domain_box[0] + 2 * sub_domain_box[0], orig_domain_box[1]+ 2 * sub_domain_box[1]]
             hom_domain_box = [orig_domain_box[0] + sub_domain_box[0], orig_domain_box[1]+ sub_domain_box[1]]
-            if config["sim_config"]["rasterize_at_once"]:
-                hom_domain_box = [orig_domain_box[0] + sub_domain_box[0]/2, orig_domain_box[1] + sub_domain_box[1]/2]
+            # if config["sim_config"]["rasterize_at_once"]:
+            #     hom_domain_box = [orig_domain_box[0] + sub_domain_box[0]/2, orig_domain_box[1] + sub_domain_box[1]/2]
 
             #print("use larger domain domain box ", config["sim_config"]["geometry"]["domain_box"])
 
@@ -1174,6 +1189,8 @@ class DFMSim(Simulation):
         fine_res = [0,0,0]
 
         if coarse_step > 0 and config["sim_config"]["rasterize_at_once"]:
+            # print("domain box ", config["sim_config"]["geometry"]["domain_box"])
+            # print("hom domain box ", hom_domain_box)
             config["sim_config"]["geometry"]["domain_box"] = hom_domain_box
             config["sim_config"]["geometry"]["fractures_box"] = hom_domain_box
             fine_flow = FlowProblem.make_fine(
