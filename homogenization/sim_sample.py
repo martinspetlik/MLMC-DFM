@@ -723,15 +723,15 @@ class DFMSim(Simulation):
                         if fractures is None:
                             fractures = DFMSim.generate_fractures(config)
 
-                        if fine_flow is not None:
-                            bulk_model = fine_flow.bulk_model
-                            fine_flow = FlowProblem("fine", (config["fine"]["step"],
-                                                           config["sim_config"]["geometry"]["fr_max_size"]), fractures, bulk_model, config)
-                        else:
-                            fine_flow = FlowProblem.make_fine((config["fine"]["step"],
-                                                               config["sim_config"]["geometry"]["fr_max_size"]),
-                                                              fractures,
-                                                              config)
+                        # if fine_flow is not None:
+                        #     bulk_model = fine_flow.bulk_model
+                        #     fine_flow = FlowProblem("fine", (config["fine"]["step"],
+                        #                                    config["sim_config"]["geometry"]["fr_max_size"]), fractures, bulk_model, config)
+                        # else:
+                        fine_flow = FlowProblem.make_fine((config["fine"]["step"],
+                                                       config["sim_config"]["geometry"]["fr_max_size"]),
+                                                      fractures,
+                                                      config)
                         fine_flow.fr_range = [config["fine"]["step"], config["coarse"]["step"]]
 
                         cond_fields = config["center_cond_field"]
