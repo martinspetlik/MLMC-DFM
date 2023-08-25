@@ -313,7 +313,7 @@ class DFMSim(Simulation):
 
 
     @staticmethod
-    def split_domain(config, dataset_path, n_split_subdomains, fractures, sample_dir):
+    def split_domain(config, dataset_path, n_split_subdomains, fractures, sample_dir, seed=None):
         domain_box = config["sim_config"]["geometry"]["domain_box"]
         x_subdomains = int(np.sqrt(n_split_subdomains))
         subdomain_box = [domain_box[0]/x_subdomains, domain_box[1]/x_subdomains]
@@ -348,7 +348,7 @@ class DFMSim(Simulation):
                         fine_flow = FlowProblem.make_fine((config["fine"]["step"],
                                                            config["sim_config"]["geometry"]["fr_max_size"]),
                                                           fractures,
-                                                          config)
+                                                          config, seed=None)#config["sim_config"]["seed"] + seed)
                         fine_flow.fr_range = [config["fine"]["step"], config["coarse"]["step"]]
 
                         cond_fields = config["center_cond_field"]
@@ -388,7 +388,7 @@ class DFMSim(Simulation):
                     sample_center[sample_name] = (center_x, center_y)
 
     @staticmethod
-    def rasterize_at_once(sample_dir, dataset_path, config, n_subdomains, fractures, hom_dir):
+    def rasterize_at_once(sample_dir, dataset_path, config, n_subdomains, fractures, hom_dir, seed=None):
         n_non_overlapping_subdomains = n_subdomains - ((n_subdomains-1)/2)
 
         # import psutil
@@ -416,7 +416,7 @@ class DFMSim(Simulation):
         if split_exp > 1:
             raise Exception("Total number of pixels: {} does not fit into memory. Not supported yet".format(total_n_pixels_x))
 
-        sample_0_path = DFMSim.split_domain(config, dataset_path, n_split_subdomains=4**split_exp, fractures=fractures, sample_dir=sample_dir)
+        sample_0_path = DFMSim.split_domain(config, dataset_path, n_split_subdomains=4**split_exp, fractures=fractures, sample_dir=sample_dir, seed=seed)
 
         ####################
         ## Create dataset ##
@@ -553,15 +553,27 @@ class DFMSim(Simulation):
         return pred_cond_tensors
 
     @staticmethod
-    def homogenization(config, fractures=None):
+    def homogenization(config, fractures=None, seed=None):
         #print("config ", config)
         sample_dir = os.getcwd()
-        #print("homogenization method")
-        #print("os.getcws() ", os.getcwd())
-        os.mkdir("homogenization")
-        os.chdir("homogenization")
+        print("homogenization method")
+        print("os.getcwd() ", os.getcwd())
+
+        hom_dir_name = "homogenization"
+        if "scratch_dir" in config and os.path.exists(config["scratch_dir"]):
+            hom_dir_abs_path = os.path.join(config["scratch_dir"], hom_dir_name)
+        else:
+            hom_dir_abs_path = os.path.join(sample_dir, hom_dir_name)
+
+        # os.chdir(config["scratch_dir"])
+        if os.path.exists(hom_dir_abs_path):
+            shutil.rmtree(hom_dir_abs_path)
+
+        os.mkdir(hom_dir_abs_path)
+        os.chdir(hom_dir_abs_path)
 
         h_dir = os.getcwd()
+        print("h_dir os.getcwd() ", os.getcwd())
 
         os.mkdir("dataset")
         dataset_path = os.path.join(h_dir, "dataset")
@@ -614,6 +626,8 @@ class DFMSim(Simulation):
         time_measurements = []
         sample_center = {}
 
+        fine_flow = None
+
         k = 0
         #
         # if n_subdomains == 1:
@@ -629,7 +643,7 @@ class DFMSim(Simulation):
         #print("n subdomains ", n_subdomains)
 
         if "rasterize_at_once" in config["sim_config"] and config["sim_config"]["rasterize_at_once"]:
-            pred_cond_tensors = DFMSim.rasterize_at_once(sample_dir, dataset_path, config, n_subdomains, fractures, h_dir)
+            pred_cond_tensors = DFMSim.rasterize_at_once(sample_dir, dataset_path, config, n_subdomains, fractures, h_dir, seed=seed)
             #print("pred cond tensors ", pred_cond_tensors)
         else:
 
@@ -709,10 +723,15 @@ class DFMSim(Simulation):
                         if fractures is None:
                             fractures = DFMSim.generate_fractures(config)
 
-                        fine_flow = FlowProblem.make_fine((config["fine"]["step"],
-                                                           config["sim_config"]["geometry"]["fr_max_size"]),
-                                                          fractures,
-                                                          config)
+                        if fine_flow is not None:
+                            bulk_model = fine_flow.bulk_model
+                            fine_flow = FlowProblem("fine", (config["fine"]["step"],
+                                                           config["sim_config"]["geometry"]["fr_max_size"]), fractures, bulk_model, config)
+                        else:
+                            fine_flow = FlowProblem.make_fine((config["fine"]["step"],
+                                                               config["sim_config"]["geometry"]["fr_max_size"]),
+                                                              fractures,
+                                                              config)
                         fine_flow.fr_range = [config["fine"]["step"], config["coarse"]["step"]]
 
                         cond_fields = config["center_cond_field"]
@@ -1168,7 +1187,7 @@ class DFMSim(Simulation):
             fractures = DFMSim.generate_fractures(config)
 
             larger_dom_obj = FlowProblem.make_fine((config["fine"]["step"], config["sim_config"]["geometry"]["fr_max_size"]),
-                                              fractures, config)
+                                              fractures, config, seed=None)#config["sim_config"]["seed"] + seed)
             larger_dom_obj.fr_range = [config["fine"]["step"], larger_dom_obj.fr_range[1]]
 
             larger_dom_obj.make_mesh()
@@ -1193,7 +1212,7 @@ class DFMSim(Simulation):
             config["sim_config"]["geometry"]["domain_box"] = hom_domain_box
             config["sim_config"]["geometry"]["fractures_box"] = hom_domain_box
             fine_flow = FlowProblem.make_fine(
-                (config["fine"]["step"], config["sim_config"]["geometry"]["fr_max_size"]), fractures, config)
+                (config["fine"]["step"], config["sim_config"]["geometry"]["fr_max_size"]), fractures, config, seed=None)#config["sim_config"]["seed"] + seed)
             fine_flow.fr_range = [config["fine"]["step"], config["coarse"]["step"]]
             fine_flow.make_mesh()
             if "center_larger_cond_field" in config:
@@ -1209,7 +1228,7 @@ class DFMSim(Simulation):
         config["sim_config"]["geometry"]["fractures_box"] = orig_domain_box
 
         #print("domain box for fine ", config["sim_config"]["geometry"]["domain_box"])
-        fine_flow = FlowProblem.make_fine((config["fine"]["step"], config["sim_config"]["geometry"]["fr_max_size"]), fractures, config)
+        fine_flow = FlowProblem.make_fine((config["fine"]["step"], config["sim_config"]["geometry"]["fr_max_size"]), fractures, config, seed=None)#config["sim_config"]["seed"] + seed)
         fine_flow.fr_range = [config["fine"]["step"], fine_flow.fr_range[1]]
         #fine_flow.fr_range = [25, fine_flow.fr_range[1]]
 
@@ -1251,6 +1270,7 @@ class DFMSim(Simulation):
                 fine_res, status, conv_check = DFMSim._run_sample(fine_flow, config)
                 if not conv_check:
                     raise Exception("fine sample not converged")
+
                 fine_res = [fine_res[0], fine_res[0], fine_res[0]]
                 if os.path.exists("flow_fields.pvd"):
                     shutil.move("flow_fields.pvd", "flow_field_fine.pvd")
@@ -1270,6 +1290,7 @@ class DFMSim(Simulation):
                 cond_tn[0, 1] = (cond_tn[0, 1] + cond_tn[1, 0]) / 2
                 fine_res = cond_tn.flatten()
                 fine_res = [fine_res[0], fine_res[1], fine_res[3]]
+
             print("fine res ", fine_res)
 
             if os.path.exists("flow_fields.pvd"):
@@ -1341,13 +1362,14 @@ class DFMSim(Simulation):
                 config["sim_config"]["geometry"]["fractures_box"] = orig_frac_box
 
             if not gen_hom_samples:
-                #print("cond tensors ", cond_tensors)
-                #print("pred cond tensors ", pred_cond_tensors)
+                # print("os.getcwd() ", os.getcwd())
+                # print("cond tensors ", cond_tensors)
+                # print("pred cond tensors ", pred_cond_tensors)
 
                 DFMSim._save_tensors(cond_tensors, file=DFMSim.COND_TN_FILE)
                 DFMSim._save_tensors(pred_cond_tensors, file=DFMSim.PRED_COND_TN_FILE)
 
-                # print("os.path.abspath(DFMSim.COND_TN_FILE) ", os.path.abspath(DFMSim.COND_TN_FILE))
+                #print("os.path.abspath(DFMSim.COND_TN_FILE) ", os.path.abspath(DFMSim.COND_TN_FILE))
                 # print("config[sample_cond_tns] ", config["fine"]["sample_cond_tns"])
 
                 file_path_split = os.path.split(os.path.split(os.path.abspath(DFMSim.COND_TN_FILE))[0])
@@ -1374,6 +1396,9 @@ class DFMSim(Simulation):
                 #print("coarse problem ")
                 # print("fractures ", fractures)
                 # exit()
+
+                # if "nn_path" in config["sim_config"] and \
+                #         ("run_only_hom" not in config["sim_config"] or not config["sim_config"]["run_only_hom"]):
 
                 coarse_flow = FlowProblem.make_coarse((config["coarse"]["step"], config["sim_config"]["geometry"]["fr_max_size"]), fractures, config)
                 coarse_flow.fr_range = [config["coarse"]["step"], coarse_flow.fr_range[1]]
@@ -1425,6 +1450,17 @@ class DFMSim(Simulation):
                 np.save(os.path.join(config["coarse"]["sample_cond_tns"],
                                      sample_id + "_cond_tns_" + DFMSim.COND_TN_FILE),
                         np.array(coarse_flow._center_cond[1])[:,[0, 1, 3, 4]])
+
+                # #@TODO: RM ASAP
+                # shutil.copy(os.path.abspath(DFMSim.COND_TN_FILE), config["coarse"]["sample_cond_tns"])
+                # np.save(
+                #     os.path.join(config["coarse"]["sample_cond_tns"], sample_id + "_centers_" + DFMSim.COND_TN_FILE),
+                #     np.array(fine_flow._center_cond[0]))
+                #
+                # shutil.copy(os.path.abspath(DFMSim.COND_TN_FILE), config["coarse"]["sample_cond_tns"])
+                # np.save(os.path.join(config["coarse"]["sample_cond_tns"],
+                #                      sample_id + "_cond_tns_" + DFMSim.COND_TN_FILE),
+                #         np.array(fine_flow._center_cond[1])[:, [0, 1, 3, 4]])
 
                 if os.path.exists("flow_fields.pvd"):
                     os.remove("flow_fields.pvd")
@@ -1613,6 +1649,7 @@ class DFMSim(Simulation):
 
         flow_args = ["docker", "run", "-v", "{}:{}".format(os.getcwd(), os.getcwd()), *config["flow123d"]]
         #flow_args = ["singularity", "exec", "/storage/liberec3-tul/home/martin_spetlik/flow_3_1_0.sif", "flow123d"]
+
 
         flow_args.extend(['--output_dir', out_dir, os.path.join(out_dir, in_f)])
 

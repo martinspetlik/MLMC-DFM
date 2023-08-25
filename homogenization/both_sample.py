@@ -251,6 +251,7 @@ class BulkFieldsGSTools(BulkBase):
     _rf_sample = None
     _mesh_data= None
     log = False
+    seed= None
 
     def _pca(self, mean_k_xx_yy, cov_matrix_k_xx_yy):
         n_samples = 10000
@@ -321,21 +322,23 @@ class BulkFieldsGSTools(BulkBase):
                                                                        #sigma=np.sqrt(self.cov_log_conductivity[0,0]),
                                                                        mode_no=self.mode_no,
                                                                        #mu=pca_means[0]
+                                                                       seed=self.seed
                                                                        ))
 
         field_k_yy = cf.Field('k_yy', cf.GSToolsSpatialCorrelatedField(self._model_k_yy, log=self.log,
                                                                        #sigma=np.sqrt(self.cov_log_conductivity[1,1]),
                                                                        mode_no=self.mode_no,
                                                                        #mu=pca_means[1]
+                                                                       seed=self.seed
                                                                        ))
 
         field_angle_x = cf.Field('angle_x', cf.GSToolsSpatialCorrelatedField(self._model_angle_x,
                                                                          sigma=np.sqrt(self.angle_var),
-                                                                         mode_no=self.mode_no))
+                                                                         mode_no=self.mode_no, seed=self.seed))
 
         field_angle_y = cf.Field('angle_y', cf.GSToolsSpatialCorrelatedField(self._model_angle_x,
                                                                          sigma=np.sqrt(self.angle_var),
-                                                                         mode_no=self.mode_no))
+                                                                         mode_no=self.mode_no, seed=self.seed))
 
         self._fields = cf.Fields([field_k_xx, field_k_yy, field_angle_x, field_angle_y])
 
@@ -871,7 +874,7 @@ class SpatialCorrelatedFieldHomChoice(cf.SpatialCorrelatedField):
 class BulkHomogenizationFineSample(BulkBase):
     def __init__(self, config_dict):
         self._cond_tns = None
-        self._cofing_dict = config_dict
+        self._config_dict = config_dict
         self._get_tensors(config_dict)
         self._srf_gstools_model = None
         self._svd_model = {}
@@ -894,8 +897,11 @@ class BulkHomogenizationFineSample(BulkBase):
 
         elif config_dict["sim_config"]["bulk_fine_sample_model"] == "svd":
             avg_len_scale_list, avg_var_list = FineHomSRFGstools._calc_var_len_scale(config_dict)
+            print("avg len scale list ", avg_len_scale_list)
+            print("avg var list ", avg_var_list)
             cond_tn_values, transform_obj = FineHomSRFGstools.normalize_cond_tns(self._cond_tns)
             self._svd_model["transform_obj"] = transform_obj
+            print("corr length ", np.mean(avg_len_scale_list))
             srf_model = SpatialCorrelatedFieldHomSVD(corr_exp="exp", corr_length=np.mean(avg_len_scale_list))
             srf_model._cond_tensors = cond_tn_values
             field_cond_tn = cf.Field('cond_tn', srf_model)
@@ -1001,6 +1007,7 @@ class FineHomSRFGstools:
         avg_len_scale_list, avg_var_list = FineHomSRFGstools._calc_var_len_scale(config_dict)
         gmm, mult_coef, self.transform_obj = FineHomSRFGstools.get_distrs(self._cond_tns)
         len_scales = avg_len_scale_list
+        print("len scales ", len_scales)
         self._fields, self.projection_matrix = FineHomSRFGstools.pca(gmm, mult_coef, len_scales, self.transform_obj)
 
     @staticmethod
@@ -1013,28 +1020,32 @@ class FineHomSRFGstools:
         vars_list = []
         data_dir = config_dict["fine"]["sample_cond_tns"]
         n_files = len(glob.glob(data_dir + '/*'))
+        n_files = (n_files - 1) / 2
+
         while True:
             sample_file = os.path.join(data_dir, "S{:07d}".format(sample_id))
-
             cond_centers_file = sample_file + "_centers_" + sim_sample.DFMSim.COND_TN_FILE + ".npy"
             cond_tns_file = sample_file + "_cond_tns_" + sim_sample.DFMSim.COND_TN_FILE + ".npy"
             pred_cond_centers_file = sample_file + "_centers_" + sim_sample.DFMSim.COND_TN_FILE + ".npy"
             pred_cond_tns_file = sample_file + "_cond_tns_" + sim_sample.DFMSim.COND_TN_FILE + ".npy"
 
+            if len(len_scales_list) > 15 or sample_id > n_files-1:
+                break
+
             if not os.path.exists(cond_centers_file):
                 continue
 
             centers = np.load(cond_centers_file)
-            cond_tns = np.load(cond_tns_file)
+            orig_cond_tns = np.load(cond_tns_file)
 
             if os.path.exists(pred_cond_centers_file):
                 centers = np.load(pred_cond_centers_file)
-                cond_tns = np.load(pred_cond_tns_file)
+                orig_cond_tns = np.load(pred_cond_tns_file)
 
-            cond_tns = FineHomSRFGstools.symmetrize_cond_tns(cond_tns)
+            cond_tns = FineHomSRFGstools.symmetrize_cond_tns(orig_cond_tns)
             cond_tns, _ = FineHomSRFGstools.normalize_cond_tns(cond_tns)
 
-            k_xx_params, k_xy_params, k_yy_params = FineHomSRFGstools.get_len_scales(centers, cond_tns)
+            k_xx_params, k_xy_params, k_yy_params = FineHomSRFGstools.get_len_scales(centers, orig_cond_tns)
             k_xx_var, k_xy_var, k_yy_var = FineHomSRFGstools.get_vars(cond_tns)
 
             k_xx_len_scale = k_xx_params[0]['len_scale']
@@ -1045,9 +1056,6 @@ class FineHomSRFGstools:
             vars_list.append([k_xx_var, k_xy_var, k_yy_var])
 
             sample_id += 1
-
-            if len(len_scales_list) > 15 or sample_id > n_files:
-                break
 
         print("len_scales list ", len_scales_list)
         print("vars list ", vars_list)
@@ -1142,7 +1150,7 @@ class FineHomSRFGstools:
     @staticmethod
     def get_distrs(cond_tns):
         n_samples = 5000
-        n_components = 5 #250
+        n_components = 250
         #########################
         ##  QuantileTransform  ##
         #########################
@@ -1161,11 +1169,11 @@ class FineHomSRFGstools:
         samples[:, 1] /= mult_coef
 
         # Print the means and covariances of the fitted components
-        for i in range(gmm.n_components):
-            print(f"Component {i + 1}:")
-            print("Mean:", gmm.means_[i])
-            print("Covariance Matrix:")
-            print(gmm.covariances_[i])
+        # for i in range(gmm.n_components):
+        #     print(f"Component {i + 1}:")
+        #     print("Mean:", gmm.means_[i])
+        #     print("Covariance Matrix:")
+        #     print(gmm.covariances_[i])
 
         return gmm, mult_coef, transform_obj
 
@@ -1541,7 +1549,7 @@ class FlowProblem:
     pressure_loads: Any = None
 
     @classmethod
-    def make_fine(cls, fr_range, fractures, config_dict):
+    def make_fine(cls, fr_range, fractures, config_dict, seed=None):
         bulk_conductivity = config_dict["sim_config"]['bulk_conductivity']
 
         if "cond_tn_pop_file" in config_dict["fine"] or "pred_cond_tn_pop_file" in config_dict["fine"]:
@@ -1563,8 +1571,8 @@ class FlowProblem:
 
             #print("BULKFIelds bulk_conductivity ", bulk_conductivity)
             if "gstools" in config_dict["sim_config"] and config_dict["sim_config"]["gstools"]:
-                #print("**bulk_conductivity ", bulk_conductivity)
                 bulk_model = BulkFieldsGSTools(**bulk_conductivity)
+                bulk_model.seed = seed
             else:
                 bulk_model = BulkFields(**bulk_conductivity)
         return FlowProblem("fine", fr_range, fractures, bulk_model, config_dict)
@@ -1594,7 +1602,7 @@ class FlowProblem:
     #                        fr_range, fractures, bulk_model, config_dict)
 
     @classmethod
-    def make_coarse(cls, fr_range, fractures, config_dict):
+    def make_coarse(cls, fr_range, fractures, config_dict, seed=None):
         #bulk_model = BulkMicroScale(micro_scale_problem)
         #print("coarse fr range ", fr_range)
         bulk_conductivity = config_dict["sim_config"]['bulk_conductivity']
