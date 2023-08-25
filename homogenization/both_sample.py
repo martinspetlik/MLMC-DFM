@@ -322,23 +322,27 @@ class BulkFieldsGSTools(BulkBase):
                                                                        #sigma=np.sqrt(self.cov_log_conductivity[0,0]),
                                                                        mode_no=self.mode_no,
                                                                        #mu=pca_means[0]
-                                                                       seed=self.seed
+                                                                       #seed=self.seed
                                                                        ))
 
         field_k_yy = cf.Field('k_yy', cf.GSToolsSpatialCorrelatedField(self._model_k_yy, log=self.log,
                                                                        #sigma=np.sqrt(self.cov_log_conductivity[1,1]),
                                                                        mode_no=self.mode_no,
                                                                        #mu=pca_means[1]
-                                                                       seed=self.seed
+                                                                       #seed=self.seed
                                                                        ))
 
         field_angle_x = cf.Field('angle_x', cf.GSToolsSpatialCorrelatedField(self._model_angle_x,
                                                                          sigma=np.sqrt(self.angle_var),
-                                                                         mode_no=self.mode_no, seed=self.seed))
+                                                                         mode_no=self.mode_no,
+                                                                             #seed=self.seed
+                                                                             ))
 
         field_angle_y = cf.Field('angle_y', cf.GSToolsSpatialCorrelatedField(self._model_angle_x,
                                                                          sigma=np.sqrt(self.angle_var),
-                                                                         mode_no=self.mode_no, seed=self.seed))
+                                                                         mode_no=self.mode_no,
+                                                                             #seed=self.seed
+                                                                             ))
 
         self._fields = cf.Fields([field_k_xx, field_k_yy, field_angle_x, field_angle_y])
 
