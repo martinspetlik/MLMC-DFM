@@ -351,6 +351,7 @@ def features_transform(config, data_dir, output_file_name, input_transform_list,
 def _append_dataset(dataset_1, dataset_2):
     dataset_1._bulk_file_paths.extend(dataset_2._bulk_file_paths)
     dataset_1._fracture_file_paths.extend(dataset_2._fracture_file_paths)
+    dataset_1._cross_section_file_paths.extend(dataset_2._cross_section_file_paths)
     dataset_1._output_file_paths.extend(dataset_2._output_file_paths)
 
 
