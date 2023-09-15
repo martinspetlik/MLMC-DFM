@@ -61,7 +61,7 @@ def create_output(sample_dir, symmetrize=True):
     # np.savez_compressed(os.path.join(sample_dir, "output_tensor_compressed"), data=cond_tn.ravel)
 
 
-def create_input(sample_dir, n_pixels_x=256, feature_names=[['conductivity_tensor'], ['cross_section']], avg_cs=None, lines_rast_method="r1"):
+def create_input(sample_dir, n_pixels_x=256, feature_names=[['conductivity_tensor'], ['cross_section']], avg_cs=None, lines_rast_method="r1", cross_section=False):
     """
     Create inputs - get mesh properties and corresponding values of random fields
                   - rasterize bulk and fracture properties separately
@@ -117,11 +117,18 @@ def create_input(sample_dir, n_pixels_x=256, feature_names=[['conductivity_tenso
             avg_cs = np.mean(list(cs_lines.keys())) * 10
 
         rasterization._clear()
+        cvs_lines_cross_section_to_store = None
         for k in range(n_tn_elements):
-            trimesh, cvs_lines = rasterization.rasterize(mesh_nodes, triangles, cond_tn_elements_triangles[k],
-                      lines, cond_tn_elements_lines[k], cs_lines, n_pixels_x, save_image=True, index=k, avg_cs=avg_cs)
+            if k > 0:
+                cross_section = False
+            trimesh, cvs_lines, cvs_lines_cross_section = rasterization.rasterize(mesh_nodes, triangles, cond_tn_elements_triangles[k],
+                      lines, cond_tn_elements_lines[k], cs_lines, n_pixels_x, save_image=True, index=k, avg_cs=avg_cs, cross_section=cross_section)
             bulk_data_array[k] = np.flip(trimesh, axis=0)
             cvs_lines_np = np.flip(cvs_lines, axis=0)
+            cvs_lines_cross_section = np.flip(cvs_lines_cross_section, axis=0)
+
+            if k == 0 and cross_section:
+                cvs_lines_cross_section_to_store = copy.deepcopy(cvs_lines_cross_section)
 
             if k == 1:
                 try:
@@ -140,6 +147,7 @@ def create_input(sample_dir, n_pixels_x=256, feature_names=[['conductivity_tenso
         try:
             np.savez_compressed(os.path.join(sample_dir, "bulk"), data=bulk_data_array)
             np.savez_compressed(os.path.join(sample_dir, "fractures"), data=fractures_data_array)
+            np.savez_compressed(os.path.join(sample_dir, "cross_sections"), data=cvs_lines_cross_section_to_store)
         except OSError as e:
             print(str(e))
         #loaded_fractures = np.load(os.path.join(sample_dir, "fractures.npz"))["data"]
@@ -277,6 +285,8 @@ if __name__ == "__main__":
     parser.add_argument("-e", "--end", type=int, default=-1, help="end index")
     parser.add_argument("-r", "--r_method", choices=['r1', 'r2', 'r3'], default="r1")
     parser.add_argument("-n_px", "--n_pixels", type=int, default=256, help="number of pixels for x-axis")
+    parser.add_argument("-cs", "--cross_section", default=False, action='store_true', help="rasterize cross section")
+
 
     #data_dir = "/home/martin/Documents/MLMC-DFM_data/nn_data/test_sample_with_fractures_rho_5_0_no_sigma_rast_2"
 
@@ -307,7 +317,7 @@ if __name__ == "__main__":
                 i += 1
                 continue
             try:
-                _, _, avg_cs = create_input(sample_dir, n_pixels_x=n_pixels_x, avg_cs=avg_cs, lines_rast_method=args.r_method)
+                _, _, avg_cs = create_input(sample_dir, n_pixels_x=n_pixels_x, avg_cs=avg_cs, lines_rast_method=args.r_method, cross_section=args.cross_section)
                 #create_output(sample_dir, symmetrize=True)
             except Exception as e:
                 print(str(e))

@@ -4,9 +4,9 @@ import numpy as np
 import datashader as ds
 #from datashader.utils import export_image
 import pandas as pd
-# import datashader.utils as du, datashader.transfer_functions as tf
+#import datashader.utils as du, datashader.transfer_functions as tf
 # from scipy.spatial import Delaunay
-# from colorcet import rainbow as c
+#from colorcet import rainbow as c
 # import dask.dataframe as dd
 from datashader.bundling import connect_edges, hammer_bundle
 #from datashader.layout import random_layout, circular_layout, forceatlas2_layout
@@ -59,7 +59,7 @@ class Rasterization():
 
     def rasterize(self, mesh_nodes, triangles, cond_tn_elements_triangles,
                   lines=None, cond_tn_elements_lines=None, cs_lines=None, n_pixels_x=256,
-                  save_image=False, index=None, avg_cs=None):
+                  save_image=False, index=None, avg_cs=None, cross_section=False):
 
         srf = OrderedDict(cond_tn_elements_triangles)
 
@@ -106,8 +106,10 @@ class Rasterization():
                 trimesh[x,y] = neigh_value
 
         cvs_lines = np.full((n_pixels_x, n_pixels_x), np.nan)
+        cvs_lines_cross_section = np.full((n_pixels_x, n_pixels_x), np.nan)
 
         cvs_l = None
+        cvs_l_cross_section = None
         if len(lines) > 0:
             if index in [1, 2] and 0 in self._cvs_lines_list_by_elements_index:
                 cvs_lines = self._cvs_lines_list_by_elements_index[0]
@@ -119,12 +121,21 @@ class Rasterization():
                 elif self._lines_rast_method == "r3":
                     cvs_lines = self.rasterize_lines_3(canvas, self._verts, lines, cond_tn_elements_lines, cs_lines,
                                                        index, avg_cs)
+                    if cross_section:
+                        cvs_lines_cross_section = self.rasterize_lines_cross_section_3(canvas, self._verts, lines, cond_tn_elements_lines, cs_lines,
+                                                       index, avg_cs)
                 self._cvs_lines_list_by_elements_index[index] = cvs_lines
 
             cvs_l = cvs_lines[0]
             if len(cvs_lines) > 1:
                 for i in range(1, len(cvs_lines)):
                     cvs_l = cvs_l.combine_first(cvs_lines[i])
+
+            cvs_l_cross_section = cvs_lines_cross_section[0]
+            if not isinstance(cvs_l_cross_section, np.ndarray):
+                if len(cvs_lines_cross_section) > 1:
+                    for i in range(1, len(cvs_lines_cross_section)):
+                        cvs_l_cross_section = cvs_l_cross_section.combine_first(cvs_lines_cross_section[i])
 
         # if index == 1:
         #     nearest_img = tf.shade(canvas.trimesh(self._verts, self._tris, interpolate='nearest'), name='10 Vertices')
@@ -141,17 +152,18 @@ class Rasterization():
         #     #
         #     #         # tf.stack(nearest_img, linear_img, how="over")
         #                 #export_image(img=tf.stack(nearest_img, img_points, how="over"), filename='image_trimesh_points', fmt=".png", export_path=".")
-        #
         #     try:
         #         lines_img = tf.shade(cvs_l, name='lines', cmap=c)
+        #         cross_section_img = tf.shade(cvs_l_cross_section, name='cross_section', cmap=c)
         #         nearest_img = tf.stack(nearest_img, lines_img, how="over")
+        #         #nearest_img = tf.stack(nearest_img, cross_section_img, how="over")
         #         export_image(img=nearest_img, filename='dfm_image' + "{}".format(np.random.random()), fmt=".png", export_path=".")
         #     except:
         #         pass
 
         if cvs_l is not None:
             cvs_lines = cvs_l
-        return trimesh, cvs_lines
+        return trimesh, cvs_lines, cvs_lines_cross_section
 
     def rasterize_lines_2(self, cvs, verts, lines, cond_tn_elements_lines, cs_lines, index, avg_cs):
         if avg_cs is None:
@@ -201,6 +213,25 @@ class Rasterization():
                              line_width=avg_cs)
         #print("cvs_lines.where(cvs_lines is None) ", cvs_lines.where(cvs_lines.notnull(), drop=True))
 
+        cvs_lines_list.append(cvs_lines)
+        return cvs_lines_list
+
+    def rasterize_lines_cross_section_3(self, cvs, verts, lines, cond_tn_elements_lines, cs_lines, index, avg_cs):
+        if avg_cs is None:
+            avg_cs = np.mean(list(cs_lines.keys()))
+        lines_to_rasterize = {}
+        lines_to_rasterize_data = {}
+
+        cvs_lines_list = []
+        for cs, l_ids in cs_lines.items():
+            for l_id in l_ids:
+                lines_to_rasterize[l_id] = [*lines[l_id]]
+                lines_to_rasterize_data[l_id] = cs
+        lines_df = pd.DataFrame(lines_to_rasterize.values(), columns=['source', 'target'])
+        lines_df['cs_value'] = np.squeeze(np.array(list(lines_to_rasterize_data.values())))
+
+        cvs_lines = cvs.line(connect_edges(verts, lines_df, weight='cs_value'), 'x', 'y', agg=ds.mean('cs_value'),
+                             line_width=avg_cs)
         cvs_lines_list.append(cvs_lines)
         return cvs_lines_list
 
