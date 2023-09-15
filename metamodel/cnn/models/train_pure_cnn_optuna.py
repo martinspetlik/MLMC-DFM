@@ -305,7 +305,7 @@ def features_transform(config, data_dir, output_file_name, input_transform_list,
     if dataset_for_transform is None:
         dataset_for_transform = DFMDataset(data_dir=data_dir, output_file_name=output_file_name, two_dim=True,
                                            fractures_sep=config["fractures_sep"] if "fractures_sep" in config else False,
-                                           vel_avg=config["vel_avg"] if "vel_avg" in config else False
+                                           cross_section=config["cross_section"] if "cross_section" in config else False
                                            )
     input_data = np.array([])
     output_data = np.array([])
@@ -437,8 +437,6 @@ def _split_dataset(dataset, config, n_train_samples):
 
 def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=None):
     output_file_name = "output_tensor.npy"
-    if "vel_avg" in config and config["vel_avg"]:
-        output_file_name = "output_vel_avg.npy"
 
     # ===================================
     # Get mean and std for each channel
@@ -506,7 +504,7 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
                                               input_channels=config["input_channels"] if "input_channels" in config else None,
                                               output_channels=config["output_channels"] if "output_channels" in config else None,
                                               fractures_sep=config["fractures_sep"] if "fractures_sep" in config else False,
-                                              vel_avg=config["vel_avg"] if "vel_avg" in config else False
+                                              cross_section=config["cross_section"] if "cross_section" in config else False
                                               )
         dataset_for_mean_std.shuffle(seed=config["seed"])
 
@@ -611,7 +609,7 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
                              input_channels=config["input_channels"] if "input_channels" in config else None,
                              output_channels=config["output_channels"] if "output_channels" in config else None,
                              fractures_sep=config["fractures_sep"] if "fractures_sep" in config else False,
-                             vel_avg=config["vel_avg"] if "vel_avg" in config else False
+                             cross_section=config["cross_section"] if "cross_section" in config else False
                              )
         dataset.shuffle(config["seed"])
 
@@ -643,7 +641,7 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
                              input_channels=config["input_channels"] if "input_channels" in config else None,
                              output_channels=config["output_channels"] if "output_channels" in config else None,
                              fractures_sep=config["fractures_sep"] if "fractures_sep" in config else False,
-                             vel_avg=config["vel_avg"] if "vel_avg" in config else False
+                             cross_section=config["cross_section"] if "cross_section" in config else False
                              )
         dataset.shuffle(config["seed"])
 

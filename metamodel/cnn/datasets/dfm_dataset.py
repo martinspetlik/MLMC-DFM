@@ -16,12 +16,13 @@ from torchvision import transforms, utils
 class DFMDataset(Dataset):
     """DFM models dataset"""
 
-    def __init__(self, data_dir, bulk_file_name="bulk.npz", fracture_file_name="fractures.npz",
+    def __init__(self, data_dir, bulk_file_name="bulk.npz", fracture_file_name="fractures.npz", cross_section_file_name="cross_sections.npz",
                  output_file_name="output_tensor.npy", input_transform=None, output_transform=None, init_transform=None,
-                 two_dim=True, input_channels=None, output_channels=None, fractures_sep=False, vel_avg=False, plot=False, init_norm_use_all_features=False):
+                 two_dim=True, input_channels=None, output_channels=None, fractures_sep=False, cross_section=False, plot=False, init_norm_use_all_features=False):
         self._data_dir = data_dir
         self._bulk_file_name = bulk_file_name
         self._fracture_file_name = fracture_file_name
+        self._cross_section_file_name = cross_section_file_name
         self._output_file_name = output_file_name
         self.init_transform = init_transform
         self.input_transform = input_transform
@@ -30,11 +31,12 @@ class DFMDataset(Dataset):
         self._input_channels = input_channels
         self._output_channels = output_channels
         self._fractures_sep = fractures_sep
-        self._vel_avg = vel_avg
+        self._cross_section = cross_section
         self._init_transform_use_all_features = init_norm_use_all_features
 
         self._bulk_file_paths = []
         self._fracture_file_paths = []
+        self._cross_section_file_paths = []
         self._output_file_paths = []
 
         self.plot = plot
@@ -46,8 +48,11 @@ class DFMDataset(Dataset):
         perm = np.random.permutation(len(self._bulk_file_paths))
         self._bulk_file_paths = list(np.array(self._bulk_file_paths)[perm])
         self._output_file_paths = list(np.array(self._output_file_paths)[perm])
+
         if len(self._fracture_file_paths) == len(self._bulk_file_paths):
             self._fracture_file_paths = list(np.array(self._fracture_file_paths)[perm])
+        if len(self._cross_section_file_paths) == len(self._bulk_file_paths):
+            self._cross_section_file_paths = list(np.array(self._cross_section_file_paths)[perm])
 
     def _set_paths_to_samples(self):
         if self._data_dir is None:
@@ -63,6 +68,7 @@ class DFMDataset(Dataset):
                 sample_dir = os.path.join(self._data_dir, s_dir)
                 bulk_file = os.path.join(sample_dir, self._bulk_file_name)
                 fractures_file = os.path.join(sample_dir, self._fracture_file_name)
+                cross_section_file = os.path.join(sample_dir, self._cross_section_file_name)
                 output_file = os.path.join(sample_dir, self._output_file_name)
 
                 if os.path.exists(bulk_file):
@@ -71,6 +77,8 @@ class DFMDataset(Dataset):
                         self._output_file_paths.append(output_file)
                     if os.path.exists(fractures_file):
                         self._fracture_file_paths.append(fractures_file)
+                    if self._cross_section and os.path.exists(cross_section_file):
+                        self._cross_section_file_paths.append(cross_section_file)
                 else:
                     continue
 
@@ -80,10 +88,14 @@ class DFMDataset(Dataset):
     def __getitem__(self, idx):
         output_path = []
         fractures_path = []
+        cross_section_path = []
         bulk_path = self._bulk_file_paths[idx]
 
         if len(self._fracture_file_paths) > 0:
             fractures_path = self._fracture_file_paths[idx]
+
+        if len(self._cross_section_file_paths) > 0:
+            cross_section_path = self._cross_section_file_paths[idx]
 
         if len(self._output_file_paths) > 0:
             output_path = self._output_file_paths[idx]
@@ -92,17 +104,21 @@ class DFMDataset(Dataset):
             new_dataset= copy.deepcopy(self)
             new_dataset._bulk_file_paths = bulk_path
             new_dataset._fracture_file_paths = fractures_path
+            new_dataset._cross_section_file_paths = cross_section_path
             new_dataset._output_file_paths = output_path
             return new_dataset
 
-        #print("bulk path ", bulk_path)
         bulk_features = np.load(bulk_path)["data"]
-        #print("bulk features shape ", bulk_features.shape)
 
         if len(fractures_path) > 0:
             fractures_features = np.load(fractures_path)["data"]
         else:
             fractures_features = None
+
+        if len(cross_section_path) > 0:
+            cross_section_features = np.load(cross_section_path)["data"]
+        else:
+            cross_section_features = None
 
         if len(output_path) > 0:
             output_features = np.load(output_path, allow_pickle=True)
@@ -118,7 +134,7 @@ class DFMDataset(Dataset):
             if fractures_features is not None:
                 fractures_features = fractures_features[indices, ...]
 
-        if self._two_dim and not self._vel_avg:
+        if self._two_dim:
             if len(output_features) > 0:
                 output_features = output_features[output_indices, ...]
 
@@ -127,6 +143,12 @@ class DFMDataset(Dataset):
         if self.init_transform is not None:
             bulk_features_avg = np.mean(bulk_features)
             self._bulk_features_avg = bulk_features_avg
+
+        if cross_section_features is not None:
+            flatten_cross_section_features = cross_section_features.reshape(-1)
+            nan_indices = np.argwhere(np.isnan(flatten_cross_section_features))
+            flatten_cross_section_features[nan_indices] = 1
+            flatten_cross_section_features_channel = flatten_cross_section_features.reshape(bulk_features_shape[1:])
 
         flatten_bulk_features = bulk_features.reshape(-1)
         if fractures_features is not None:
@@ -141,7 +163,7 @@ class DFMDataset(Dataset):
                 flatten_fracture_features = fractures_features.reshape(-1)
                 nan_indices = np.argwhere(np.isnan(flatten_fracture_features))
                 flatten_fracture_features[nan_indices] = 0
-                fractures_channel = fractures_features[0, ...]
+                fractures_channel = flatten_fracture_features[0, ...]
         else:
             print("fr Nan")
 
@@ -154,6 +176,9 @@ class DFMDataset(Dataset):
         if self._fractures_sep:
             final_features = np.concatenate((final_features, np.expand_dims(fractures_channel, axis=0)), axis=0)
 
+        if self._cross_section:
+            final_features = np.concatenate((final_features, np.expand_dims(flatten_cross_section_features_channel, axis=0)), axis=0)
+
         final_features = torch.from_numpy(final_features)
         output_features = torch.from_numpy(output_features)
 
@@ -164,7 +189,7 @@ class DFMDataset(Dataset):
 
         if self.init_transform is not None:
             reshaped_output = torch.reshape(output_features, (*output_features.shape, 1, 1))
-            final_features, reshaped_features = self.init_transform((bulk_features_avg, final_features, reshaped_output))
+            final_features, reshaped_features = self.init_transform((bulk_features_avg, final_features, reshaped_output, self._cross_section))
         else:
             reshaped_output = torch.reshape(output_features, (*output_features.shape, 1, 1))
 

@@ -358,7 +358,7 @@ if __name__ == '__main__':
               "input_channels": trials_config["input_channels"] if "input_channels" in trials_config else None,
               "output_channels": trials_config["output_channels"] if "output_channels" in trials_config else None,
               "fractures_sep": trials_config["fractures_sep"] if "fractures_sep" in trials_config else False,
-              "vel_avg": trials_config["vel_avg"] if "vel_avg" in trials_config else False,
+              "cross_section": trials_config["cross_section"] if "cross_section" in trials_config else False,
               "seed": trials_config["random_seed"] if "random_seed" in trials_config else 12345,
               "output_dir": output_dir,
               "sub_datasets": trials_config["sub_datasets"] if "sub_datasets" in trials_config else {}

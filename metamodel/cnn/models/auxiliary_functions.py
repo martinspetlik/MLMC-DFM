@@ -24,10 +24,10 @@ class NormalizeData():
     def __init__(self):
         self.input_indices = [0, 1, 2]
         self.output_indices = [0, 1, 2]
-        self.input_mean = [0, 0, 0]
-        self.output_mean = [0, 0, 0]
-        self.input_std = [1, 1, 1]
-        self.output_std = [1,1,1]
+        self.input_mean = [0, 0, 0, 0]
+        self.output_mean = [0, 0, 0, 0]
+        self.input_std = [1, 1, 1, 1]
+        self.output_std = [1,1,1, 1]
         self.output_quantiles = []
 
     def normalize_input(self, data):
@@ -74,10 +74,13 @@ def log_all_data(data):
 
 
 def init_norm(data):
-    bulk_features_avg, input, output = data
+    bulk_features_avg, input, output, cross_section_flag = data
     #avg_k = torch.mean(input)
 
-    input /= bulk_features_avg
+    if cross_section_flag:
+        input[:3, :] /= bulk_features_avg
+    else:
+        input /= bulk_features_avg
     output /= bulk_features_avg
 
     return input, output
