@@ -99,7 +99,7 @@ def objective(trial, trials_config, train_loader, validation_loader):
                                                                             len(test_set)))
 
         train_loader = torch.utils.data.DataLoader(train_set, batch_size=config["batch_size_train"], shuffle=True)
-        validation_loader = torch.utils.data.DataLoader(validation_set, batch_size=config["batch_size_test"],
+        validation_loader = torch.utils.data.DataLoader(validation_set, batch_size=config["batch_size_train"],
                                                         shuffle=False)
         test_loader = torch.utils.data.DataLoader(test_set, batch_size=config["batch_size_test"], shuffle=False)
 
@@ -278,8 +278,9 @@ def objective(trial, trials_config, train_loader, validation_loader):
             model.train(False)
             if len(validation_set) == 0:
                 avg_vloss = avg_loss
+                avg_vacc = 0
             else:
-                avg_vloss = validate(model, validation_loader, loss_fn=loss_fn, use_cuda=use_cuda)   # Evaluate the model
+                avg_vloss, avg_vacc = validate(model, validation_loader, loss_fn=loss_fn, use_cuda=use_cuda)   # Evaluate the model
 
             if scheduler is not None:
                 scheduler.step(avg_vloss)
@@ -288,7 +289,7 @@ def objective(trial, trials_config, train_loader, validation_loader):
             avg_loss_list.append(avg_loss)
             avg_vloss_list.append(avg_vloss)
 
-            print("epoch: {}, loss train: {}, val: {}".format(epoch, avg_loss, avg_vloss))
+            print("epoch: {}, LOSS train: {}, val: {}, ACC val: {}".format(epoch, avg_loss, avg_vloss, avg_vacc))
 
             if avg_vloss < best_vloss:
                 best_vloss = avg_vloss
