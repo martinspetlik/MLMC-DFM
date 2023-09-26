@@ -197,7 +197,7 @@ def save_output_dataset(model, data_loader, study, output_data_dir, sample_id=0,
     return sample_id
 
 
-def validate(model, validation_loader, loss_fn=nn.MSELoss(), use_cuda=False):
+def validate(model, validation_loader, loss_fn=nn.MSELoss(), acc_fn=nn.MSELoss(), use_cuda=False):
     """
     Validate model
     :param model:
@@ -205,6 +205,7 @@ def validate(model, validation_loader, loss_fn=nn.MSELoss(), use_cuda=False):
     :return:
     """
     running_vloss = 0.0
+    running_vacc = 0
     with torch.no_grad():
         for i, vdata in enumerate(validation_loader):
             vinputs, vtargets = vdata
@@ -217,14 +218,20 @@ def validate(model, validation_loader, loss_fn=nn.MSELoss(), use_cuda=False):
             vtargets = vtargets.float()
 
             voutputs = torch.squeeze(model(vinputs))
-            # print("voutputs.shape ", voutputs.shape)
+            #print("voutputs.shape ", voutputs.shape)
             # print("vtargets.shape ", vtargets.shape)
             vloss = loss_fn(voutputs, vtargets)
             running_vloss += vloss.item()
 
-        avg_vloss = running_vloss / (i + 1)
+            #print("validate running loss ", running_vloss)
 
-    return avg_vloss
+            vacc = acc_fn(voutputs, vtargets)
+            running_vacc += vacc.item()
+
+        avg_vloss = running_vloss / (i + 1)
+        avg_vacc = running_vacc / (i + 1)
+
+    return avg_vloss, avg_vacc
 
 
 def objective(trial, train_loader, validation_loader):
