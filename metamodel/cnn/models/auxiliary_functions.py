@@ -240,7 +240,11 @@ def get_eigendecomp(flatten_values, dim=2):
 
 def check_shapes(n_conv_layers, kernel_size, stride, pool_size, pool_stride, pool_indices, input_size=256):
     #n_layers = 0
+
     for i in range(n_conv_layers):
+        # print("input size ", input_size)
+        # print("kernel size ", kernel_size)
+
         if input_size < kernel_size:
             return -1, input_size
 
@@ -255,6 +259,31 @@ def check_shapes(n_conv_layers, kernel_size, stride, pool_size, pool_stride, poo
 
 
 def get_mse_nrmse_r2(targets, predictions):
+    targets_arr = np.array(targets)
+    predictions_arr = np.array(predictions)
+
+    squared_err_k = []
+    std_tar_k = []
+    r2_k = []
+    mse_k = []
+    rmse_k = []
+    nrmse_k = []
+
+    for i in range(targets_arr.shape[1]):
+        targets = np.squeeze(targets_arr[:, i, ...])
+        predictions = np.squeeze(predictions_arr[:, i, ...])
+        squared_err_k.append((targets - predictions) ** 2)
+        std_tar_k.append(np.std(targets))
+        r2_k.append(1 - (np.sum(squared_err_k[i]) /
+                         np.sum((targets - np.mean(targets)) ** 2)))
+        mse_k.append(np.mean(squared_err_k[i]))
+        rmse_k.append(np.sqrt(mse_k[i]))
+        nrmse_k.append(rmse_k[i] / std_tar_k[i])
+
+    return mse_k, rmse_k, nrmse_k, r2_k
+
+
+def get_mse_nrmse_r2_eigh(targets, predictions):
     targets_arr = np.array(targets)
     predictions_arr = np.array(predictions)
 
@@ -354,6 +383,7 @@ class WeightedMSELossSum(nn.Module):
         #print("mse loss sum ", mse_loss_sum)
         weighted_mse_loss = torch.mean(mse_loss_sum)
         return weighted_mse_loss
+
 
 class EighMSE(nn.Module):
     def __init__(self, weights):
@@ -474,6 +504,132 @@ class EighMSE(nn.Module):
         return mse
 
 
+class EighMSE_MSE(nn.Module):
+    def __init__(self, weights):
+        super(EighMSE_MSE, self).__init__()
+        print("weights ", weights)
+        self.weights = torch.Tensor(weights)
+        if torch.cuda.is_available():
+            self.weights = self.weights.cuda()
+
+    def _calc_evals(self, batch_data):
+        eval_1 = ((batch_data[:, 0, 0] + batch_data[:, 1, 1]) +
+                       torch.sqrt((-batch_data[:, 0, 0] - batch_data[:, 1, 1]) ** 2 -
+                                  4 * (batch_data[:, 0, 0] * batch_data[:, 1, 1] -
+                                       batch_data[:, 0, 1] * batch_data[:, 1, 0]))) / 2
+
+        eval_2 = ((batch_data[:, 0, 0] + batch_data[:, 1, 1]) -
+                       torch.sqrt((-batch_data[:, 0, 0] - batch_data[:, 1, 1]) ** 2 -
+                                  4 * (batch_data[:, 0, 0] * batch_data[:, 1, 1] -
+                                       batch_data[:, 0, 1] * batch_data[:, 1, 0]))) / 2
+
+        evals = torch.stack([eval_1, eval_2], axis=1)
+
+        return evals
+
+    def forward(self, y_pred, y_true):
+        if len(y_true.shape) == 1:
+            y_pred = y_pred.unsqueeze(0)
+            y_true = y_true.unsqueeze(0)
+
+        #tensor_loss = F.mse_loss(y_pred, y_true)
+
+        y_pred_resized = torch.empty(y_pred.shape[0], 2, 2)
+        y_pred_resized[:, 0, 0] = y_pred[:, 0]
+        y_pred_resized[:, 0, 1] = y_pred[:, 1]
+        y_pred_resized[:, 1, 0] = y_pred[:, 1]
+        y_pred_resized[:, 1, 1] = y_pred[:, 2]
+
+        y_true_resized = torch.empty(y_true.shape[0], 2, 2)
+        y_true_resized[:, 0, 0] = y_true[:, 0]
+        y_true_resized[:, 0, 1] = y_true[:, 1]
+        y_true_resized[:, 1, 0] = y_true[:, 1]
+        y_true_resized[:, 1, 1] = y_true[:, 2]
+
+        #pred_evals = self._calc_evals(y_pred_resized)
+
+        ####
+        ## Eigenvalues of predicted tensors
+        ####
+        eval_1 = ((y_pred_resized[:, 0, 0] + y_pred_resized[:, 1, 1]) +
+                  torch.sqrt((-y_pred_resized[:, 0, 0] - y_pred_resized[:, 1, 1]) ** 2 -
+                             4 * (y_pred_resized[:, 0, 0] * y_pred_resized[:, 1, 1] -
+                                  y_pred_resized[:, 0, 1] * y_pred_resized[:, 1, 0]))) / 2
+
+        eval_2 = ((y_pred_resized[:, 0, 0] + y_pred_resized[:, 1, 1]) -
+                  torch.sqrt((-y_pred_resized[:, 0, 0] - y_pred_resized[:, 1, 1]) ** 2 -
+                             4 * (y_pred_resized[:, 0, 0] * y_pred_resized[:, 1, 1] -
+                                  y_pred_resized[:, 0, 1] * y_pred_resized[:, 1, 0]))) / 2
+
+        pred_evals = torch.stack([eval_1, eval_2], axis=1)
+        pred_eigenvalues, pred_eigenvectors = torch.linalg.eigh(y_pred_resized)
+
+        #true_evals = self._calc_evals(y_true_resized)
+
+        ####
+        ## Eigenvalues of true/target tensors
+        ####
+        eval_1 = ((y_true_resized[:, 0, 0] + y_true_resized[:, 1, 1]) +
+                  torch.sqrt((-y_true_resized[:, 0, 0] - y_true_resized[:, 1, 1]) ** 2 -
+                             4 * (y_true_resized[:, 0, 0] * y_true_resized[:, 1, 1] -
+                                  y_true_resized[:, 0, 1] * y_true_resized[:, 1, 0]))) / 2
+
+        eval_2 = ((y_true_resized[:, 0, 0] + y_true_resized[:, 1, 1]) -
+                  torch.sqrt((-y_true_resized[:, 0, 0] - y_true_resized[:, 1, 1]) ** 2 -
+                             4 * (y_true_resized[:, 0, 0] * y_true_resized[:, 1, 1] -
+                                  y_true_resized[:, 0, 1] * y_true_resized[:, 1, 0]))) / 2
+
+        true_evals = torch.stack([eval_1, eval_2], axis=1)
+
+        # print("pred evals ", pred_evals)
+        # print("true evals ", true_evals)
+        # print("pred_evals - true_evals ", pred_evals - true_evals)
+
+        true_eigenvalues, true_eigenvectors = torch.linalg.eigh(y_true_resized)
+
+        # Calculate MSE for eigenvalues
+        evals_mse = torch.mean((pred_evals - true_evals) ** 2)
+
+        mse_loss = F.mse_loss(y_pred, y_true)
+        if str(mse_loss.device) == "cpu":
+            self.weights = self.weights.cpu()
+        weighted_mse_loss = self.weights[3] * mse_loss
+
+        mse_evec_1 = 0
+        mse_evec_2 = 0
+        if self.weights[1] == 0 and self.weights[1] == 0:
+            mse = self.weights[0] * evals_mse
+            print("MSE evals: {}, data mse: {}".format(mse, weighted_mse_loss))
+            #print("MSE evals: {}, tensor MSE: {}".format(mse, tensor_loss))
+        else:
+            for i in range(len(pred_eigenvalues)):
+                linalg_pred_evals = pred_eigenvalues[i]
+                linalg_true_evals = true_eigenvalues[i]
+                linalg_pred_evecs = pred_eigenvectors[i]
+                linalg_true_evecs = true_eigenvectors[i]
+
+                pred_evec_1 = linalg_pred_evecs[:, torch.argmin(torch.abs(linalg_pred_evals - pred_evals[i][0]))]
+                pred_evec_2 = linalg_pred_evecs[:, torch.argmin(torch.abs(linalg_pred_evals - pred_evals[i][1]))]
+
+                true_evec_1 = linalg_true_evecs[:, torch.argmin(torch.abs(linalg_true_evals - true_evals[i][0]))]
+                true_evec_2 = linalg_true_evecs[:, torch.argmin(torch.abs(linalg_true_evals - true_evals[i][1]))]
+
+                # Calculate MSE for eigenvectors
+                mse_evec_1 += torch.mean((pred_evec_1 - true_evec_1) ** 2)
+                mse_evec_2 += torch.mean((pred_evec_2 - true_evec_2) ** 2)
+
+            total_evec_mse = self.weights[1] * mse_evec_1 + self.weights[2] * mse_evec_2
+            mse = self.weights[0] * evals_mse + (total_evec_mse / (i+1))
+
+            print("MSE evals: {}, evec1: {}, evec2: {}, data mse: {} total evec mse / batch size : {}".format(evals_mse, mse_evec_1,
+                                                                                                 mse_evec_2, weighted_mse_loss,
+                                                                                                 total_evec_mse / (i+1)))
+
+
+        final_mse = mse + weighted_mse_loss
+        return final_mse
+
+
 class WeightedL1Loss(nn.Module):
     def __init__(self, weights):
         super(WeightedL1Loss, self).__init__()
@@ -533,6 +689,8 @@ def get_loss_fn(loss_function):
         return WeightedMSELossSum(loss_fn_params)
     elif loss_fn_name == "EighMSE":
         return EighMSE(loss_fn_params)
+    elif loss_fn_name == "EighMSE_MSE":
+        return EighMSE_MSE(loss_fn_params)
     # elif loss_fn_name == "CosineSimilarity":
     #     return CosineSimilarity
 
