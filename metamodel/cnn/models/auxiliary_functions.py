@@ -287,6 +287,65 @@ def get_mse_nrmse_r2_eigh(targets, predictions):
     targets_arr = np.array(targets)
     predictions_arr = np.array(predictions)
 
+    # print("targets arr shape", targets_arr.shape)
+    # print("predictions arr shape ", predictions_arr.shape)
+
+    y_pred_resized = np.empty((predictions_arr.shape[0], 2, 2))
+    y_pred_resized[:, 0, 0] = predictions_arr[:, 0]
+    y_pred_resized[:, 0, 1] = predictions_arr[:, 1]
+    y_pred_resized[:, 1, 0] = predictions_arr[:, 1]
+    y_pred_resized[:, 1, 1] = predictions_arr[:, 2]
+
+    y_true_resized = np.empty((targets_arr.shape[0], 2, 2))
+    y_true_resized[:, 0, 0] = targets_arr[:, 0]
+    y_true_resized[:, 0, 1] = targets_arr[:, 1]
+    y_true_resized[:, 1, 0] = targets_arr[:, 1]
+    y_true_resized[:, 1, 1] = targets_arr[:, 2]
+
+    # pred_evals = self._calc_evals(y_pred_resized)
+
+    ####
+    ## Eigenvalues of predicted tensors
+    ####
+    eval_1 = ((y_pred_resized[:, 0, 0] + y_pred_resized[:, 1, 1]) +
+              np.sqrt((-y_pred_resized[:, 0, 0] - y_pred_resized[:, 1, 1]) ** 2 -
+                         4 * (y_pred_resized[:, 0, 0] * y_pred_resized[:, 1, 1] -
+                              y_pred_resized[:, 0, 1] * y_pred_resized[:, 1, 0]))) / 2
+
+    eval_2 = ((y_pred_resized[:, 0, 0] + y_pred_resized[:, 1, 1]) -
+              np.sqrt((-y_pred_resized[:, 0, 0] - y_pred_resized[:, 1, 1]) ** 2 -
+                         4 * (y_pred_resized[:, 0, 0] * y_pred_resized[:, 1, 1] -
+                              y_pred_resized[:, 0, 1] * y_pred_resized[:, 1, 0]))) / 2
+
+    pred_evals = np.stack([eval_1, eval_2], axis=1)
+    pred_eigenvalues, pred_eigenvectors = np.linalg.eigh(y_pred_resized)
+
+    # true_evals = self._calc_evals(y_true_resized)
+
+    ####
+    ## Eigenvalues of true/target tensors
+    ####
+    eval_1 = ((y_true_resized[:, 0, 0] + y_true_resized[:, 1, 1]) +
+              np.sqrt((-y_true_resized[:, 0, 0] - y_true_resized[:, 1, 1]) ** 2 -
+                         4 * (y_true_resized[:, 0, 0] * y_true_resized[:, 1, 1] -
+                              y_true_resized[:, 0, 1] * y_true_resized[:, 1, 0]))) / 2
+
+    eval_2 = ((y_true_resized[:, 0, 0] + y_true_resized[:, 1, 1]) -
+              np.sqrt((-y_true_resized[:, 0, 0] - y_true_resized[:, 1, 1]) ** 2 -
+                         4 * (y_true_resized[:, 0, 0] * y_true_resized[:, 1, 1] -
+                              y_true_resized[:, 0, 1] * y_true_resized[:, 1, 0]))) / 2
+
+    true_evals = np.stack([eval_1, eval_2], axis=1)
+
+    # print("pred evals ", pred_evals)
+    # print("true evals ", true_evals)
+    # print("pred_evals - true_evals ", pred_evals - true_evals)
+
+    true_eigenvalues, true_eigenvectors = np.linalg.eigh(y_true_resized)
+
+    # Calculate MSE for eigenvalues
+    #evals_mse = torch.mean((pred_evals - true_evals) ** 2)
+
     squared_err_k = []
     std_tar_k = []
     r2_k = []
@@ -294,9 +353,9 @@ def get_mse_nrmse_r2_eigh(targets, predictions):
     rmse_k = []
     nrmse_k = []
 
-    for i in range(targets_arr.shape[1]):
-        targets = np.squeeze(targets_arr[:, i, ...])
-        predictions = np.squeeze(predictions_arr[:, i, ...])
+    for i in range(true_evals.shape[1]):
+        targets = np.squeeze(true_evals[:, i, ...])
+        predictions = np.squeeze(pred_evals[:, i, ...])
         squared_err_k.append((targets - predictions) ** 2)
         std_tar_k.append(np.std(targets))
         r2_k.append(1 - (np.sum(squared_err_k[i]) /
@@ -305,7 +364,110 @@ def get_mse_nrmse_r2_eigh(targets, predictions):
         rmse_k.append(np.sqrt(mse_k[i]))
         nrmse_k.append(rmse_k[i] / std_tar_k[i])
 
-    return mse_k, rmse_k, nrmse_k, r2_k
+
+    all_pred_evec_1 = []
+    all_pred_evec_2 = []
+    all_true_evec_1 = []
+    all_true_evec_2 = []
+    for i in range(len(pred_eigenvalues)):
+        linalg_pred_evals = pred_eigenvalues[i]
+        linalg_true_evals = true_eigenvalues[i]
+        linalg_pred_evecs = pred_eigenvectors[i]
+        linalg_true_evecs = true_eigenvectors[i]
+
+        pred_evec_1 = linalg_pred_evecs[:, np.argmin(np.abs(linalg_pred_evals - pred_evals[i][0]))]
+        pred_evec_2 = linalg_pred_evecs[:, np.argmin(np.abs(linalg_pred_evals - pred_evals[i][1]))]
+
+        all_pred_evec_1.append(pred_evec_1)
+        all_pred_evec_2.append(pred_evec_2)
+
+        true_evec_1 = linalg_true_evecs[:, np.argmin(np.abs(linalg_true_evals - true_evals[i][0]))]
+        true_evec_2 = linalg_true_evecs[:, np.argmin(np.abs(linalg_true_evals - true_evals[i][1]))]
+
+        all_true_evec_1.append(true_evec_1)
+        all_true_evec_2.append(true_evec_2)
+
+
+    all_true_evec_1 = np.array(all_true_evec_1)
+    all_true_evec_2 = np.array(all_true_evec_2)
+    all_pred_evec_1 = np.array(all_pred_evec_1)
+    all_pred_evec_2 = np.array(all_pred_evec_2)
+
+
+    # squared_err_k = []
+    # std_tar_k = []
+    # r2_k = []
+    # mse_k = []
+    # rmse_k = []
+    # nrmse_k = []
+
+    # print("all true evec 1 shape", all_true_evec_1.shape)
+    # print("all true evec 2 shape", all_true_evec_2.shape)
+
+    # targets = true_evec_1 #np.squeeze(targets_arr[:, i, ...])
+    # predictions = pred_evec_1 #np.squeeze(predictions_arr[:, i, ...])
+    # squared_err_evec_1 = (targets - predictions) ** 2
+    # std_tar_evec_1 = np.std(targets)
+    # r2_evec_1 = 1 - (np.sum(squared_err_evec_1) /
+    #                  np.sum((targets - np.mean(targets)) ** 2))
+    # mse_evec_1 = np.mean(squared_err_evec_1)
+    # rmse_evec_1 = np.sqrt(mse_evec_1)
+    # nrmse_evec_1 = rmse_evec_1 / std_tar_evec_1
+
+
+    squared_err_evec_1 = []
+    std_tar_evec_1 = []
+    r2_evec_1 = []
+    mse_evec_1 = []
+    rmse_evec_1 = []
+    nrmse_evec_1 = []
+
+    for i in range(all_true_evec_1.shape[1]):
+        targets_evec_1 = np.squeeze(all_true_evec_1[:, i, ...])
+        predictions_evec_1 = np.squeeze(all_pred_evec_1[:, i, ...])
+        squared_err_evec_1.append((targets_evec_1 - predictions_evec_1) ** 2)
+        std_tar_evec_1.append(np.std(targets_evec_1))
+        r2_evec_1.append(1 - (np.sum(squared_err_evec_1[i]) /
+                         np.sum((targets_evec_1 - np.mean(targets_evec_1)) ** 2)))
+        mse_evec_1.append(np.mean(squared_err_evec_1[i]))
+        rmse_evec_1.append(np.sqrt(mse_evec_1[i]))
+        nrmse_evec_1.append(rmse_evec_1[i] / std_tar_evec_1[i])
+
+    squared_err_evec_2 = []
+    std_tar_evec_2 = []
+    r2_evec_2 = []
+    mse_evec_2 = []
+    rmse_evec_2 = []
+    nrmse_evec_2 = []
+
+    for i in range(all_true_evec_2.shape[1]):
+        targets_evec_2 = np.squeeze(all_true_evec_2[:, i, ...])
+        predictions_evec_2 = np.squeeze(all_pred_evec_2[:, i, ...])
+        squared_err_evec_2.append((targets_evec_2 - predictions_evec_2) ** 2)
+        std_tar_evec_2.append(np.std(targets_evec_2))
+        r2_evec_2.append(1 - (np.sum(squared_err_evec_2[i]) /
+                              np.sum((targets_evec_2 - np.mean(targets_evec_2)) ** 2)))
+        mse_evec_2.append(np.mean(squared_err_evec_2[i]))
+        rmse_evec_2.append(np.sqrt(mse_evec_2[i]))
+        nrmse_evec_2.append(rmse_evec_2[i] / std_tar_evec_2[i])
+
+
+    # targets = true_evec_2  # np.squeeze(targets_arr[:, i, ...])
+    # predictions = pred_evec_2  # np.squeeze(predictions_arr[:, i, ...])
+    # squared_err_evec_2 = (targets - predictions) ** 2
+    # std_tar_evec_2 = np.std(targets)
+    # r2_evec_2 = 1 - (np.sum(squared_err_evec_2) /
+    #                  np.sum((targets - np.mean(targets)) ** 2))
+    # mse_evec_2 = np.mean(squared_err_evec_2)
+    # rmse_evec_2 = np.sqrt(mse_evec_2)
+    # nrmse_evec_2 = rmse_evec_2 / std_tar_evec_2
+
+
+    print("EVALS: mse: {}, r2: {}, rmse: {}, nrmse: {}".format(mse_k, r2_k, rmse_k, nrmse_k))
+    print("EVEC_1: mse: {}, r2: {}, rmse: {}, nrmse: {}".format(mse_evec_1, r2_evec_1, rmse_evec_1, nrmse_evec_1))
+    print("EVEC_2: mse: {}, r2: {}, rmse: {}, nrmse: {}".format(mse_evec_2, r2_evec_2, rmse_evec_2, nrmse_evec_2))
+
+    #return mse_k, rmse_k, nrmse_k, r2_k
 
 
 class FrobeniusNorm(nn.Module):
@@ -504,6 +666,142 @@ class EighMSE(nn.Module):
         return mse
 
 
+
+class EighMSE_2(nn.Module):
+    def __init__(self, weights):
+        super(EighMSE_2, self).__init__()
+        print("weights ", weights)
+        self.weights = torch.Tensor(weights)
+        if torch.cuda.is_available():
+            self.weights = self.weights.cuda()
+
+    # def _calc_evals(self, batch_data):
+    #     eval_1 = ((batch_data[:, 0, 0] + batch_data[:, 1, 1]) +
+    #                    torch.sqrt((-batch_data[:, 0, 0] - batch_data[:, 1, 1]) ** 2 -
+    #                               4 * (batch_data[:, 0, 0] * batch_data[:, 1, 1] -
+    #                                    batch_data[:, 0, 1] * batch_data[:, 1, 0]))) / 2
+    #
+    #     eval_2 = ((batch_data[:, 0, 0] + batch_data[:, 1, 1]) -
+    #                    torch.sqrt((-batch_data[:, 0, 0] - batch_data[:, 1, 1]) ** 2 -
+    #                               4 * (batch_data[:, 0, 0] * batch_data[:, 1, 1] -
+    #                                    batch_data[:, 0, 1] * batch_data[:, 1, 0]))) / 2
+    #
+    #     evals = torch.stack([eval_1, eval_2], axis=1)
+    #
+    #     return evals
+
+    def forward(self, y_pred, y_true):
+        if len(y_true.shape) == 1:
+            y_pred = y_pred.unsqueeze(0)
+            y_true = y_true.unsqueeze(0)
+
+        #tensor_loss = F.mse_loss(y_pred, y_true)
+
+        y_pred_resized = torch.empty(y_pred.shape[0], 2, 2)
+        y_pred_resized[:, 0, 0] = y_pred[:, 0]
+        y_pred_resized[:, 0, 1] = y_pred[:, 1]
+        y_pred_resized[:, 1, 0] = y_pred[:, 1]
+        y_pred_resized[:, 1, 1] = y_pred[:, 2]
+
+        y_true_resized = torch.empty(y_true.shape[0], 2, 2)
+        y_true_resized[:, 0, 0] = y_true[:, 0]
+        y_true_resized[:, 0, 1] = y_true[:, 1]
+        y_true_resized[:, 1, 0] = y_true[:, 1]
+        y_true_resized[:, 1, 1] = y_true[:, 2]
+
+        #pred_evals = self._calc_evals(y_pred_resized)
+
+        ####
+        ## Eigenvalues of predicted tensors
+        ####
+        eval_1 = ((y_pred_resized[:, 0, 0] + y_pred_resized[:, 1, 1]) +
+                  torch.sqrt((-y_pred_resized[:, 0, 0] - y_pred_resized[:, 1, 1]) ** 2 -
+                             4 * (y_pred_resized[:, 0, 0] * y_pred_resized[:, 1, 1] -
+                                  y_pred_resized[:, 0, 1] * y_pred_resized[:, 1, 0]))) / 2
+
+        eval_2 = ((y_pred_resized[:, 0, 0] + y_pred_resized[:, 1, 1]) -
+                  torch.sqrt((-y_pred_resized[:, 0, 0] - y_pred_resized[:, 1, 1]) ** 2 -
+                             4 * (y_pred_resized[:, 0, 0] * y_pred_resized[:, 1, 1] -
+                                  y_pred_resized[:, 0, 1] * y_pred_resized[:, 1, 0]))) / 2
+
+        pred_evals = torch.stack([eval_1, eval_2], axis=1)
+        pred_eigenvalues, pred_eigenvectors = torch.linalg.eigh(y_pred_resized)
+
+        #true_evals = self._calc_evals(y_true_resized)
+
+        ####
+        ## Eigenvalues of true/target tensors
+        ####
+        eval_1 = ((y_true_resized[:, 0, 0] + y_true_resized[:, 1, 1]) +
+                  torch.sqrt((-y_true_resized[:, 0, 0] - y_true_resized[:, 1, 1]) ** 2 -
+                             4 * (y_true_resized[:, 0, 0] * y_true_resized[:, 1, 1] -
+                                  y_true_resized[:, 0, 1] * y_true_resized[:, 1, 0]))) / 2
+
+        eval_2 = ((y_true_resized[:, 0, 0] + y_true_resized[:, 1, 1]) -
+                  torch.sqrt((-y_true_resized[:, 0, 0] - y_true_resized[:, 1, 1]) ** 2 -
+                             4 * (y_true_resized[:, 0, 0] * y_true_resized[:, 1, 1] -
+                                  y_true_resized[:, 0, 1] * y_true_resized[:, 1, 0]))) / 2
+
+        true_evals = torch.stack([eval_1, eval_2], axis=1)
+
+        # print("pred evals ", pred_evals)
+        # print("true evals ", true_evals)
+        # print("pred_evals - true_evals ", pred_evals - true_evals)
+
+        true_eigenvalues, true_eigenvectors = torch.linalg.eigh(y_true_resized)
+
+        # Calculate MSE for eigenvalues
+        evals_mse = torch.mean((pred_evals - true_evals) ** 2)
+
+        mse_evec_1_0 = 0
+        mse_evec_1_1 = 0
+        mse_evec_2_0 = 0
+        mse_evec_2_1 = 0
+        if self.weights[1] == 0 and self.weights[1] == 0:
+            mse = self.weights[0] * evals_mse
+            print("MSE evals: {}".format(mse))
+            #print("MSE evals: {}, tensor MSE: {}".format(mse, tensor_loss))
+        else:
+            all_pred_evec_1 = torch.empty(len(pred_eigenvalues), 2)
+            all_pred_evec_2 = torch.empty(len(pred_eigenvalues), 2)
+            all_true_evec_1 = torch.empty(len(pred_eigenvalues), 2)
+            all_true_evec_2 = torch.empty(len(pred_eigenvalues), 2)
+            for i in range(len(pred_eigenvalues)):
+                linalg_pred_evals = pred_eigenvalues[i]
+                linalg_true_evals = true_eigenvalues[i]
+                linalg_pred_evecs = pred_eigenvectors[i]
+                linalg_true_evecs = true_eigenvectors[i]
+
+                pred_evec_1 = linalg_pred_evecs[:, torch.argmin(torch.abs(linalg_pred_evals - pred_evals[i][0]))]
+                pred_evec_2 = linalg_pred_evecs[:, torch.argmin(torch.abs(linalg_pred_evals - pred_evals[i][1]))]
+
+                all_pred_evec_1[i] = pred_evec_1
+                all_pred_evec_2[i] = pred_evec_2
+
+                true_evec_1 = linalg_true_evecs[:, torch.argmin(torch.abs(linalg_true_evals - true_evals[i][0]))]
+                true_evec_2 = linalg_true_evecs[:, torch.argmin(torch.abs(linalg_true_evals - true_evals[i][1]))]
+
+                all_true_evec_1[i] = true_evec_1
+                all_true_evec_2[i] = true_evec_2
+
+            mse_evec_1_0 = torch.mean((all_pred_evec_1[:, 0] - all_true_evec_1[:, 0]) ** 2)
+            mse_evec_1_1 = torch.mean((all_pred_evec_1[:, 1] - all_true_evec_1[:, 1]) ** 2)
+
+            mse_evec_2_0 = torch.mean((all_pred_evec_2[:, 0] - all_true_evec_2[:, 0]) ** 2)
+            mse_evec_2_1 = torch.mean((all_pred_evec_2[:, 1] - all_true_evec_2[:, 1]) ** 2)
+
+
+            total_evec_mse = self.weights[1] * mse_evec_1_0 + self.weights[2] * mse_evec_1_1 + self.weights[3] * mse_evec_2_0 + self.weights[4] * mse_evec_2_1
+            mse = self.weights[0] * evals_mse + total_evec_mse
+
+            print("MSE evals: {}, evec_1_0: {}, evec_1_1: {},  evec_1_0: {}, evec_1_1: {}".format(evals_mse, mse_evec_1_0,mse_evec_1_1,
+                                                                                                 mse_evec_2_0, mse_evec_2_1,
+                                                                                                 ))
+
+        return mse
+
+
+
 class EighMSE_MSE(nn.Module):
     def __init__(self, weights):
         super(EighMSE_MSE, self).__init__()
@@ -689,6 +987,8 @@ def get_loss_fn(loss_function):
         return WeightedMSELossSum(loss_fn_params)
     elif loss_fn_name == "EighMSE":
         return EighMSE(loss_fn_params)
+    elif loss_fn_name == "EighMSE_2":
+        return EighMSE_2(loss_fn_params)
     elif loss_fn_name == "EighMSE_MSE":
         return EighMSE_MSE(loss_fn_params)
     # elif loss_fn_name == "CosineSimilarity":
