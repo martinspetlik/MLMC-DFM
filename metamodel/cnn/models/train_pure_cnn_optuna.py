@@ -23,7 +23,7 @@ from metamodel.cnn.datasets.dfm_dataset import DFMDataset
 #from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
 from metamodel.cnn.models.auxiliary_functions import get_mean_std, log_data, exp_data,\
-    quantile_transform_fit, QuantileTRF, NormalizeData, log_all_data, init_norm
+    quantile_transform_fit, QuantileTRF, NormalizeData, log_all_data, init_norm, log10_data, log10_all_data
 #from metamodel.cnn.visualization.visualize_data import plot_samples
 
 
@@ -376,10 +376,18 @@ def prepare_sub_datasets(study, config, data_dir, serialize_path=None):
 
         prepare_dset_config["normalize_input"] = dset_config["normalize_input"]
         prepare_dset_config["log_output"] = dset_config["log_output"]
+        if "log10_output" in dset_config:
+            prepare_dset_config["log10_output"] = dset_config["log10_output"]
+        if "log_all_output" in dset_config:
+            prepare_dset_config["log_all_output"] = dset_config["log_all_output"]
+        if "log10_all_output" in dset_config:
+            prepare_dset_config["log10_all_output"] = dset_config["log10_all_output"]
         prepare_dset_config["normalize_output"] = dset_config["normalize_output"]
         prepare_dset_config["n_train_samples"] = dset_config["n_train_samples"]
         prepare_dset_config["n_test_samples"] = dset_config["n_test_samples"]
         prepare_dset_config["val_samples_ratio"] = dset_config["val_samples_ratio"]
+        print("prepare_dset_config ", prepare_dset_config)
+
         sub_train_set, sub_val_set, sub_test_set = prepare_dataset(study, prepare_dset_config, dset_config['dataset_path'])
 
         if complete_train_set is None:
@@ -391,6 +399,19 @@ def prepare_sub_datasets(study, config, data_dir, serialize_path=None):
             if len(sub_val_set) > 0:
                 _append_dataset(complete_val_set, sub_val_set)
             _append_dataset(complete_test_set, sub_test_set)
+
+    # print("complete train set len ", len(complete_train_set))
+    #
+    # dataset_loader = torch.utils.data.DataLoader(complete_train_set, shuffle=False)
+    # k_xy = []
+    #
+    # for input, output in dataset_loader:
+    #     output = np.squeeze(output.numpy())
+    #     k_xy.append(output[1])
+    #
+    # np.savez_compressed(os.path.join("/home/martin/Documents/MLMC-DFM", "fr_div_0_0_1_10_k_xy"), data=np.array(k_xy))
+    #
+    # exit()
 
     data_init_transform, data_input_transform, data_output_transform = prepare_dataset(study, config, data_dir, train_dataset=complete_train_set)
     complete_train_set.init_transform = data_init_transform
@@ -416,6 +437,18 @@ def prepare_sub_datasets(study, config, data_dir, serialize_path=None):
         study.set_user_attr("n_train_samples", len(complete_train_set))
         study.set_user_attr("n_val_samples", len(complete_val_set))
         study.set_user_attr("n_test_samples", len(complete_test_set))
+
+    # dataset_loader = torch.utils.data.DataLoader(complete_train_set, shuffle=False)
+    #
+    # for input, output in dataset_loader:
+    #     output = np.squeeze(output.numpy())
+    #     print("output shape ", output.shape)
+    #     print("type output ", output)
+    #     print("output[1] ", output[1])
+    #     # print("output squeeze ", np.squeeze(output))
+    #     k_xy.append(output[1])
+    #
+    #     exit()
 
     return complete_train_set, complete_val_set, complete_test_set
 
@@ -484,8 +517,15 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
             input_transform_list.append(transforms.Lambda(log_all_data))
         else:
             input_transform_list.append(transforms.Lambda(log_data))
+
     if config["log_output"]:
         output_transform_list.append(transforms.Lambda(log_data))
+    elif "log10_output" in config and  config["log10_output"]:
+        output_transform_list.append(transforms.Lambda(log10_data))
+    elif "log_all_output" in config and config["log_all_output"]:
+        output_transform_list.append(transforms.Lambda(log_all_data))
+    elif "log10_all_output" in config and config["log10_all_output"]:
+        output_transform_list.append(transforms.Lambda(log10_all_data))
 
     input_transform = transforms.Compose(input_transform_list)
     output_transform = transforms.Compose(output_transform_list)
@@ -592,6 +632,13 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
     # Standardize output
     if config["log_output"]:
         output_transformations.append(transforms.Lambda(log_data))
+    elif "log10_output" in config and  config["log10_output"]:
+        output_transformations.append(transforms.Lambda(log10_data))
+    elif "log_all_output" in config and config["log_all_output"]:
+        output_transformations.append(transforms.Lambda(log_all_data))
+    elif "log10_all_output" in config and config["log10_all_output"]:
+        output_transformations.append(transforms.Lambda(log10_all_data))
+
     if config["normalize_output"]:
         if "normalize_output_indices" in config:
             data_normalizer.input_indices = config["normalize_output_indices"]
@@ -720,6 +767,12 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
         study.set_user_attr("input_std", input_std)
 
         study.set_user_attr("output_log", config["log_output"])
+        if "log_all_output" in config:
+            study.set_user_attr("log_all_output", config["log_all_output"])
+        if "log10_all_output" in config:
+            study.set_user_attr("log10_all_output", config["log10_all_output"])
+        if "log10_output" in config:
+            study.set_user_attr("log10_output", config["log10_output"])
         study.set_user_attr("output_mean", output_mean)
         study.set_user_attr("output_std", output_std)
 

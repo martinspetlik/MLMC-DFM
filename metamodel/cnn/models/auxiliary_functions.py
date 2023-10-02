@@ -62,11 +62,36 @@ def log_all_data(data):
         positive_data_indices = flatten_data >= 1e-15
         negative_data_indices = flatten_data < 1e-15
 
-        flatten_data[positive_data_indices] = torch.log(flatten_data[positive_data_indices])
-        flatten_data[negative_data_indices] = torch.log(np.abs(flatten_data[negative_data_indices]))
+        preprocessed_negative_k_xy = -torch.log(np.abs(flatten_data[negative_data_indices]))
+        preprocessed_positive_k_xy = torch.log(flatten_data[positive_data_indices])
+
+        flatten_data[positive_data_indices] = preprocessed_positive_k_xy
+        flatten_data[negative_data_indices] = preprocessed_negative_k_xy
 
         output_data[1][...] = np.reshape(flatten_data, data[1].shape)
         output_data[2][...] = torch.log(data[2])
+    else:
+        raise NotImplementedError("Log transformation implemented for 2D case only")
+
+    return output_data
+
+def log10_all_data(data):
+    output_data = torch.empty((data.shape))
+    if data.shape[0] == 3:
+        output_data[0][...] = torch.log10(data[0])
+
+        flatten_data = data[1].flatten()
+        positive_data_indices = flatten_data >= 1e-15
+        negative_data_indices = flatten_data < 1e-15
+
+        preprocessed_negative_k_xy = -torch.log10(np.abs(flatten_data[negative_data_indices]))
+        preprocessed_positive_k_xy = torch.log10(flatten_data[positive_data_indices])
+
+        flatten_data[positive_data_indices] = preprocessed_positive_k_xy
+        flatten_data[negative_data_indices] = preprocessed_negative_k_xy
+
+        output_data[1][...] = np.reshape(flatten_data, data[1].shape)
+        output_data[2][...] = torch.log10(data[2])
     else:
         raise NotImplementedError("Log transformation implemented for 2D case only")
 
@@ -105,6 +130,25 @@ def log_data(data):
 
     return output_data
 
+
+def log10_data(data):
+    output_data = torch.empty((data.shape))
+    if data.shape[0] == 3:
+        output_data[0][...] = torch.log10(data[0])
+        output_data[1][...] = data[1]
+        output_data[2][...] = torch.log10(data[2])
+    elif data.shape[0] == 4:
+        output_data[0][...] = torch.log10(data[0])
+        output_data[1][...] = data[1]
+        output_data[2][...] = torch.log10(data[2])
+        output_data[3][...] = data[3]
+    elif data.shape[0] < 3:
+        for i in range(data.shape[0]):
+            output_data[i][...] = torch.log10(data[i])
+    else:
+        raise NotImplementedError("Log transformation implemented for 2D case only")
+
+    return output_data
 
 def quantile_transform_fit(data, indices=[], transform_type=None):
     transform_obj = []
@@ -179,6 +223,44 @@ def exp_data(data):
     elif data.shape[0] < 3:
         for i in range(data.shape[0]):
             output_data[i][...] = torch.exp(data[i])
+    else:
+        raise NotImplementedError("Log transformation implemented for 2D case only")
+    return output_data
+
+def power_10_data(data):
+    output_data = torch.empty((data.shape))
+    if data.shape[0] == 3:
+        output_data[0][...] = torch.pow(data[0], 10)
+        output_data[1][...] = data[1]
+        output_data[2][...] = torch.pow(data[2], 10)
+    elif data.shape[0] < 3:
+        for i in range(data.shape[0]):
+            output_data[i][...] = torch.pow(data[i], 10)
+    else:
+        raise NotImplementedError("Log transformation implemented for 2D case only")
+    return output_data
+
+
+def power_10_all_data(data):
+    output_data = torch.empty((data.shape))
+    if data.shape[0] == 3:
+        output_data[0][...] = torch.pow(data[0], 10)
+
+        flatten_data = data[1].flatten()
+        positive_data_indices = flatten_data >= 1e-15
+        negative_data_indices = flatten_data < 1e-15
+
+        preprocessed_positive_k_xy = torch.pow(flatten_data[negative_data_indices], 10)
+        preprocessed_negative_k_xy = -torch.pow(-flatten_data[positive_data_indices], 10)
+
+        flatten_data[negative_data_indices] = preprocessed_positive_k_xy
+        flatten_data[positive_data_indices] = preprocessed_negative_k_xy
+
+        output_data[1][...] = np.reshape(flatten_data, data[1].shape)
+        output_data[2][...] = torch.pow(data[2], 10)
+    elif data.shape[0] < 3:
+        for i in range(data.shape[0]):
+            output_data[i][...] = torch.pow(data[i], 10)
     else:
         raise NotImplementedError("Log transformation implemented for 2D case only")
     return output_data
