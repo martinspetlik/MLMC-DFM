@@ -501,14 +501,6 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
     if config["init_norm"]:
         init_transform.append(transforms.Lambda(init_norm))
 
-    # ########################
-    # ## Quantile Transform ##
-    # ########################
-    # input_transform_list, output_transform_list = features_transform(config,
-    #                                                                  data_dir,
-    #                                                                  output_file_name,
-    #                                                                  input_transform_list,
-    #                                                                  output_transform_list)
     ####################
     ## Log transforms ##
     ####################
@@ -526,6 +518,17 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
         output_transform_list.append(transforms.Lambda(log_all_data))
     elif "log10_all_output" in config and config["log10_all_output"]:
         output_transform_list.append(transforms.Lambda(log10_all_data))
+
+
+    # ########################
+    # ## Quantile Transform ##
+    # ########################
+    input_transform_list, output_transform_list = features_transform(config,
+                                                                     data_dir,
+                                                                     output_file_name,
+                                                                     input_transform_list,
+                                                                     output_transform_list)
+
 
     input_transform = transforms.Compose(input_transform_list)
     output_transform = transforms.Compose(output_transform_list)
