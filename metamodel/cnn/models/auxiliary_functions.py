@@ -81,14 +81,19 @@ def log10_all_data(data):
         output_data[0][...] = torch.log10(data[0])
 
         flatten_data = data[1].flatten()
+        print("log10 flatten data ", flatten_data)
         positive_data_indices = flatten_data >= 1e-15
         negative_data_indices = flatten_data < 1e-15
 
         preprocessed_negative_k_xy = -torch.log10(np.abs(flatten_data[negative_data_indices]))
         preprocessed_positive_k_xy = torch.log10(flatten_data[positive_data_indices])
 
+
+
         flatten_data[positive_data_indices] = preprocessed_positive_k_xy
         flatten_data[negative_data_indices] = preprocessed_negative_k_xy
+
+        print("log10 final flatten data ", flatten_data)
 
         output_data[1][...] = np.reshape(flatten_data, data[1].shape)
         output_data[2][...] = torch.log10(data[2])
@@ -102,11 +107,16 @@ def init_norm(data):
     bulk_features_avg, input, output, cross_section_flag = data
     #avg_k = torch.mean(input)
 
+    # print("bulk features avg ", bulk_features_avg)
+    # print("output ", output)
+
     if cross_section_flag:
         input[:3, :] /= bulk_features_avg
     else:
         input /= bulk_features_avg
     output /= bulk_features_avg
+
+    #print("output ", output)
 
     return input, output
 
@@ -230,12 +240,12 @@ def exp_data(data):
 def power_10_data(data):
     output_data = torch.empty((data.shape))
     if data.shape[0] == 3:
-        output_data[0][...] = torch.pow(data[0], 10)
+        output_data[0][...] = torch.pow(10, data[0])
         output_data[1][...] = data[1]
-        output_data[2][...] = torch.pow(data[2], 10)
+        output_data[2][...] = torch.pow(10, data[2])
     elif data.shape[0] < 3:
         for i in range(data.shape[0]):
-            output_data[i][...] = torch.pow(data[i], 10)
+            output_data[i][...] = torch.pow(10, data[i])
     else:
         raise NotImplementedError("Log transformation implemented for 2D case only")
     return output_data
@@ -244,23 +254,34 @@ def power_10_data(data):
 def power_10_all_data(data):
     output_data = torch.empty((data.shape))
     if data.shape[0] == 3:
-        output_data[0][...] = torch.pow(data[0], 10)
+        output_data[0][...] = torch.pow(10, data[0])
+        #output_data[0][...] = torch.exp(data[0])
 
         flatten_data = data[1].flatten()
+        print("flatten data ", flatten_data)
+
         positive_data_indices = flatten_data >= 1e-15
         negative_data_indices = flatten_data < 1e-15
 
-        preprocessed_positive_k_xy = torch.pow(flatten_data[negative_data_indices], 10)
-        preprocessed_negative_k_xy = -torch.pow(-flatten_data[positive_data_indices], 10)
+        print("flatten_data[negative_data_indices]", flatten_data[negative_data_indices])
+        print("flatten_data[positive_data_indices]", flatten_data[positive_data_indices])
+
+        #preprocessed_positive_k_xy = -torch.pow(torch.from_numpy(10), flatten_data[negative_data_indices])
+        #preprocessed_negative_k_xy = torch.pow(torch.from_numpy(10), -flatten_data[positive_data_indices])
+
+        preprocessed_positive_k_xy = - 10 ** flatten_data[negative_data_indices]
+        preprocessed_negative_k_xy = 10 ** -flatten_data[positive_data_indices]
 
         flatten_data[negative_data_indices] = preprocessed_positive_k_xy
         flatten_data[positive_data_indices] = preprocessed_negative_k_xy
 
+        print("final flatten data ", flatten_data)
+
         output_data[1][...] = np.reshape(flatten_data, data[1].shape)
-        output_data[2][...] = torch.pow(data[2], 10)
+        output_data[2][...] = torch.pow(10, data[2])
     elif data.shape[0] < 3:
         for i in range(data.shape[0]):
-            output_data[i][...] = torch.pow(data[i], 10)
+            output_data[i][...] = torch.pow(10, data[i])
     else:
         raise NotImplementedError("Log transformation implemented for 2D case only")
     return output_data
@@ -627,6 +648,46 @@ class WeightedMSELossSum(nn.Module):
         #print("mse loss sum ", mse_loss_sum)
         weighted_mse_loss = torch.mean(mse_loss_sum)
         return weighted_mse_loss
+
+
+class RelMSELoss(nn.Module):
+    def __init__(self, weights):
+        super(RelMSELoss, self).__init__()
+        self.weights = torch.Tensor(weights)
+        if torch.cuda.is_available():
+            self.weights = self.weights.cuda()
+
+    def forward(self, y_pred, y_true):
+        k_xx = (y_pred[:, 0, ...] - y_true[:, 0, ...])/y_true[:, 0, ...]
+        k_xy = (y_pred[:, 1, ...] - y_true[:, 1, ...])/y_true[:, 1, ...]
+        k_yy = (y_pred[:, 2, ...] - y_true[:, 2, ...])/y_true[:, 2, ...]
+
+        rel_mse = torch.mean(k_xx ** 2 + k_xy ** 2 + k_yy ** 2)
+        print("RelMSE: {},  k_xx**2: {},  k_xy**2: {},  k_yy**2: {}".format(rel_mse, torch.mean(k_xx**2), torch.mean(k_xy**2), torch.mean(k_yy**2)))
+
+        return rel_mse
+
+
+class RelXYMSELoss(nn.Module):
+    def __init__(self, weights):
+        super(RelXYMSELoss, self).__init__()
+        print("weights ", weights)
+        self.weights = torch.Tensor(weights)
+        if torch.cuda.is_available():
+            self.weights = self.weights.cuda()
+
+    def forward(self, y_pred, y_true):
+        k_xx = y_pred[:, 0, ...] - y_true[:, 0, ...]
+        k_xy = ((y_pred[:, 1, ...] - y_true[:, 1, ...]))/y_true[:, 1, ...]
+        k_yy = y_pred[:, 2, ...] - y_true[:, 2, ...]
+
+        rel_mse = torch.mean(k_xx ** 2 + k_xy ** 2 + k_yy ** 2)
+
+        print("RelMSE: {},  k_xx**2: {},  k_xy**2: {},  k_yy**2: {}".format(rel_mse, torch.mean(k_xx ** 2),
+                                                                            torch.mean(k_xy ** 2),
+                                                                            torch.mean(k_yy ** 2)))
+
+        return rel_mse
 
 
 class EighMSE(nn.Module):
@@ -1203,6 +1264,10 @@ def get_loss_fn(loss_function):
         return FrobeniusNorm2()
     elif loss_fn_name == "MSEweighted":
         return WeightedMSELoss(loss_fn_params)
+    elif loss_fn_name == "RelMSELoss":
+        return RelMSELoss(loss_fn_params)
+    elif loss_fn_name == "RelXYMSELoss":
+        return RelXYMSELoss(loss_fn_params)
     elif loss_fn_name == "MSEweightedSum":
         return WeightedMSELossSum(loss_fn_params)
     elif loss_fn_name == "EighMSE":
