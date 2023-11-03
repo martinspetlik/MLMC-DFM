@@ -627,6 +627,21 @@ class WeightedMSELoss(nn.Module):
         return weighted_mse_loss
 
 
+class MSELossLargeEmph(nn.Module):
+    def __init__(self, params):
+        super(MSELossLargeEmph, self).__init__()
+        self.params = torch.Tensor(params)
+        if torch.cuda.is_available():
+            self.params = self.params.cuda()
+
+    def forward(self, y_pred, y_true):
+        error = y_true - y_pred
+        weights = (y_true + self.params[0]) * self.params[1] + 1
+        weighted_error = torch.square(error) * weights
+        #print("y_true: {}, error: {}, weighted error: {}".format(y_true, error, weighted_error))
+        return torch.mean(weighted_error)
+
+
 class WeightedMSELossSum(nn.Module):
     def __init__(self, weights):
         super(WeightedMSELossSum, self).__init__()
@@ -658,12 +673,18 @@ class RelMSELoss(nn.Module):
             self.weights = self.weights.cuda()
 
     def forward(self, y_pred, y_true):
+        if len(y_true.shape) == 1:
+            y_pred = y_pred.unsqueeze(0)
+            y_true = y_true.unsqueeze(0)
+
         k_xx = (y_pred[:, 0, ...] - y_true[:, 0, ...])/y_true[:, 0, ...]
         k_xy = (y_pred[:, 1, ...] - y_true[:, 1, ...])/y_true[:, 1, ...]
         k_yy = (y_pred[:, 2, ...] - y_true[:, 2, ...])/y_true[:, 2, ...]
 
+        #print("k xx ", k_xx)
+
         rel_mse = torch.mean(k_xx ** 2 + k_xy ** 2 + k_yy ** 2)
-        print("RelMSE: {},  k_xx**2: {},  k_xy**2: {},  k_yy**2: {}".format(rel_mse, torch.mean(k_xx**2), torch.mean(k_xy**2), torch.mean(k_yy**2)))
+        #print("RelMSE: {},  k_xx**2: {},  k_xy**2: {},  k_yy**2: {}".format(rel_mse, torch.mean(k_xx**2), torch.mean(k_xy**2), torch.mean(k_yy**2)))
 
         return rel_mse
 
@@ -677,6 +698,11 @@ class RelXYMSELoss(nn.Module):
             self.weights = self.weights.cuda()
 
     def forward(self, y_pred, y_true):
+
+        if len(y_true.shape) == 1:
+            y_pred = y_pred.unsqueeze(0)
+            y_true = y_true.unsqueeze(0)
+
         k_xx = y_pred[:, 0, ...] - y_true[:, 0, ...]
         k_xy = ((y_pred[:, 1, ...] - y_true[:, 1, ...]))/y_true[:, 1, ...]
         k_yy = y_pred[:, 2, ...] - y_true[:, 2, ...]
@@ -1278,6 +1304,8 @@ def get_loss_fn(loss_function):
         return EighMSE_MSE(loss_fn_params)
     elif loss_fn_name == "EighMSE_2_MSE":
         return EighMSE_2_MSE(loss_fn_params)
+    elif loss_fn_name == "MSELossLargeEmph":
+        return MSELossLargeEmph(loss_fn_params)
     # elif loss_fn_name == "CosineSimilarity":
     #     return CosineSimilarity
 
