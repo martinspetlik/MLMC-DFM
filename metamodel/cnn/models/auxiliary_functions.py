@@ -635,10 +635,17 @@ class MSELossLargeEmph(nn.Module):
             self.params = self.params.cuda()
 
     def forward(self, y_pred, y_true):
+        if str(y_true.device) == "cpu":
+            self.params = self.params.cpu()
+
         error = y_true - y_pred
+        #print("y_true ", y_true)
         weights = (y_true + self.params[0]) * self.params[1] + 1
+        weights[:, 1] = 1
+        #print("wieghts ", weights)
         weighted_error = torch.square(error) * weights
-        #print("y_true: {}, error: {}, weighted error: {}".format(y_true, error, weighted_error))
+        #print("weighted error ", weighted_error)
+        #print("y_true: {}, squared error: {}, weighted error: {}".format(y_true, torch.square(error), weighted_error))
         return torch.mean(weighted_error)
 
 
