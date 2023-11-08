@@ -630,9 +630,15 @@ class WeightedMSELoss(nn.Module):
 class MSELossLargeEmph(nn.Module):
     def __init__(self, params):
         super(MSELossLargeEmph, self).__init__()
-        self.params = torch.Tensor(params)
+        #print("params ", params)
+        self.weights_min_abs = torch.Tensor(params[0])
+        self.mult_coef =  params[1]
         if torch.cuda.is_available():
-            self.params = self.params.cuda()
+            self.weights_min_abs = self.weights_min_abs.cuda()
+            #self.mult_coef = self.mult_coef.cuda()
+
+        #print("weights min abs ", self.weights_min_abs)
+        #print("self.mult_coef ", self.mult_coef)
 
     def forward(self, y_pred, y_true):
         if str(y_true.device) == "cpu":
@@ -640,8 +646,36 @@ class MSELossLargeEmph(nn.Module):
 
         error = y_true - y_pred
         #print("y_true ", y_true)
-        weights = (y_true + self.params[0]) * self.params[1] + 1
+        weights = (y_true + self.weights_min_abs) * self.mult_coef + 1
         weights[:, 1] = 1
+        #print("wieghts ", weights)
+        weighted_error = torch.square(error) * weights
+        #print("weighted error ", weighted_error)
+        #print("y_true: {}, squared error: {}, weighted error: {}".format(y_true, torch.square(error), weighted_error))
+        return torch.mean(weighted_error)
+
+
+class MSELossLargeEmphAvg(nn.Module):
+    def __init__(self, params):
+        super(MSELossLargeEmphAvg, self).__init__()
+        #print("params ", params)
+        self.weights_min_abs = torch.Tensor(params[0])
+        self.mult_coef =  params[1]
+        if torch.cuda.is_available():
+            self.weights_min_abs = self.weights_min_abs.cuda()
+            #self.mult_coef = self.mult_coef.cuda()
+
+        # print("weights min abs ", self.weights_min_abs)
+        # print("self.mult_coef ", self.mult_coef)
+
+    def forward(self, y_pred, y_true):
+        if str(y_true.device) == "cpu":
+            self.params = self.params.cpu()
+
+        error = y_true - y_pred
+        #print("y_true ", y_true)
+        weights = (y_true + self.weights_min_abs) * self.mult_coef + 1
+        weights[:, 1] = weights[:, [0, 2]].mean(dim=1)
         #print("wieghts ", weights)
         weighted_error = torch.square(error) * weights
         #print("weighted error ", weighted_error)
@@ -1313,6 +1347,8 @@ def get_loss_fn(loss_function):
         return EighMSE_2_MSE(loss_fn_params)
     elif loss_fn_name == "MSELossLargeEmph":
         return MSELossLargeEmph(loss_fn_params)
+    elif loss_fn_name == "MSELossLargeEmphAvg":
+        return MSELossLargeEmphAvg(loss_fn_params)
     # elif loss_fn_name == "CosineSimilarity":
     #     return CosineSimilarity
 
