@@ -632,7 +632,8 @@ class MSELossLargeEmph(nn.Module):
         super(MSELossLargeEmph, self).__init__()
         #print("params ", params)
         self.weights_min_abs = torch.Tensor(params[0])
-        self.mult_coef =  params[1]
+        self.mult_coef = params[1]
+        self.fce = params[2]
         if torch.cuda.is_available():
             self.weights_min_abs = self.weights_min_abs.cuda()
             #self.mult_coef = self.mult_coef.cuda()
@@ -642,13 +643,26 @@ class MSELossLargeEmph(nn.Module):
 
     def forward(self, y_pred, y_true):
         if str(y_true.device) == "cpu":
-            self.params = self.params.cpu()
+            self.weights_min_abs = self.weights_min_abs.cpu()
 
         error = y_true - y_pred
-        #print("y_true ", y_true)
+        #print("y_true ", len(y_true.shape))
         weights = (y_true + self.weights_min_abs) * self.mult_coef + 1
-        weights[:, 1] = 1
-        #print("wieghts ", weights)
+
+        if self.fce == "2":
+            weights = weights ** 2
+        elif self.fce == "3":
+            weights = weights ** 3
+        elif self.fce == "4":
+            weights = weights ** 4
+        elif self.fce == "exp":
+            weights = torch.exp(weights)
+
+        if len(y_true.shape) == 1:
+            weights[1] = 1
+        else:
+            weights[:, 1] = 1
+        
         weighted_error = torch.square(error) * weights
         #print("weighted error ", weighted_error)
         #print("y_true: {}, squared error: {}, weighted error: {}".format(y_true, torch.square(error), weighted_error))
@@ -661,6 +675,7 @@ class MSELossLargeEmphAvg(nn.Module):
         #print("params ", params)
         self.weights_min_abs = torch.Tensor(params[0])
         self.mult_coef =  params[1]
+        self.fce = params[2]
         if torch.cuda.is_available():
             self.weights_min_abs = self.weights_min_abs.cuda()
             #self.mult_coef = self.mult_coef.cuda()
@@ -670,12 +685,26 @@ class MSELossLargeEmphAvg(nn.Module):
 
     def forward(self, y_pred, y_true):
         if str(y_true.device) == "cpu":
-            self.params = self.params.cpu()
+            self.weights_min_abs = self.weights_min_abs.cpu()
 
         error = y_true - y_pred
         #print("y_true ", y_true)
         weights = (y_true + self.weights_min_abs) * self.mult_coef + 1
-        weights[:, 1] = weights[:, [0, 2]].mean(dim=1)
+
+        if self.fce == "2":
+            weights = weights ** 2
+        elif self.fce == "3":
+            weights = weights ** 3
+        elif self.fce == "4":
+            weights = weights ** 4
+        elif self.fce == "exp":
+            weights = torch.exp(weights)
+
+        if len(y_true.shape) == 1:
+            weights[1] = (weights[0] + weights[1])/2
+        else:
+            weights[:, 1] = weights[:, [0, 2]].mean(dim=1)
+
         #print("wieghts ", weights)
         weighted_error = torch.square(error) * weights
         #print("weighted error ", weighted_error)
