@@ -657,12 +657,14 @@ class MSELossLargeEmph(nn.Module):
             weights = weights ** 4
         elif self.fce == "exp":
             weights = torch.exp(weights)
+        elif self.fce == "exp_2":
+            weights = torch.exp(weights)**2
 
         if len(y_true.shape) == 1:
             weights[1] = 1
         else:
             weights[:, 1] = 1
-        
+
         weighted_error = torch.square(error) * weights
         #print("weighted error ", weighted_error)
         #print("y_true: {}, squared error: {}, weighted error: {}".format(y_true, torch.square(error), weighted_error))
@@ -699,6 +701,8 @@ class MSELossLargeEmphAvg(nn.Module):
             weights = weights ** 4
         elif self.fce == "exp":
             weights = torch.exp(weights)
+        elif self.fce == "exp_2":
+            weights = torch.exp(weights)**2
 
         if len(y_true.shape) == 1:
             weights[1] = (weights[0] + weights[1])/2
