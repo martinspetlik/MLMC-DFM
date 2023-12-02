@@ -58,17 +58,20 @@ def log_all_data(data):
     if data.shape[0] == 3:
         output_data[0][...] = torch.log(data[0])
 
-        flatten_data = data[1].flatten()
-        positive_data_indices = flatten_data >= 1e-15
-        negative_data_indices = flatten_data < 1e-15
+        # flatten_data = data[1].flatten()
+        # positive_data_indices = flatten_data >= 1e-15
+        # negative_data_indices = flatten_data < 1e-15
+        #
+        # preprocessed_negative_k_xy = -torch.log(np.abs(flatten_data[negative_data_indices]))
+        # preprocessed_positive_k_xy = torch.log(flatten_data[positive_data_indices])
+        #
+        # flatten_data[positive_data_indices] = preprocessed_positive_k_xy
+        # flatten_data[negative_data_indices] = preprocessed_negative_k_xy
 
-        preprocessed_negative_k_xy = -torch.log(np.abs(flatten_data[negative_data_indices]))
-        preprocessed_positive_k_xy = torch.log(flatten_data[positive_data_indices])
-
-        flatten_data[positive_data_indices] = preprocessed_positive_k_xy
-        flatten_data[negative_data_indices] = preprocessed_negative_k_xy
-
-        output_data[1][...] = np.reshape(flatten_data, data[1].shape)
+        print("data[1].shape ", data[1].shape)
+        #
+        # output_data[1][...] = np.reshape(flatten_data, data[1].shape)
+        output_data[1][...] = torch.log(data[1] + 0.03)#torch.abs(torch.min(data[1])))
         output_data[2][...] = torch.log(data[2])
     else:
         raise NotImplementedError("Log transformation implemented for 2D case only")
@@ -120,6 +123,28 @@ def init_norm(data):
 
     return input, output
 
+
+def arcsinh_data(data):
+    output_data = torch.empty((data.shape))
+    #print("data.shape ", data.shape)
+    if data.shape[0] == 3:
+        output_data[0][...] = data[0]
+        output_data[1][...] = torch.arcsinh(data[1])
+        print("data[1] ", data[1])
+        print("torch.arcsinh(data[1]) ", torch.arcsinh(data[1]))
+        output_data[2][...] = data[2]
+    # elif data.shape[0] == 4:
+    #     output_data[0][...] = torch.log(data[0])
+    #     output_data[1][...] = data[1]
+    #     output_data[2][...] = torch.log(data[2])
+    #     output_data[3][...] = data[3]
+    # elif data.shape[0] < 3:
+    #     for i in range(data.shape[0]):
+    #         output_data[i][...] = torch.log(data[i])
+    else:
+        raise NotImplementedError("Log transformation implemented for 2D case only")
+
+    return output_data
 
 def log_data(data):
     output_data = torch.empty((data.shape))
@@ -751,14 +776,29 @@ class RelMSELoss(nn.Module):
             y_pred = y_pred.unsqueeze(0)
             y_true = y_true.unsqueeze(0)
 
-        k_xx = (y_pred[:, 0, ...] - y_true[:, 0, ...])/y_true[:, 0, ...]
-        k_xy = (y_pred[:, 1, ...] - y_true[:, 1, ...])/y_true[:, 1, ...]
-        k_yy = (y_pred[:, 2, ...] - y_true[:, 2, ...])/y_true[:, 2, ...]
+        # k_xx_mse = F.mse_loss(y_pred[:, 0, ...], y_true[:, 0, ...])
+        # print("k xx mse ", k_xx_mse)
+        # k_xx_rmse = torch.sqrt(k_xx_mse / (y_true[:, 0, ...] ** 2))
+        #
+        # k_xy_mse = F.mse_loss(y_pred[:, 1, ...], y_true[:, 1, ...])
+        # k_xy_rmse = torch.sqrt(k_xx_mse / (y_true[:, 1, ...] ** 2))
+        #
+        # k_yy_mse = F.mse_loss(y_pred[:, 2, ...], y_true[:, 2, ...])
+        # k_yy_rmse = torch.sqrt(k_xx_mse / (y_true[:, 2, ...] ** 2))
 
-        #print("k xx ", k_xx)
+        k_xx = torch.square((y_pred[:, 0, ...] - y_true[:, 0, ...]))/torch.square(y_true[:, 0, ...])
+        k_xy = torch.square(y_pred[:, 1, ...] - y_true[:, 1, ...])/torch.square(y_true[:, 1, ...])
+        k_yy = torch.square(y_pred[:, 2, ...] - y_true[:, 2, ...])/torch.square(y_true[:, 2, ...])
 
-        rel_mse = torch.mean(k_xx ** 2 + k_xy ** 2 + k_yy ** 2)
-        #print("RelMSE: {},  k_xx**2: {},  k_xy**2: {},  k_yy**2: {}".format(rel_mse, torch.mean(k_xx**2), torch.mean(k_xy**2), torch.mean(k_yy**2)))
+        # print("k xx ", k_xx)
+        # print("k xy ", k_xy)
+        # print("k yy ", k_yy)
+
+        rel_mse = torch.mean(k_xx) + torch.mean(k_xy) + torch.mean(k_yy)#torch.mean(k_xx ** 2 + k_xy ** 2 + k_yy ** 2)
+        #total_loss = k_xx_rmse + k_xy_rmse + k_yy_rmse
+        print("RelMSE: {},  k_xx**2: {},  k_xy**2: {},  k_yy**2: {}".format(rel_mse, torch.mean(k_xx), torch.mean(k_xy), torch.mean(k_yy)))
+        #print("total loss ", total_loss)
+        #exit()
 
         return rel_mse
 
