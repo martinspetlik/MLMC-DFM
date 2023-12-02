@@ -772,9 +772,9 @@ class RelMSELoss(nn.Module):
             self.weights = self.weights.cuda()
 
     def forward(self, y_pred, y_true):
-        if len(y_true.shape) == 1:
-            y_pred = y_pred.unsqueeze(0)
-            y_true = y_true.unsqueeze(0)
+        # if len(y_true.shape) == 1:
+        #     y_pred = y_pred.unsqueeze(0)
+        #     y_true = y_true.unsqueeze(0)
 
         # k_xx_mse = F.mse_loss(y_pred[:, 0, ...], y_true[:, 0, ...])
         # print("k xx mse ", k_xx_mse)
