@@ -785,12 +785,113 @@ class RelMSELoss(nn.Module):
         #
         # k_yy_mse = F.mse_loss(y_pred[:, 2, ...], y_true[:, 2, ...])
         # k_yy_rmse = torch.sqrt(k_xx_mse / (y_true[:, 2, ...] ** 2))
+        #print("y_pred[:, 0, ...] ", y_pred[:, 0, ...])
+        #print("y_true[:, 0, ...] ", y_true[:, 0, ...])
+        #
+        #print("(y_pred[:, 0, ...] - y_true[:, 0, ...]) ", (y_pred[:, 0, ...] - y_true[:, 0, ...]))
+
 
         k_xx = torch.square((y_pred[:, 0, ...] - y_true[:, 0, ...]))/torch.square(y_true[:, 0, ...])
         k_xy = torch.square(y_pred[:, 1, ...] - y_true[:, 1, ...])/torch.square(y_true[:, 1, ...])
         k_yy = torch.square(y_pred[:, 2, ...] - y_true[:, 2, ...])/torch.square(y_true[:, 2, ...])
 
-        # print("k xx ", k_xx)
+        #print("torch.square((y_pred[:, 0, ...] - y_true[:, 0, ...])) ", torch.square((y_pred[:, 0, ...] - y_true[:, 0, ...])))
+        #print("torch.square(y_true[:, 0, ...]) ", torch.square(y_true[:, 0, ...]))
+
+        #print("k xx ", k_xx)
+        # print("k xy ", k_xy)
+        # print("k yy ", k_yy)
+
+        rel_mse = torch.mean(k_xx) + torch.mean(k_xy) + torch.mean(k_yy)#torch.mean(k_xx ** 2 + k_xy ** 2 + k_yy ** 2)
+        #total_loss = k_xx_rmse + k_xy_rmse + k_yy_rmse
+        print("RelMSE: {},  k_xx**2: {},  k_xy**2: {},  k_yy**2: {}".format(rel_mse, torch.mean(k_xx), torch.mean(k_xy), torch.mean(k_yy)))
+        #print("total loss ", total_loss)
+        #exit()
+
+        return rel_mse
+
+
+class MASELoss(nn.Module):
+    def __init__(self, weights):
+        super(MASELoss, self).__init__()
+        self.weights = torch.Tensor(weights)
+        if torch.cuda.is_available():
+            self.weights = self.weights.cuda()
+
+    def forward(self, y_pred, y_true):
+        # if len(y_true.shape) == 1:
+        #     y_pred = y_pred.unsqueeze(0)
+        #     y_true = y_true.unsqueeze(0)
+
+        numerator = torch.abs(y_true[:, 0, ...] - y_pred[:, 0, ...]).mean()
+        denominator = torch.abs(y_true[1:, 0, ...] - y_true[:-1, 0, ...]).mean()
+        #print("numerator kxx", numerator)
+        #print("denomination kxx", denominator)
+
+        # Calculate MASE
+        mase_k_xx = numerator / denominator
+
+        numerator = torch.abs(y_true[:, 1, ...] - y_pred[:, 1, ...]).mean()
+        denominator = torch.abs(y_true[1:, 1, ...] - y_true[:-1, 1, ...]).mean()
+        #print("numerator kxy", numerator)
+        #print("denomination kxy ", denominator)
+
+        # Calculate MASE
+        mase_k_xy = numerator / denominator
+
+        numerator = torch.abs(y_true[:, 2, ...] - y_pred[:, 2, ...]).mean()
+        denominator = torch.abs(y_true[1:, 2, ...] - y_true[:-1, 2, ...]).mean()
+        #print("numerator kyy", numerator)
+        #print("denomination kyy ", denominator)
+
+        # Calculate MASE
+        mase_k_yy = numerator / denominator
+
+        #print("mase k xx ", mase_k_xx)
+        #print("mase k xy ", mase_k_xy)
+        #print("mase k yy ", mase_k_yy)
+
+        total_mase = mase_k_xx + mase_k_xy + mase_k_yy
+
+        print("MASE: {},  k_xx**2: {},  k_xy**2: {},  k_yy**2: {}".format(total_mase, mase_k_xx, mase_k_xy, mase_k_yy))
+
+        return total_mase
+
+
+class RelMSELoss2(nn.Module):
+    def __init__(self, weights):
+        super(RelMSELoss2, self).__init__()
+        self.weights = torch.Tensor(weights)
+        if torch.cuda.is_available():
+            self.weights = self.weights.cuda()
+
+    def forward(self, y_pred, y_true):
+        # if len(y_true.shape) == 1:
+        #     y_pred = y_pred.unsqueeze(0)
+        #     y_true = y_true.unsqueeze(0)
+
+        # k_xx_mse = F.mse_loss(y_pred[:, 0, ...], y_true[:, 0, ...])
+        # print("k xx mse ", k_xx_mse)
+        # k_xx_rmse = torch.sqrt(k_xx_mse / (y_true[:, 0, ...] ** 2))
+        #
+        # k_xy_mse = F.mse_loss(y_pred[:, 1, ...], y_true[:, 1, ...])
+        # k_xy_rmse = torch.sqrt(k_xx_mse / (y_true[:, 1, ...] ** 2))
+        #
+        # k_yy_mse = F.mse_loss(y_pred[:, 2, ...], y_true[:, 2, ...])
+        # k_yy_rmse = torch.sqrt(k_xx_mse / (y_true[:, 2, ...] ** 2))
+        print("y_pred[:, 0, ...] ", y_pred[:, 0, ...])
+        print("y_true[:, 0, ...] ", y_true[:, 0, ...])
+        print("(y_pred[:, 0, ...]/y_true[:, 0, ...]) ", (y_pred[:, 0, ...] /y_true[:, 0, ...]))
+        print("(y_pred[:, 0, ...]/y_true[:, 0, ...]) -1  ", (y_pred[:, 0, ...] / y_true[:, 0, ...])-1)
+
+        k_xx = torch.square((y_pred[:, 0, ...]/y_true[:, 0, ...]) - 1)
+        k_xy = torch.square((y_pred[:, 1, ...]/y_true[:, 1, ...]) - 1)
+        k_yy = torch.square((y_pred[:, 2, ...]/y_true[:, 2, ...]) - 1)
+
+        print("torch.square((y_pred[:, 0, ...]/y_true[:, 0, ...]) -1 ) ", torch.square((y_pred[:, 0, ...]/y_true[:, 0, ...]) - 1))
+        #print("torch.square(y_true[:, 0, ...]) ", torch.square(y_true[:, 0, ...]))
+
+        print("k xx ", k_xx)
         # print("k xy ", k_xy)
         # print("k yy ", k_yy)
 
@@ -1406,6 +1507,10 @@ def get_loss_fn(loss_function):
         return WeightedMSELoss(loss_fn_params)
     elif loss_fn_name == "RelMSELoss":
         return RelMSELoss(loss_fn_params)
+    elif loss_fn_name == "MASELoss":
+        return MASELoss(loss_fn_params)
+    elif loss_fn_name == "RelMSELoss2":
+        return RelMSELoss2(loss_fn_params)
     elif loss_fn_name == "RelXYMSELoss":
         return RelXYMSELoss(loss_fn_params)
     elif loss_fn_name == "MSEweightedSum":
