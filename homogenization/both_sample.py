@@ -41,6 +41,7 @@ import gstools
 from mlmc.random import correlated_field as cf
 from sklearn.mixture import GaussianMixture
 from sklearn.preprocessing import QuantileTransformer
+#import seaborn as sns
 
 
 logging.getLogger('bgem').disabled = True
@@ -255,12 +256,16 @@ class BulkFieldsGSTools(BulkBase):
 
     def _pca(self, mean_k_xx_yy, cov_matrix_k_xx_yy):
         n_samples = 10000
+
+        # print("mean k xx yy ", mean_k_xx_yy)
+        # print("cov matrix k xx yy ", cov_matrix_k_xx_yy)
+        # print("self. angle var ", self.angle_var)
+
         samples = np.random.multivariate_normal(mean=mean_k_xx_yy, cov=cov_matrix_k_xx_yy, size=n_samples)
 
         # sample_means = [np.mean(samples[:, 0]), np.mean(samples[:, 1])]
         # sample_vars = [np.var(samples[:, 0]), np.var(samples[:, 1])]
         # print("sample means: {} vars: {}".format(sample_means, sample_vars))
-
         covariance_matrix = np.cov(samples.T)
         #print("covariance matrix ", covariance_matrix)
         eigen_values, eigen_vectors = np.linalg.eig(covariance_matrix)
@@ -293,6 +298,8 @@ class BulkFieldsGSTools(BulkBase):
             len_scale = 1e-15
         else:
             len_scale = [self.corr_lengths_x[1], self.corr_lengths_y[1]]
+
+        #print("len scale ", len_scale)
 
         self._model_k_yy = gstools.Exponential(dim=2, var=pc_vars[1], len_scale=len_scale, angles=self.anis_angles[1])
 
@@ -345,6 +352,7 @@ class BulkFieldsGSTools(BulkBase):
                                                                              ))
 
         self._fields = cf.Fields([field_k_xx, field_k_yy, field_angle_x, field_angle_y])
+        #print("self._fields ", self._fields)
 
     def element_data(self, mesh, eid):
         if self._rf_sample is None:
@@ -352,16 +360,21 @@ class BulkFieldsGSTools(BulkBase):
             self._create_field(self.mean_log_conductivity, self.cov_log_conductivity)
 
             self._mesh_data = BulkFieldsGSTools.extract_mesh(mesh)
-            # print("mesh data ", list(self._mesh_data.keys()))
+            #print("mesh data ", list(self._mesh_data.keys()))
             # print("mesh data ele ids ", self._mesh_data["ele_ids"])
             # print("mesh_data['points'] ", self._mesh_data['points'])
             self._fields.set_points(self._mesh_data['points'], self._mesh_data['point_region_ids'], self._mesh_data['region_map'])
             self._rf_sample = self._fields.sample()
 
+            # print("self._pc_mean ", self._pc_means)
+            # print("mean k xx ", np.mean(self._rf_sample["k_xx"]))
+            # print("mean k yy ", np.mean(self._rf_sample["k_yy"]))
+
             self._rf_sample["k_xx"] += self._pc_means[0]
             self._rf_sample["k_yy"] += self._pc_means[1]
 
             srf_data = np.array([self._rf_sample["k_xx"], self._rf_sample["k_yy"]])
+            #print("srf data shape ", srf_data.shape)
 
             # bins = 60
             # # np_bins = np.linspace(np.min(values[:, 0]), np.max(values[:, 0]), 50)  # Define histogram bins
@@ -370,12 +383,12 @@ class BulkFieldsGSTools(BulkBase):
             # plt.legend()
             # plt.show()
             #
-            # plt.hist(srf_data[1, :], bins=bins, color="red", label="k_xy", density=True)
-            # # plt.hist(samples[:, 0], bins=bins, color="blue", label="k_xy sampled", alpha=0.65, density=True)
-            # plt.legend()
-            # plt.show()
+            # # plt.hist(srf_data[1, :], bins=bins, color="red", label="k_xy", density=True)
+            # # # plt.hist(samples[:, 0], bins=bins, color="blue", label="k_xy sampled", alpha=0.65, density=True)
+            # # plt.legend()
+            # # plt.show()
             #
-            # plt.hist(srf_data[2, :], bins=bins, color="red", label="k_yy", density=True)
+            # plt.hist(srf_data[1, :], bins=bins, color="red", label="k_yy", density=True)
             # # plt.hist(samples[:, 0], bins=bins, color="blue", label="k_xy sampled", alpha=0.65, density=True)
             # plt.legend()
             # plt.show()
@@ -444,9 +457,9 @@ class BulkFieldsGSTools(BulkBase):
             angle = np.arctan2(cos_sin_angle[1, :], cos_sin_angle[0, :])
             self._rf_sample["angle"] = angle
 
-            xv = self._mesh_data['points'][:, 0]
-            yv = self._mesh_data['points'][:, 1]
-            #
+            # xv = self._mesh_data['points'][:, 0]
+            # yv = self._mesh_data['points'][:, 1]
+            # #
             # plt.hist(srf_data[:, 0], bins=bins, color="red", label="final k_xx", density=True)
             # # plt.hist(samples[:, 0], bins=bins, color="blue", label="k_xy sampled", alpha=0.65, density=True)
             # plt.legend()
@@ -510,6 +523,12 @@ class BulkFieldsGSTools(BulkBase):
             #
             #
             # k_xy = []
+            #############################
+            #############################
+            #############################
+            # angles = []
+            # orig_angles = []
+            # all_cond_tns = []
             # for eid in self._mesh_data["ele_ids"]:
             #     ele_idx = np.where(self._mesh_data["ele_ids"] == eid)
             #     k_xx = self._rf_sample["k_xx"][ele_idx][0]
@@ -518,6 +537,8 @@ class BulkFieldsGSTools(BulkBase):
             #     unrotated_tn = np.diag(np.power(10, np.array([k_xx, k_yy])))
             #
             #     angle = self._rf_sample["angle"][ele_idx][0]
+            #     print("orig angle ", angle)
+            #     orig_angles.append(angle)
             #     c, s = np.cos(angle), np.sin(angle)
             #
             #     rot_mat = np.array([[c, -s], [s, c]])
@@ -525,7 +546,54 @@ class BulkFieldsGSTools(BulkBase):
             #
             #     cond_2d = rot_mat @ unrotated_tn @ rot_mat.T
             #
-            #     k_xy.append((cond_2d[0,1] + cond_2d[1,0])/2)
+            #     print("cond 2d ", cond_2d)
+            #
+            #     eigenvalues, eigenvectors = np.linalg.eig(cond_2d)
+            #     angle = np.arctan2(eigenvectors[1, 0], eigenvectors[0, 0])
+            #     # angle_degrees = np.degrees(angle)
+            #     print("calc angle ", angle)
+            #     angles.append(angle)
+            #     all_cond_tns.append([cond_2d[0][0], cond_2d[0][1], cond_2d[1][1]])
+            #
+            # all_cond_tns = np.array(all_cond_tns)
+            #
+            # fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(10, 10))
+            # axes.hist(orig_angles, bins=100, density=True)
+            # fig.suptitle("angles")
+            # plt.show()
+            #
+            # fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(10, 10))
+            # axes.hist(angles, bins=100, density=True)
+            # fig.suptitle("angles")
+            # plt.show()
+            #
+            # fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(10, 10))
+            # axes.hist(all_cond_tns[:, 0], bins=100, density=True)
+            # fig.legend()
+            # fig.suptitle("bulk K xx histogram")
+            # plt.show()
+            #
+            # fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(10, 10))
+            # axes.hist(all_cond_tns[:, 1], bins=100, density=True)
+            # fig.legend()
+            # fig.suptitle("bulk K xy histogram")
+            # plt.show()
+            #
+            # fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(10, 10))
+            # axes.hist(all_cond_tns[:, 2], bins=100, density=True)
+            # fig.legend()
+            # fig.suptitle("bulk K yy histogram")
+            # plt.show()
+            #
+            # correlation_matrix = np.corrcoef(all_cond_tns, rowvar=False)
+            # sns.heatmap(correlation_matrix, annot=True, cmap="coolwarm", fmt=".2f", square=True)
+            # plt.title('Correlation Heatmap')
+            # plt.show()
+            #
+            # exit()
+            ##############################
+            ##############################
+
             #
             # print("k_xy ", k_xy)
             #
@@ -541,15 +609,12 @@ class BulkFieldsGSTools(BulkBase):
             # exit()
             #
 
-
-
             # fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(10, 10))
             # ax = axes  # [0]
             # #ax.set_xscale('log')
             # ax.hist(angle, bins=25, density=True)
             # fig.legend()
             # fig.show()
-
 
             # rf_sample["angle"] = (rf_sample["angle"] * 100) % (2*np.pi)  # uniform distribution
             #
@@ -574,6 +639,57 @@ class BulkFieldsGSTools(BulkBase):
             # except Exception as e:
             #    print(e)
 
+            # from skgstat import Variogram
+            #
+            # plt.hist(self._rf_sample["k_xx"], bins=bins, color="red", label="final k_xx", density=True)
+            # # plt.hist(samples[:, 0], bins=bins, color="blue", label="k_xy sampled", alpha=0.65, density=True)
+            # plt.legend()
+            # plt.show()
+            #
+            # plt.hist(self._rf_sample["k_yy"], bins=bins, color="red", label="k_yy", density=True)
+            # # plt.hist(samples[:, 0], bins=bins, color="blue", label="k_xy sampled", alpha=0.65, density=True)
+            # plt.legend()
+            # plt.show()
+            #
+            # bin_center, gamma = gstools.vario_estimate((self._mesh_data['points'][:, 0], self._mesh_data['points'][:, 1]),  self._rf_sample["k_xx"])
+            # fit_model = gstools.Exponential(dim=2)
+            # k_xx_params = fit_model.fit_variogram(bin_center, gamma, nugget=False)
+            # print("k xx params ", k_xx_params)
+            # #print("mean: {}, var: {}".format(np.mean(k_xx), np.var(k_xx)))
+            #
+            # variogram_model = Variogram(self._mesh_data['points'], self._rf_sample["k_xx"], n_lags=50)
+            # print("variogram model bins ", variogram_model.bins)
+            # # Fit a model to the variogram
+            #
+            # variogram_model.estimator = 'matheron'
+            # variogram_model.model = 'spherical'
+            # xdata = variogram_model.bins
+            # ydata = variogram_model.experimental
+            # p0 = [np.mean(xdata), np.mean(ydata), 0]
+            # from scipy.optimize import curve_fit
+            # from skgstat import models
+            #
+            # cof, cov = curve_fit(models.spherical, xdata, ydata, p0=p0)
+            # print("range: %.2f   sill: %.f   nugget: %.2f" % (cof[0], cof[1], cof[2]))
+            #
+            # xi = np.linspace(xdata[0], xdata[-1], 100)
+            # yi = [models.spherical(h, *cof) for h in xi]
+            # plt.plot(xdata, ydata, 'og')
+            # plt.plot(xi, yi, '-b')
+            # plt.show()
+            #
+            # from pprint import pprint
+            #
+            # variogram_model.fit_method = 'trf'
+            # variogram_model.plot()
+            # pprint(variogram_model.parameters)
+            #
+            # variogram_model.fit_method = 'lm'
+            # variogram_model.plot()
+            # pprint(variogram_model.parameters)
+            #
+            # exit()
+
         ele_idx = np.where(self._mesh_data["ele_ids"] == eid)
         k_xx = self._rf_sample["k_xx"][ele_idx][0]
         k_yy = self._rf_sample["k_yy"][ele_idx][0]
@@ -586,7 +702,12 @@ class BulkFieldsGSTools(BulkBase):
         rot_mat = np.array([[c, -s], [s, c]])
         #print("rot mat ", rot_mat)
 
+        #print("unrotated ", unrotated_tn)
+
         cond_2d = rot_mat @ unrotated_tn @ rot_mat.T
+
+        #print("cond 2d ", cond_2d)
+        # exit()
         # print("cond_2d ", cond_2d)
         # exit()
         return 1.0, cond_2d
@@ -598,12 +719,6 @@ class BulkFieldsGSTools(BulkBase):
         # el_type, tags, node_ids = mesh.elements[eid]
         # center = np.mean([np.array(mesh.nodes[nid]) for nid in node_ids], axis=0)
         # exit()
-
-
-
-
-
-
         # # Unrotated tensor (eigenvalues)
         # if self.cov_log_conductivity is None:
         #     log_eigenvals = self.mean_log_conductivity
@@ -942,6 +1057,10 @@ class BulkHomogenizationFineSample(BulkBase):
             self._rf_sample = self._fields.sample()
 
             if self._srf_gstools_model is not None:
+                self._rf_sample["k_xx"] += self._srf_gstools_model._pc_means[0]
+                self._rf_sample["k_xy"] += self._srf_gstools_model._pc_means[1]
+                self._rf_sample["k_yy"] += self._srf_gstools_model._pc_means[2]
+
                 srf_data = np.array([self._rf_sample["k_xx"], self._rf_sample["k_xy"], self._rf_sample["k_yy"]])
                 inv_srf_data = np.matmul(srf_data.T, self._srf_gstools_model.projection_matrix.T)
 
@@ -961,6 +1080,11 @@ class BulkHomogenizationFineSample(BulkBase):
                 self._rf_sample["k_xx"] = inv_srf_data[:, 0]
                 self._rf_sample["k_xy"] = inv_srf_data[:, 1]
                 self._rf_sample["k_yy"] = inv_srf_data[:, 2]
+
+                # bin_center, gamma = gstools.vario_estimate((self._mesh_data['points'][:, 0], self._mesh_data['points'][:, 1]),self._rf_sample["k_xx"])
+                # fit_model = gstools.Exponential(dim=2)
+                # k_xx_params = fit_model.fit_variogram(bin_center, gamma, nugget=False)
+                # print("inv srf k xx params ", k_xx_params)
             elif len(self._svd_model) > 0:
                 transform_obj = self._svd_model["transform_obj"]
                 inv_srf_data = self._rf_sample["cond_tn"]
@@ -991,6 +1115,15 @@ class BulkHomogenizationFineSample(BulkBase):
             k_yy = self._rf_sample["k_yy"][ele_idx][0]
             cond_tn = [[k_xx, k_xy], [k_xy, k_yy]]
 
+        e_val, e_vec = np.linalg.eigh(cond_tn)
+
+        # Check if any eigenvalues are non-positive
+        while any(e_val <= 0):
+            # Add a positive definite matrix (e.g., identity matrix scaled by a small positive constant)
+            eps = np.mean([cond_tn[0][0], cond_tn[1][1]]) * 0.2
+            cond_tn = cond_tn + eps * np.eye(2)
+            e_val, e_vec = np.linalg.eigh(cond_tn)
+
         #print("cond tn ", cond_tn)
         #cond_tn = [[cond_tn[0][0], cond_tn[0][1]], [cond_tn[0][1], cond_tn[0][2]]]
 
@@ -1008,32 +1141,65 @@ class FineHomSRFGstools:
 
     def __init__(self, cond_tns, config_dict):
         self._cond_tns = cond_tns
+        print("config dict ", config_dict["sim_config"]["bulk_conductivity"]["corr_lengths_x"])
         avg_len_scale_list, avg_var_list = FineHomSRFGstools._calc_var_len_scale(config_dict)
         gmm, mult_coef, self.transform_obj = FineHomSRFGstools.get_distrs(self._cond_tns)
         len_scales = avg_len_scale_list
         print("len scales ", len_scales)
-        self._fields, self.projection_matrix = FineHomSRFGstools.pca(gmm, mult_coef, len_scales, self.transform_obj)
+
+        self._fields, self.projection_matrix, self._pc_means = FineHomSRFGstools.pca(gmm, mult_coef, len_scales, self.transform_obj)
 
     @staticmethod
     def _calc_var_len_scale(config_dict):
         ###
         # Len scales and variances of normalized data
         ###
-        sample_id = 0
         len_scales_list = []
         vars_list = []
         data_dir = config_dict["fine"]["sample_cond_tns"]
         n_files = len(glob.glob(data_dir + '/*'))
-        n_files = (n_files - 1) / 2
+        n_files = (n_files - 1)
 
+        n_samples = 100
+        more_cond_tns = []
+        for sample_id in range(n_samples):
+            sample_file = os.path.join(data_dir, "S{:07d}".format(sample_id))
+            print("sample file ", sample_file)
+
+            cond_centers_file = sample_file + "_centers_" + sim_sample.DFMSim.COND_TN_FILE + ".npy"
+            cond_tns_file = sample_file + "_cond_tns_" + sim_sample.DFMSim.COND_TN_FILE + ".npy"
+            pred_cond_centers_file = sample_file + "_centers_" + sim_sample.DFMSim.COND_TN_FILE + ".npy"
+            pred_cond_tns_file = sample_file + "_cond_tns_" + sim_sample.DFMSim.PRED_COND_TN_FILE + ".npy"
+
+            if not os.path.exists(cond_centers_file):
+                continue
+
+            # centers = np.load(cond_centers_file)
+            orig_cond_tns = np.load(cond_tns_file)
+
+            if os.path.exists(pred_cond_centers_file):
+                # centers = np.load(pred_cond_centers_file)
+                orig_cond_tns = np.load(pred_cond_tns_file)
+
+            more_cond_tns.extend(orig_cond_tns)
+
+        more_cond_tns = np.array(more_cond_tns)
+        print("more cond tns shape ", more_cond_tns.shape)
+
+        cond_tns = FineHomSRFGstools.symmetrize_cond_tns(more_cond_tns)
+        # cond_tns = remove_outliers(cond_tns)
+        cond_tns, transform_obj = FineHomSRFGstools.normalize_cond_tns(cond_tns)
+
+        sample_id = -1
         while True:
+            sample_id += 1
             sample_file = os.path.join(data_dir, "S{:07d}".format(sample_id))
             cond_centers_file = sample_file + "_centers_" + sim_sample.DFMSim.COND_TN_FILE + ".npy"
             cond_tns_file = sample_file + "_cond_tns_" + sim_sample.DFMSim.COND_TN_FILE + ".npy"
             pred_cond_centers_file = sample_file + "_centers_" + sim_sample.DFMSim.COND_TN_FILE + ".npy"
             pred_cond_tns_file = sample_file + "_cond_tns_" + sim_sample.DFMSim.COND_TN_FILE + ".npy"
 
-            if len(len_scales_list) > 15 or sample_id > n_files-1:
+            if len(len_scales_list) > 15 or sample_id > n_files - 1:
                 break
 
             if not os.path.exists(cond_centers_file):
@@ -1047,22 +1213,35 @@ class FineHomSRFGstools:
                 orig_cond_tns = np.load(pred_cond_tns_file)
 
             cond_tns = FineHomSRFGstools.symmetrize_cond_tns(orig_cond_tns)
-            cond_tns, _ = FineHomSRFGstools.normalize_cond_tns(cond_tns)
+            cond_tns, _ = FineHomSRFGstools.normalize_cond_tns(cond_tns, transform_obj=transform_obj)
 
-            k_xx_params, k_xy_params, k_yy_params = FineHomSRFGstools.get_len_scales(centers, orig_cond_tns)
+            k_xx_params, k_xy_params, k_yy_params = FineHomSRFGstools.get_len_scales(centers, cond_tns)
             k_xx_var, k_xy_var, k_yy_var = FineHomSRFGstools.get_vars(cond_tns)
 
             k_xx_len_scale = k_xx_params[0]['len_scale']
             k_xy_len_scale = k_xy_params[0]['len_scale']
             k_yy_len_scale = k_yy_params[0]['len_scale']
 
+            if k_xx_len_scale > config_dict["sim_config"]["geometry"]["orig_domain_box"][0] or k_xy_len_scale > \
+                    config_dict["sim_config"]["geometry"]["orig_domain_box"][0] or k_yy_len_scale > \
+                    config_dict["sim_config"]["geometry"]["orig_domain_box"][1]:
+                continue
+
             len_scales_list.append([k_xx_len_scale, k_xy_len_scale, k_yy_len_scale])
             vars_list.append([k_xx_var, k_xy_var, k_yy_var])
 
-            sample_id += 1
+        print("len scales list ", len_scales_list)
 
-        print("len_scales list ", len_scales_list)
-        print("vars list ", vars_list)
+        if len(len_scales_list) == 0:
+            len_scales_list = [[(config_dict["sim_config"]["bulk_conductivity"]["corr_lengths_x"][0] +
+                                 config_dict["sim_config"]["bulk_conductivity"]["corr_lengths_y"][0]) / 2,
+                                (config_dict["sim_config"]["bulk_conductivity"]["corr_lengths_x"][1] +
+                                 config_dict["sim_config"]["bulk_conductivity"]["corr_lengths_y"][1] +
+                                 config_dict["sim_config"]["bulk_conductivity"]["corr_lengths_x"][0] +
+                                 config_dict["sim_config"]["bulk_conductivity"]["corr_lengths_y"][0]) / 4,
+                                (config_dict["sim_config"]["bulk_conductivity"]["corr_lengths_x"][1] +
+                                 config_dict["sim_config"]["bulk_conductivity"]["corr_lengths_y"][1]) / 2]]
+            print("orig len scale list was emtpy ", len_scales_list)
 
         avg_len_scales = np.mean(np.array(len_scales_list), axis=0)
         avg_vars = np.mean(np.array(vars_list), axis=0)
@@ -1117,16 +1296,17 @@ class FineHomSRFGstools:
         return np.delete(cond_tns, 1, axis=1)
 
     @staticmethod
-    def normalize_cond_tns(cond_tns, n_quantiles=10000):
+    def normalize_cond_tns(cond_tns, n_quantiles=10000, transform_obj=None):
         cond_tns_val = copy.deepcopy(cond_tns)
         trf_data = np.empty((cond_tns_val.shape)).T
-        transform_obj = []
-        for i in range(cond_tns_val.shape[1]):
-            transformer = QuantileTransformer(n_quantiles=n_quantiles, random_state=0, output_distribution="normal")
-            if i != 1:
-                transform_obj.append(transformer.fit(np.log(cond_tns_val[:, i]).reshape(-1, 1)))
-            else:
-                transform_obj.append(transformer.fit(cond_tns_val[:, i].reshape(-1, 1)))
+        if transform_obj is None:
+            transform_obj = []
+            for i in range(cond_tns_val.shape[1]):
+                transformer = QuantileTransformer(n_quantiles=n_quantiles, random_state=0, output_distribution="normal")
+                if i != 1:
+                    transform_obj.append(transformer.fit(np.log(cond_tns_val[:, i]).reshape(-1, 1)))
+                else:
+                    transform_obj.append(transformer.fit(cond_tns_val[:, i].reshape(-1, 1)))
 
         for i in range(cond_tns_val.shape[1]):
             if i != 1:
@@ -1169,8 +1349,8 @@ class FineHomSRFGstools:
         values[:, 1] = values[:, 1] * mult_coef
         gmm.fit(values)
         # Generate new samples from the fitted distribution
-        samples, _ = gmm.sample(n_samples=n_samples)
-        samples[:, 1] /= mult_coef
+        # samples, _ = gmm.sample(n_samples=n_samples)
+        # samples[:, 1] /= mult_coef
 
         # Print the means and covariances of the fitted components
         # for i in range(gmm.n_components):
@@ -1183,8 +1363,9 @@ class FineHomSRFGstools:
 
     @staticmethod
     def pca(gmm, mult_coef, len_scales, transform_obj):
+        from sklearn.decomposition import PCA
         # Number of sample for PCA
-        n_samples = 5000
+        n_samples = 10000
         anis_angles = [0, 0, 0]
         k_xx_len_scale, k_xy_len_scale, k_yy_len_scale = len_scales[0], len_scales[1], len_scales[2]
 
@@ -1194,13 +1375,35 @@ class FineHomSRFGstools:
         samples, _ = gmm.sample(n_samples=n_samples)
         samples /= mult_coef
 
+        fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(10, 10))
+        axes.hist(samples[:, 0], bins=100, density=True)
+        fig.legend()
+        fig.suptitle("samples K xx histogram")
+        plt.show()
+
+        fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(10, 10))
+        axes.hist(samples[:, 1], bins=100, density=True)
+        fig.legend()
+        fig.suptitle("samples K xy histogram")
+        plt.show()
+
+        fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(10, 10))
+        axes.hist(samples[:, 2], bins=100, density=True)
+        fig.legend()
+        fig.suptitle("samples K yy histogram")
+        plt.show()
+
         ######################
         # Get PCA components #
         ######################
-        covariance_matrix = np.cov(samples.T)
-        eigen_values, eigen_vectors = np.linalg.eig(covariance_matrix)
-        projection_matrix = (eigen_vectors.T[:][:]).T
-        p_components = samples.dot(projection_matrix)
+        # covariance_matrix = np.cov(samples.T)
+        # eigen_values, eigen_vectors = np.linalg.eig(covariance_matrix)
+        # projection_matrix = (eigen_vectors.T[:][:]).T
+        # p_components = samples.dot(projection_matrix)
+        pca = PCA(n_components=len(len_scales))
+
+        fitted_pca = pca.fit(samples)
+        p_components = pca.transform(samples)
 
         pc_means = [np.mean(p_components[:, 0]), np.mean(p_components[:, 1]), np.mean(p_components[:, 2])]
         pc_vars = [np.var(p_components[:, 0]), np.var(p_components[:, 1]), np.var(p_components[:, 2])]
@@ -1211,7 +1414,7 @@ class FineHomSRFGstools:
         ############
         ## Models ##
         ############
-        mode_no = 10000
+        mode_no = 100000
         model_k_xx = gstools.Exponential(dim=2, var=pc_vars[0], len_scale=k_xx_len_scale, angles=anis_angles[0])
         model_k_xy = gstools.Exponential(dim=2, var=pc_vars[1], len_scale=k_xy_len_scale, angles=anis_angles[1])
         model_k_yy = gstools.Exponential(dim=2, var=pc_vars[2], len_scale=k_yy_len_scale, angles=anis_angles[2])
@@ -1235,7 +1438,72 @@ class FineHomSRFGstools:
                                                                        ))
 
         fields = cf.Fields([field_k_xx, field_k_xy, field_k_yy])
-        return fields, projection_matrix
+        return fields, fitted_pca, pc_means
+
+    @staticmethod
+    def kpca(gmm, mult_coef, len_scales, transform_obj):
+        from sklearn.decomposition import KernelPCA
+        # Number of sample for PCA
+        n_samples = 10000
+        anis_angles = [0, 0, 0]
+        k_xx_len_scale, k_xy_len_scale, k_yy_len_scale = len_scales[0], len_scales[1], len_scales[2]
+
+        ########################################
+        # Sample from normalized distribution  #
+        ########################################
+        samples, _ = gmm.sample(n_samples=n_samples)
+        samples /= mult_coef
+
+        ######################
+        # Get PCA components #
+        ######################
+        kpca = KernelPCA(n_components=3, kernel='rbf', fit_inverse_transform=True)#, gamma=0.04)
+
+        # Fit KPCA to the data and transform it to the new feature space
+        fitted_kpca = kpca.fit(samples)
+        p_components = kpca.transform(samples)
+
+        print("p components shape ", p_components.shape)
+
+        # covariance_matrix = np.cov(samples.T)
+        # eigen_values, eigen_vectors = np.linalg.eig(covariance_matrix)
+        # projection_matrix = (eigen_vectorsT[.:][:]).T
+        # p_components = samples.dot(projection_matrix)
+
+        pc_means = [np.mean(p_components[:, 0]), np.mean(p_components[:, 1]), np.mean(p_components[:, 2])]
+        pc_vars = [np.var(p_components[:, 0]), np.var(p_components[:, 1]), np.var(p_components[:, 2])]
+
+        print("pc means: {} vars: {}".format(pc_means, pc_vars))
+        print("LEN SCALES k_xx: {}, k_xy: {}, k_yy:{}".format(k_xx_len_scale, k_xy_len_scale, k_yy_len_scale))
+
+        ############
+        ## Models ##
+        ############
+        mode_no = 100000
+        model_k_xx = gstools.Exponential(dim=2, var=pc_vars[0], len_scale=k_xx_len_scale, angles=anis_angles[0])
+        model_k_xy = gstools.Exponential(dim=2, var=pc_vars[1], len_scale=k_xy_len_scale, angles=anis_angles[1])
+        model_k_yy = gstools.Exponential(dim=2, var=pc_vars[2], len_scale=k_yy_len_scale, angles=anis_angles[2])
+
+        field_k_xx = cf.Field('k_xx', cf.GSToolsSpatialCorrelatedField(model_k_xx,  # log=self.log,
+                                                                       # sigma=np.sqrt(self.cov_log_conductivity[0,0]),
+                                                                       mode_no=mode_no,
+                                                                       # mu=pca_means[0]
+                                                                       ))
+
+        field_k_xy = cf.Field('k_xy', cf.GSToolsSpatialCorrelatedField(model_k_xy,  # log=self.log,
+                                                                       # sigma=np.sqrt(self.cov_log_conductivity[1,1]),
+                                                                       mode_no=mode_no,
+                                                                       # mu=pca_means[1]
+                                                                       ))
+
+        field_k_yy = cf.Field('k_yy', cf.GSToolsSpatialCorrelatedField(model_k_yy,  # log=self.log,
+                                                                       # sigma=np.sqrt(self.cov_log_conductivity[1,1]),
+                                                                       mode_no=mode_no,
+                                                                       # mu=pca_means[1]
+                                                                       ))
+
+        fields = cf.Fields([field_k_xx, field_k_xy, field_k_yy])
+        return fields, fitted_kpca, pc_means
 
 
 class BulkHomogenization(BulkBase):
@@ -1292,7 +1560,7 @@ class FractureModel:
     max_fr: float = 1
     bulk_model: BulkBase = None
 
-    def element_data(self, mesh, eid, elid_to_fr):
+    def element_data(self, mesh, eid, elid_to_fr, fr_div=None):
         el_type, tags, node_ids = mesh.elements[eid]
 
         # reg_id = tags[0] - 10000
@@ -1302,11 +1570,33 @@ class FractureModel:
         i_fr = elid_to_fr[eid]
         fr_size = self.fractures.fractures[i_fr].rx
 
+        #
+        # fr_sizes = []
+        # for fr in self.fractures.fractures:
+        #     fr_sizes.append(fr.rx)
+        #
+        # print("fr sizes: ", fr_sizes)
+        # print("mean fr size ", np.mean(fr_sizes))
+        #
+        # exit()
+        #
+        # #print("self.fractures.fractures ", self.fractures.fractures)
+        # exit()
+
+        # if fr_div is not None:
+        #     #print('orig fr size ', fr_size)
+        #     #print("fr div ", fr_div)
+        #     fr_size = fr_size / fr_div
+        #     print("new fr size ", fr_size)
+
         if self.target_sigma is None or self.bulk_model is None:
             # print("variable cond")
             # exit()
             cs = fr_size * self.aperture_per_size
             cond = cs ** 2 / 12 * self.water_density * self.gravity_accel / self.water_viscosity
+            # if fr_div is not None:
+            #     cond /= fr_div
+            #print("cond ", cond)
         else:
             #print("target sigma: {}, max_fr: {}".format(self.target_sigma, self.max_fr))
             # print("self.max_fr ", self.max_fr)
@@ -1337,7 +1627,7 @@ def find_closest(center, center_cond_field, kdtree):
 
 
 def write_fields(mesh, basename, bulk_model, fracture_model, elid_to_fr, elids_same_value=None,
-                 positions=None, input_tensors=None, center_cond_tn_field=None, interp_data=None, mesh_centers_eids=None):
+                 positions=None, input_tensors=None, center_cond_tn_field=None, interp_data=None, mesh_centers_eids=None, fr_div=None):
     elem_ids = []
     cond_tn_field = []
     cond_tn_field_bulk = []
@@ -1387,7 +1677,7 @@ def write_fields(mesh, basename, bulk_model, fracture_model, elid_to_fr, elids_s
 
             if n_nod == 2:
                 n_fr += 1
-                cs, cond_tn, fr_size = fracture_model.element_data(mesh, el_id, elid_to_fr)
+                cs, cond_tn, fr_size = fracture_model.element_data(mesh, el_id, elid_to_fr, fr_div=fr_div)
                 # print("fr cs: {}, cond_tn: {}".format(cs, cond_tn))
                 fracture_cs.append(cs)
                 fracture_len.append(fr_size)
@@ -1558,7 +1848,7 @@ class FlowProblem:
 
         if "cond_tn_pop_file" in config_dict["fine"] or "pred_cond_tn_pop_file" in config_dict["fine"]:
             #@TODO: sample from saved population of conductivity tensors
-
+            print("cond tn pop file")
             bulk_conductivity = config_dict["sim_config"]['bulk_conductivity']
             config_dict["mean_log_conductivity"] = bulk_conductivity["mean_log_conductivity"]
             bulk_model = BulkHomogenizationFineSample(config_dict)
@@ -1704,10 +1994,15 @@ class FlowProblem:
     def add_fractures(self, pd, fracture_lines, eid, center_box=None):
         #print("fracture lines ", fracture_lines)
         #print("len fracture lines ", len(fracture_lines))
+        #print("add fractures ")
+
+        print("center box ", center_box)
+
 
         outer_wire = pd.outer_polygon.outer_wire.childs
 
-        #print("outer wire ", outer_wire)
+        print("outer wire ", outer_wire)
+        #print("outer_wire.segments() ", outer_wire.segments())
 
         #print("len fracture lines ", len(fracture_lines))
 
@@ -1744,6 +2039,7 @@ class FlowProblem:
                 # pass
             # pd.decomp.check_consistency()
 
+            #try:
             # remove segments out of the outer polygon
             if type(sub_segments) == list:
                 # print("sub segments ", sub_segments)
@@ -1759,16 +2055,21 @@ class FlowProblem:
                         if seg.id in pd.segments.keys():
                             pd.delete_segment(seg)
                             for pt in points:
-                                if pt.is_free():  # and pt.id in pd.points.keys():
-                                    pd._rm_point(pt)
+                                try:
+                                    if pt.is_free() and pt.id in pd.points.keys():
+                                        pd._rm_point(pt)
+                                except:
+                                   pass
                                 # else:
                                 #     print("not rm pt.id ", pt.id)
+            # except Exception as e:
+            #     pass
 
         # plot_decomp_segments(pd, [p0, p1])
         # assign boundary region to outer polygon points
         for seg, side in outer_wire.segments():
             side_reg = seg.attr
-            if side_reg.boundary:
+            if side_reg is not None and side_reg.boundary:
                 assert hasattr(side_reg, "sub_reg")
                 seg.vtxs[side].attr = side_reg.sub_reg
         # none region to remaining
@@ -1799,6 +2100,8 @@ class FlowProblem:
 
         pd, self.side_regions = self.init_decomposition(self.outer_polygon, bulk_reg, tol=self.mesh_step)
         self.group_positions[0] = np.mean(self.outer_polygon, axis=0)
+
+        #print("self. fr range ", self.fr_range)
 
         square_fr_range = [self.fr_range[0], np.min([self.fr_range[1], self.outer_polygon[1][0] - self.outer_polygon[0][0]])]
         # if self.config_dict.get("homogenization", False):
@@ -1852,6 +2155,7 @@ class FlowProblem:
         self.skip_decomposition = os.path.exists(mesh_file)
 
         #print("self. skip decomposition ", self.skip_decomposition)
+        #print("center box ", center_box)
 
         #print("self regions ", self.regions)
         if not self.skip_decomposition:
@@ -1925,7 +2229,7 @@ class FlowProblem:
         # exit()
         return [centers, elem_ids, n_nodes_list]
 
-    def interpolate_fields(self, center_cond_tn_field, mode="linear"):
+    def interpolate_fields(self, center_cond_tn_field, mode="linear", fr_div=None):
         fracture_model = FractureModel(self.fractures, self.reg_to_fr,
                                        **self.config_dict["sim_config"]['fracture_model'],
                                        bulk_model=self.bulk_model)
@@ -1933,7 +2237,7 @@ class FlowProblem:
         mesh_centers_eids = self.get_centers(self.mesh)
 
         grid_fine = np.array(center_cond_tn_field[0])[:, :2]
-        values = np.array(center_cond_tn_field[1])[:, [0,1,4]]
+        values = np.array(center_cond_tn_field[1])[:, [0, 1, 4]]
         grid_hom = np.array(mesh_centers_eids[0])[:, :2]
 
         tria = sc_spatial.Delaunay(grid_fine)
@@ -1952,7 +2256,8 @@ class FlowProblem:
                                                                                                  fracture_model,
                                                                                                  self.elid_to_fr,
                                                                                                  #center_cond_tn_field=center_cond_tn_field,
-                                                                                                 interp_data=interp_data
+                                                                                                 interp_data=interp_data,
+                                                                                                 fr_div=fr_div,
                                                                                                  )
 
         self._elem_ids = elem_ids
@@ -2142,11 +2447,16 @@ class FlowProblem:
 
     def element_volume(self, mesh, nodes):
         nodes = np.array([mesh.nodes[nid] for nid in  nodes])
+
         if len(nodes) == 1:
             return 0
         elif len(nodes) == 2:
+            return np.linalg.norm((nodes[1] - nodes[0])/11.11)
             return np.linalg.norm(nodes[1] - nodes[0])
         elif len(nodes) == 3:
+            #print("nodes ", nodes)
+            #print("volume ", np.linalg.norm(np.cross(nodes[1] - nodes[0], nodes[2] - nodes[0])))
+            return np.linalg.norm(np.cross((nodes[1] - nodes[0])/11.11, (nodes[2] - nodes[0])/11.11))
             return np.linalg.norm(np.cross(nodes[1] - nodes[0], nodes[2] - nodes[0]))
         else:
             assert False
@@ -2196,7 +2506,7 @@ class FlowProblem:
 
         return np.array(features).T, all_fields
 
-    def effective_tensor_from_bulk(self, pressure_loads=None, reg_to_group_1=None, basename=None, elids_same_value=None):
+    def effective_tensor_from_bulk(self, pressure_loads=None, reg_to_group_1=None, basename=None, elids_same_value=None, coef=1):
         """
         :param bulk_regions: mapping reg_id -> tensor_group_id, groups of regions for which the tensor will be computed.
         :return: {group_id: conductivity_tensor} List of effective tensors.
@@ -2216,6 +2526,7 @@ class FlowProblem:
         #print("bulk regions ", bulk_regions)
 
         out_mesh = gmsh_io.GmshIO()
+
         with open("flow_fields.msh", "r") as f:
             out_mesh.read(f)
         time_idx = 0
@@ -2278,22 +2589,22 @@ class FlowProblem:
 
             for eid, ele_vel in velocity.items():
                 #print("eid : {}, ele_vel: {}".format(eid, ele_vel))
-
                 reg_id, vol = ele_reg_vol[eid]
                 cs = field_cs[eid][0]
-                #print("vol: {}, cs: {}".format(vol, cs))
+                #print("vol: {}, cs: {}, ele vel: {}".format(vol, cs, np.array(ele_vel[0:2])))
                 volume = cs * vol
                 i_group = group_idx[bulk_regions[reg_id]]
                 flux_response[i_group, i_time, :] += -(volume * np.array(ele_vel[0:2]))
-
                 #neg_pressure = np.matmul(np.linalg.inv(cond_tn), velocities[e_id])
-
                 area[i_group, i_time] += volume
 
-        #print("flux response ", flux_response)
-        #print("area ", area)
+        # print("flux response ", flux_response)
+        # print("area ", area)
 
         flux_response /= area[:, :, None]
+
+        #flux_response *= coef
+        #print("divided flux response ", flux_response)
         cond_tensors = {}
         print("Fitting tensors ...")
         #print("flux response ", flux_response)
@@ -2378,6 +2689,7 @@ class FlowProblem:
         self._bulk_regions = bulk_regions
         self._regions = self.regions
         self._pressure_loads = pressure_loads
+        #print("cond tensors ", cond_tensors)
         return cond_tensors, diff
 
     def labeled_arrow(self, ax, start, end, label):
@@ -2620,7 +2932,6 @@ class BothSample:
 
         fr_set = fracture.Fractures(fractures, fr_size_range[0] / 2)
 
-        #print("fr set ", fr_set)
         return fr_set
 
     def make_summary(self, done_list):
