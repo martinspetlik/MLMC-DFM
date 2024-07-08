@@ -189,7 +189,7 @@ class DFMDataset(Dataset):
 
         if self.init_transform is not None:
             reshaped_output = torch.reshape(output_features, (*output_features.shape, 1, 1))
-            final_features, reshaped_features = self.init_transform((bulk_features_avg, final_features, reshaped_output, self._cross_section))
+            final_features, reshaped_output = self.init_transform((bulk_features_avg, final_features, reshaped_output, self._cross_section))
         else:
             reshaped_output = torch.reshape(output_features, (*output_features.shape, 1, 1))
 
