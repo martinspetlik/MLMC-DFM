@@ -42,7 +42,7 @@ from mlmc.random import correlated_field as cf
 from sklearn.mixture import GaussianMixture
 from sklearn.preprocessing import QuantileTransformer
 #import seaborn as sns
-from bgem_lib_.src.bgem.stochastic.fr_set import FractureSet
+from bgem.stochastic.fr_set import FractureSet
 
 
 
