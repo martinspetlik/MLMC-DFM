@@ -56,9 +56,6 @@ class Element:
 
 #@memoize
 def _load_mesh(mesh_file: 'File', heal_tol = None):
-
-    print("_load_mesh mesh file ", type(mesh_file))
-
     # mesh_file = mesh_file.path
     if heal_tol is None:
         gmsh_io = GmshIO(str(mesh_file))
@@ -128,12 +125,23 @@ class Mesh:
         self.el_ids = []
         self.el_indices = {}
         self.elements = []
+        self._bulk_elements = []
+        self._fracture_elements = []
+        self._bulk_element_ids = []
+        self._fracture_element_ids = []
         for i, (eid, el) in enumerate(self.gmsh_io.elements.items()):
             type, tags, node_ids = el
             element = Element(self, type, tags, [self.node_indices[nid] for nid in node_ids])
             self.el_indices[eid] = i
             self.el_ids.append(eid)
             self.elements.append(element)
+
+            if type == 4:
+                self._bulk_elements.append(element)
+                self._bulk_element_ids.append(eid)
+            elif type == 2:
+                self._fracture_elements.append(element)
+                self._fracture_element_ids.append(eid)
 
     def _update_regions(self):
         self.regions = {dim_tag: name for name, dim_tag in self.gmsh_io.physical.items()}
@@ -162,8 +170,6 @@ class Mesh:
         _bih.construct()
         return _bih
 
-
-
     def candidate_indices(self, box):
         list_box = box.tolist()
         return self.bih.find_box(bih.AABB(list_box))
@@ -180,14 +186,12 @@ class Mesh:
             self._el_volumes = mesh_compute_el_volumes(self.nodes, node_indices)
         return self._el_volumes
 
-
-
-    def el_barycenters(self):
+    def el_barycenters(self, elements=None):
+        if elements is None:
+            elements = self.elements
         if self._el_barycenters is None:
-            self._el_barycenters = np.array([e.barycenter() for e in self.elements])
+            self._el_barycenters = np.array([e.barycenter() for e in elements])
         return self._el_barycenters
-
-
 
     def fr_map(self, dfn:'FractureSet', reg_id_to_fr:Dict[str, int]):
         """
@@ -215,6 +219,7 @@ class Mesh:
         el_type = [31, 1, 2, 4]         # gmsh element types
         reg_id_to_fr = { (el_type[dim], reg_id): fr_id_from_name(name) for (reg_id, dim), name in self.regions.items()}
         fr_map = [reg_id_to_fr.get((e.type, e.tags[0]), len(dfn)) for e in self.elements]
+
         return np.array(fr_map)
 
     # def el_loc_mat(self, id):

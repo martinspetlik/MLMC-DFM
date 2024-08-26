@@ -45,7 +45,6 @@ from sklearn.preprocessing import QuantileTransformer
 from bgem.stochastic.fr_set import FractureSet
 
 
-
 @attr.s(auto_attribs=True)
 class GSToolsBulk3D:
     mean_log_conductivity: Tuple[float, float]
@@ -273,5 +272,5 @@ class GSToolsBulk3D:
 
         eigenvalues = np.linalg.eigvals(cond_3d)
         assert np.all(eigenvalues > 0)
-        return cond_3d
+        return cond_3d, grid_barycenters
 

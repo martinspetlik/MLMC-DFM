@@ -37,6 +37,9 @@ import decovalex_dfnmap as dmap
 from typing import *
 from bgem.upscale.fields import voigt_to_tn
 import zarr
+from bgem.upscale.voxelize import fr_conductivity
+from bgem.upscale import *
+import scipy.interpolate as sc_interpolate
 
 
 def substitute_placeholders(file_in, file_out, params):
@@ -1377,6 +1380,7 @@ class DFMSim3D(Simulation):
         box_fr, fractures_fr = factory.fragment(box, fractures_group)
         print("box fr ", box_fr)
         print("fracture fr ", fractures_fr)
+
         fractures_fr.mesh_step(fr_step)  # .set_region("fractures")
         objects = [box_fr, fractures_fr]
         factory.write_brep(str(factory.model_name))
@@ -1414,7 +1418,7 @@ class DFMSim3D(Simulation):
         return [cross_to_r * fr.r for fr in fractures]
 
     @staticmethod
-    def fr_field(mesh, dfn, reg_id_to_fr, fr_values, bulk_value, rnd_cond=False):
+    def fr_field(mesh, dfn, reg_id_to_fr, fr_values, bulk_value, rnd_cond=False, field_dim=3):
         """
         Provide implicit fields on fractures as input.
         :param mesh:
@@ -1426,42 +1430,55 @@ class DFMSim3D(Simulation):
         fr_map = mesh.fr_map(dfn,
                              reg_id_to_fr)  # np.array of fracture indices of elements, n_frac for nonfracture elements
 
-        #print("fr values ", fr_values.shape)
+        if field_dim == 3:
+            bulk_cond_tn = np.eye(3)*bulk_value
+            bulk_cond_tn = np.expand_dims(bulk_cond_tn, axis=0)
 
-        if rnd_cond:
-            pass
-        else:
+            if rnd_cond:
+                pass
+            else:
+                fr_values_ = np.concatenate((
+                    fr_values,
+                    bulk_cond_tn), axis=0)
+        elif field_dim == 1:
             fr_values_ = np.concatenate((
                 np.array(fr_values),
                 np.atleast_1d(bulk_value)))
 
-            #print("fr_values_ shape ", fr_values_.shape)
-
         field_vals = fr_values_[fr_map]
-        print("field vals ", field_vals.shape)
-
-        return field_vals
+        return field_vals, fr_map
 
     @staticmethod
     def reference_solution(fr_media: FracturedMedia, dimensions, bc_gradients, mesh_step, sample_dir, work_dir):
         dfn = fr_media.dfn
         bulk_conductivity = fr_media.conductivity
 
-        print("bulk conductivity ", bulk_conductivity)
-
         # Input crssection and conductivity
         print("mesh step ", mesh_step)
         mesh_file, fr_region_map = DFMSim3D.ref_solution_mesh(sample_dir, dimensions, dfn, fr_step=mesh_step, bulk_step=mesh_step)
         print("mesh file ", mesh_file)
         full_mesh = Mesh.load_mesh(mesh_file, heal_tol=0.001)  # gamma
+
+        fr_cond, fr_map = DFMSim3D.fr_field(full_mesh, dfn, fr_region_map, fr_media.fr_conductivity, bulk_conductivity,
+                          rnd_cond=False, field_dim=1)
+
+        fr_cross_section, fr_map = DFMSim3D.fr_field(full_mesh, dfn, fr_region_map, fr_media.fr_cross_section, 1.0, field_dim=1)
+
+        print("fr cond ", fr_cond)
+        #print("fr el ids ", fr_el_ids)
+
         fields = dict(
-            conductivity=DFMSim3D.fr_field(full_mesh, dfn, fr_region_map, fr_media.fr_conductivity, bulk_conductivity,
-                                  rnd_cond=False),
-            cross_section=DFMSim3D.fr_field(full_mesh, dfn, fr_region_map, fr_media.fr_cross_section, 1.0))
+            conductivity=fr_cond,
+            cross_section=fr_cross_section)
 
         cond_file = full_mesh.write_fields(str(sample_dir / "input_fields.msh2"), fields)
+        print("cond_file ", cond_file)
         cond_file = Path(cond_file)
         cond_file = cond_file.rename(cond_file.with_suffix(".msh"))
+
+        print("final cond file ", cond_file)
+
+
         # solution
         #     flow_cfg = dotdict(
         #         flow_executable=[
@@ -1699,17 +1716,14 @@ class DFMSim3D(Simulation):
             assert False
 
 
-
-
     @staticmethod
-    def get_flux_response(bc_pressure_gradients, fr_media, fem_grid, config, sample_dir, sim_config):
+    def get_flux_response():#bc_pressure_gradients, fr_media, fem_grid, config, sample_dir, sim_config):
         # print("pressure shape ", pressure.shape)
-        flow_out = DFMSim3D.reference_solution(fr_media, fem_grid.grid.dimensions, bc_pressure_gradients,
-                                               mesh_step=config["fine"]["step"],
-                                               sample_dir=sample_dir,
-                                               work_dir=sim_config["work_dir"])
-
-        #project_fn = DFMSim3D.project_adaptive_source_quad
+        # flow_out = DFMSim3D.reference_solution(fr_media, fem_grid.grid.dimensions, bc_pressure_gradients,
+        #                                        mesh_step=config["fine"]["step"],
+        #                                        sample_dir=sample_dir,
+        #                                        work_dir=sim_config["work_dir"])
+        # #project_fn = DFMSim3D.project_adaptive_source_quad
 
         out_mesh = gmsh_io.GmshIO()
 
@@ -1751,17 +1765,93 @@ class DFMSim3D(Simulation):
                 # neg_pressure = np.matmul(np.linalg.inv(cond_tn), velocities[e_id])
                 total_volume[i_group, i_time] += volume
 
-        # print("flux response ", flux_response.shape)
-        # print("total volume ", total_volume.shape)
-        #
-        # print("np.squeeze(flux_response).shape ", np.squeeze(flux_response).shape)
-
         flux_response /= total_volume  # [:, :, None]
         flux_response = np.squeeze(flux_response, axis=1).transpose(1, 0)
 
-        print("final flux response ", flux_response)
-
         return flux_response
+
+    @staticmethod
+    def plot_isec_fields2(isec: Intersection, in_field, out_field, outpath: Path):
+        """
+        Assume common grid
+        :param intersections:
+        :return:
+        """
+        grid = isec.grid
+        cell_fields = {
+            'cell_field': isec.cell_field(),
+            'in_field': in_field,
+            'out_field': out_field}
+
+        pv_grid = fem_plot.grid_fields_vtk(grid, cell_fields, vtk_path=outpath)
+
+        plotter = fem_plot.create_plotter()  # off_screen=True, window_size=(1024, 768))
+        plotter.add_mesh(pv_grid, scalars='cell_field')
+        plotter.show()
+
+    @staticmethod
+    def rasterize(fem_grid, dfn, bulk_cond, fr_cond):
+        #steps = 3 * [41]
+        target_grid = fem_grid.grid #Grid(3 * [15], steps, origin=3 * [-7.5])  # test grid with center in (0,0,0)
+        isec_corners = intersection_cell_corners(dfn, target_grid)
+        # isec_probe = probe_fr_intersection(fr_set, target_grid)
+        #cross_section, fr_cond = fr_conductivity(dfn)
+        rasterized = isec_corners.interpolate(bulk_cond, fr_cond, source_grid=fem_grid.grid)
+        DFMSim3D.plot_isec_fields2(isec_corners, bulk_cond, rasterized, "raster_field.vtk")
+
+        for i_ax in range(3):
+            assert np.all(bulk_cond[:, i_ax, i_ax] <= rasterized[:, i_ax, i_ax])
+        for i_ax in range(3):
+            assert np.all(rasterized[:, i_ax, i_ax].max() <= fr_cond[:, i_ax, i_ax].max())
+
+        return rasterized
+
+    @staticmethod
+    def create_mesh_fields(fr_media, bulk_cond_values, bulk_cond_points, dimensions, mesh_step, sample_dir, work_dir):
+        dfn = fr_media.dfn
+        bulk_conductivity = fr_media.conductivity
+
+        ###########################
+        ## Fracture conductivity ##
+        ###########################
+        fr_cross_section, fr_cond = fr_conductivity(dfn, cross_section_factor=1e-4)
+
+        interp = sc_interpolate.LinearNDInterpolator(bulk_cond_points, bulk_cond_values, fill_value=0)
+        mesh_file, fr_region_map = DFMSim3D.ref_solution_mesh(sample_dir, dimensions, dfn, fr_step=mesh_step,
+                                                              bulk_step=mesh_step)
+
+        full_mesh = Mesh.load_mesh(mesh_file, heal_tol=0.001)
+
+
+        fr_cond_tn, fr_map = DFMSim3D.fr_field(full_mesh, dfn, fr_region_map, fr_cond,
+                                               bulk_conductivity,
+                                               rnd_cond=False, field_dim=3)
+
+        cross_sections, fr_map_cs = DFMSim3D.fr_field(full_mesh, dfn, fr_region_map, fr_cross_section, 1.0, field_dim=1)
+        cross_sections = np.array(cross_sections)
+
+        #######################################
+        ## Interpolate SRF to mesh elements  ##
+        #######################################
+        bulk_elements_barycenters = full_mesh.el_barycenters(elements=full_mesh._bulk_elements)
+        full_mesh_bulk_cond_values = interp(bulk_elements_barycenters)
+
+        zero_rows = np.where(np.all(full_mesh_bulk_cond_values == 0, axis=1))[0]
+        assert len(zero_rows) == 0
+
+        ##################
+        ## Write fields ##
+        ##################
+        fr_cond_tn[-full_mesh_bulk_cond_values.shape[0]:, ...] = full_mesh_bulk_cond_values
+        conductivity = fr_cond_tn.reshape(fr_cond_tn.shape[0], 9)
+
+        fields = dict(conductivity=conductivity, cross_section=cross_sections.reshape(-1, 1))
+
+        cond_file = full_mesh.write_fields(str(sample_dir / "input_fields.msh2"), fields)
+        cond_file = Path(cond_file)
+        cond_file = cond_file.rename(cond_file.with_suffix(".msh"))
+
+        return cond_file, fr_cond
 
 
     @staticmethod
@@ -1775,21 +1865,26 @@ class DFMSim3D(Simulation):
         """
         from bgem.upscale import fem_plot, fem, voigt_to_tn, tn_to_voigt, FracturedMedia, voxelize
 
-        sample_dir = Path( os.getcwd()).absolute()
-        print("sample dir ", sample_dir)
+        sample_dir = Path(os.getcwd()).absolute()
+        #print("sample dir ", sample_dir)
 
         basename = os.path.basename(sample_dir)
         sample_idx = int(basename.split('S')[1])
 
-        print("sample idx ", sample_idx)
+        if "scratch_dir" in config and os.path.exists(config["scratch_dir"]):
+            sample_dir = os.path.join(config["scratch_dir"], basename)
+
+        print("sample dir ", sample_dir)
+        #print("sample idx ", sample_idx)
 
         sample_seed = config["sim_config"]["seed"] + seed
         print("sample seed ", sample_seed)
         np.random.seed(sample_seed)
 
         domain_size = 15  # 15  # 100
+        fem_grid_cond_domain_size = 16
         fr_domain_size = 100
-        fr_range = (5, fr_domain_size)
+        fr_range = (5, fr_domain_size) #(5, fr_domain_size)
         coarse_step = 10 #config["coarse"]["step"]
 
         fine_step = config["fine"]["step"]
@@ -1797,61 +1892,71 @@ class DFMSim3D(Simulation):
         print("fine_step", config["fine"]["step"])
         print("coarse_step", config["coarse"]["step"])
 
-
         sim_config = config["sim_config"]
-        print("sim config ", sim_config)
+        #print("sim config ", sim_config)
         geom = sim_config["geometry"]
 
 
-        print("n frac limit ", geom["n_frac_limit"])
+        #print("n frac limit ", geom["n_frac_limit"])
 
         ###################
         # DFN
         ###################
         dfn = DFMSim3D.fracture_random_set(sample_seed, fr_range, sim_config["work_dir"], max_frac=geom["n_frac_limit"])
-
         dfn_to_homogenization = []
-
-        print("len dfn ", len(dfn))
 
         for fr in dfn:
             if fr.r <= coarse_step:
                 dfn_to_homogenization.append(fr)
         print("len dfn_to_homogenization ", len(dfn_to_homogenization))
 
-        dfn = dfn_to_homogenization
+        dfn = stochastic.FractureSet.from_list(dfn_to_homogenization)
+
+        #dfn = dfn_to_homogenization
         ########################
         ########################
         ########################
 
-        steps = (int(fine_step), int(fine_step), int(fine_step))
-        print("steps ", steps)
+        #steps = (int(fine_step), int(fine_step), int(fine_step))
 
-        n_steps_coef = 1.5
-        n_steps = (int(domain_size/int(fine_step)*n_steps_coef), int(domain_size/int(fine_step)*n_steps_coef), int(domain_size/int(fine_step)*n_steps_coef))
+        #n_steps_coef = 1.5
+        #n_steps = (int(domain_size/int(fine_step)*n_steps_coef), int(domain_size/int(fine_step)*n_steps_coef), int(domain_size/int(fine_step)*n_steps_coef))
 
         #n_steps = (64, 64, 64)
+        #n_steps = (25, 25, 25)
+        #n_steps = (4, 4, 4)
+
+        n_steps = config["sim_config"]["geometry"]["n_voxels"]
         print("n steps ", n_steps)
 
         # Cubic law transmissvity
         fr_media = FracturedMedia.fracture_cond_params(dfn, 1e-4, 0.00001)
 
-        fem_grid = fem.fem_grid(domain_size, n_steps, fem.Fe.Q(dim=3), origin=-domain_size / 2) # 27 cells
+        # cross_section, cond_tn = fr_conductivity(dfn)
+        #
+        # print("cross section ", cross_section)
+        # print("cond_tn ", cond_tn)
 
-
+        # fem_grid_cond = fem.fem_grid(domain_size, n_steps, fem.Fe.Q(dim=3),
+        #                              origin=-domain_size / 2)  # 27 cells
+        fem_grid_cond = fem.fem_grid(fem_grid_cond_domain_size, n_steps, fem.Fe.Q(dim=3), origin=-fem_grid_cond_domain_size / 2) # 27 cells
+        fem_grid_rast = fem.fem_grid(domain_size, n_steps, fem.Fe.Q(dim=3),
+                                     origin=-domain_size / 2)  # 27 cells
         #bc_pressure_gradient = [1, 0, 0]
 
         #######################
         ## Bulk conductivity ##
         #######################
-        bulk_cond = DFMSim3D.generate_grid_cond(fem_grid, config, seed=sample_seed)
+        bulk_cond_values, bulk_cond_points = DFMSim3D.generate_grid_cond(fem_grid_cond, config, seed=sample_seed)
 
-        grid_cond = DFMSim3D.homo_decovalex(fr_media, fem_grid.grid)
-        grid_cond = grid_cond.reshape(*n_steps, grid_cond.shape[-1])
+        print("bulk cond values shape ", bulk_cond_values.shape)
+        print("bulk cond points shape ", bulk_cond_points.shape)
 
-        print("grid_cond shape ", grid_cond.shape)
+        #grid_cond = DFMSim3D.homo_decovalex(fr_media, fem_grid.grid)
+        #grid_cond = grid_cond.reshape(*n_steps, grid_cond.shape[-1])
+
+        #print("grid_cond shape ", grid_cond.shape)
         #@TODO: rasterize input
-        rasterized_input = grid_cond #rasterize()
 
         # print(grid_cond.shape)
         # print("np.array(bc_pressure_gradient)[None, :] ", np.array(bc_pressure_gradient)[None, :])
@@ -1863,20 +1968,52 @@ class DFMSim3D(Simulation):
         # pressure = fem_grid.solve_sparse(grid_cond, np.array(bc_pressure_gradient)[None, :])
         # assert not np.any(np.isnan(pressure))
 
-        bc_pressure_gradient = [1, 0, 0]
-        #bc_pressure_gradients = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
-        flux_response_0 = DFMSim3D.get_flux_response(bc_pressure_gradient, fr_media, fem_grid, config, sample_dir, sim_config)
+        ##################################
+        ## Create mesh and input fields ##
+        ##################################
+        dimensions = (domain_size, domain_size, domain_size)
 
-        # print("flux responses shape ", flux_responses.shape)
-        # print("flux responses ", flux_responses)
+        print("sample_dir ", sample_dir)
+
+        # bc_pressure_gradient = [1, 0, 0]
+        # flux_response_0 = DFMSim3D.get_flux_response(bc_pressure_gradient, fr_media, fem_grid, config, sample_dir, sim_config)
         #
+        # exit()
+
+        bc_pressure_gradient = [1, 0, 0]
+        cond_file, fr_cond = DFMSim3D._run_sample(bc_pressure_gradient, fr_media, config, sample_dir, bulk_cond_values, bulk_cond_points, dimensions)
+        flux_response_0 = DFMSim3D.get_flux_response()#bc_pressure_gradient, fr_media, fem_grid, config, sample_dir,
+                                                     #sim_config)
+
+
         bc_pressure_gradient = [0, 1, 0]
-        flux_response_1 = DFMSim3D.get_flux_response(bc_pressure_gradient, fr_media, fem_grid, config, sample_dir,
-                                                   sim_config)
+        DFMSim3D._run_sample(bc_pressure_gradient, fr_media, config, sample_dir, bulk_cond_values, bulk_cond_points,
+                             dimensions, cond_file=cond_file)
+        flux_response_1 = DFMSim3D.get_flux_response()#bc_pressure_gradient, fr_media, fem_grid, config, sample_dir,
+                                                     #sim_config)
 
         bc_pressure_gradient = [0, 0, 1]
-        flux_response_2 = DFMSim3D.get_flux_response(bc_pressure_gradient, fr_media, fem_grid, config, sample_dir,
-                                                   sim_config)
+        DFMSim3D._run_sample(bc_pressure_gradient, fr_media, config, sample_dir, bulk_cond_values, bulk_cond_points,
+                             dimensions, cond_file=cond_file)
+        flux_response_2 = DFMSim3D.get_flux_response()#bc_pressure_gradient, fr_media, fem_grid, config, sample_dir,
+                                                     #sim_config)
+
+        #print("flux response ", flux_response_0)
+
+        #
+        # #bc_pressure_gradients = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+        # flux_response_0 = DFMSim3D.get_flux_response(bc_pressure_gradient, fr_media, fem_grid, config, sample_dir, sim_config)
+        #
+        # # print("flux responses shape ", flux_responses.shape)
+        # # print("flux responses ", flux_responses)
+        # #
+        # bc_pressure_gradient = [0, 1, 0]
+        # flux_response_1 = DFMSim3D.get_flux_response(bc_pressure_gradient, fr_media, fem_grid, config, sample_dir,
+        #                                            sim_config)
+        #
+        # bc_pressure_gradient = [0, 0, 1]
+        # flux_response_2 = DFMSim3D.get_flux_response(bc_pressure_gradient, fr_media, fem_grid, config, sample_dir,
+        #                                            sim_config)
 
         bc_pressure_gradients = np.stack(([1, 0, 0], [0, 1, 0], [0, 0, 1]), axis=0)
         flux_responses = np.squeeze(np.stack((flux_response_0, flux_response_1, flux_response_2), axis=0))
@@ -1905,71 +2042,15 @@ class DFMSim3D(Simulation):
         print("equivalent cond tn ", equivalent_cond_tn)
         evals, evecs = np.linalg.eigh(equivalent_cond_tn)
         print("evals equivalent cond tn ", evals)
+        assert np.all(evals) > 0
 
-        #ref_velocity_grid = project_fn(flow_out, fem_grid.grid).reshape((-1, 3))
-
-        # grad_pressure = fem_grid.field_grad(pressure)  # (n_vectors, n_els, dim)
-        # grad_pressure = grad_pressure[0, :, :][:, :, None]  # (n_els, dim, 1)
-        # velocity = -voigt_to_tn(grid_cond) @ grad_pressure  # (n_els, dim, 1)
-        #
-        # print("velocity shape ", velocity.shape)
-        # # velocity = grad_pressure    # (n_els, dim, 1)
-        # velocity_transpose = velocity[:, :, 0]  # transpose
-        # velocity_zyx = fem_grid.grid.cell_field_F_like(
-        #     velocity_transpose)  # .reshape(*grid.n_steps, -1).transpose(2,1,0,3).reshape((-1, 3))
-        #
-        #
-        # grad_pressure = grad_pressure.transpose(1,0, 2)
-        # velocity = velocity.transpose(1, 0, 2)
-        #
-        # grad_pressure = np.average(grad_pressure, axis=1)
-        # velocity = np.average(velocity, axis=1)
 
         fine_res = np.squeeze(equivalent_cond_tn_voigt)
 
         print("fine res shape ", fine_res.shape)
 
-        # Comparison
-        # origin = [0, 0, 0]
-
-        # # pv_grid = pv.StructuredGrid()
-        # x, y, z = np.meshgrid(*fem_grid.grid.axes_linspace(), indexing='ij')
-        # pv_grid = pv.StructuredGrid(x, y, z)
-        # # points = grid.nodes()
-        # pv_grid_centers = pv_grid.cell_centers().points
-        # print(fem_grid.grid.barycenters())
-        # print(pv_grid_centers)
-        #
-        # cell_fields = dict(
-        #     ref_velocity=ref_velocity_grid,
-        #     homo_velocity=velocity_zyx,
-        #     diff=velocity_zyx - ref_velocity_grid,
-        #     homo_cond=fem_grid.grid.cell_field_F_like(grid_cond),
-        # )
-        # point_fields = dict(
-        #     homo_pressure=pressure[0]
-        # )
-        # pv_grid = fem_plot.grid_fields_vtk(fem_grid.grid, cell_fields, vtk_path=sample_dir / 'test_result.vtk')
-        # plotter = fem_plot.create_plotter()  # off_screen=True, window_size=(1024, 768))
-        # plotter.add_mesh(pv_grid, scalars='ref_velocity')
-        # plotter.show()
-        #
-        #
-        #
-        # times = {}
-        # fine_res = [0, 0, 0, 0, 0, 0]
-
-        # try:
-        # shutil.rmtree("fine")
         DFMSim3D._remove_files()
-        # if os.path.exists("fields_fine.msh")
-        # shutil.rmtree("fine")
-        # except:
-        #     pass
 
-        # if coarse_step == 0:
-        #     print("config fine", config["fine"])
-        #     exit()
         gen_hom_samples = False
         if "generate_hom_samples" in config["sim_config"] and config["sim_config"]["generate_hom_samples"]:
             gen_hom_samples = True
@@ -2000,12 +2081,13 @@ class DFMSim3D(Simulation):
         if os.path.exists(zarr_file_path):
             zarr_file = zarr.open(zarr_file_path, mode='r+')
             # Write data to the specified slice or index
-            zarr_file["inputs"][sample_idx, ...] = grid_cond
+            rasterized_input = DFMSim3D.rasterize(fem_grid_rast, dfn, bulk_cond=bulk_cond_values, fr_cond=fr_cond)
+
+            rasterized_input_voigt = tn_to_voigt(rasterized_input)
+            rasterized_input_voigt = rasterized_input_voigt.reshape(*n_steps, rasterized_input_voigt.shape[-1]).T
+
+            zarr_file["inputs"][sample_idx, ...] = rasterized_input_voigt
             zarr_file["outputs"][sample_idx, :] = fine_res
-
-
-        #print("zarr_file[output] ", zarr_file["outputs"][2])
-
 
         return fine_res, coarse_res
 
@@ -2019,8 +2101,6 @@ class DFMSim3D(Simulation):
             bulk_conductivity["mean_log_conductivity"] = means
             bulk_conductivity["cov_log_conductivity"] = cov
             del bulk_conductivity["marginal_distr"]
-
-        print("bulk conductivity ", bulk_conductivity)
 
         # print("BULKFIelds bulk_conductivity ", bulk_conductivity)
         if "gstools" in config["sim_config"] and config["sim_config"]["gstools"]:
@@ -2129,61 +2209,48 @@ class DFMSim3D(Simulation):
     #     return status, p_loads, outer_reg_names, conv_check  # and conv_check
     #     # return  status, p_loads, outer_reg_names  # and conv_check
 
-    # @staticmethod
-    # def _run_sample(flow_problem, config):
-    #     """
-    #     Create random fields file, call Flow123d and extract results
-    #     :param fields_file: Path to file with random fields
-    #     :param ele_ids: Element IDs in computational mesh
-    #     :param fine_input_sample: fields: {'field_name' : values_array, ..}
-    #     :param flow123d: Flow123d command
-    #     :param common_files_dir: Directory with simulations common files (flow_input.yaml, )
-    #     :return: simulation result, ndarray
-    #     """
-    #     #if homogenization:
-    #     outer_reg_names = []
-    #     for reg in flow_problem.side_regions:
-    #         outer_reg_names.append(reg.name)
-    #         outer_reg_names.append(reg.sub_reg.name)
-    #
-    #     base = flow_problem.basename
-    #     outer_regions_list = outer_reg_names
-    #     in_f = in_file(flow_problem.basename)
-    #     out_dir = flow_problem.basename
-    #     # n_loads = len(self.p_loads)
-    #     # flow_in = "flow_{}.yaml".format(self.base)
-    #     params = dict(
-    #         mesh_file=mesh_file(flow_problem.basename),
-    #         fields_file=fields_file(flow_problem.basename),
-    #         #outer_regions=str(outer_regions_list),
-    #     )
-    #
-    #     out_dir = os.getcwd()
-    #
-    #     common_files_dir = config["fine"]["common_files_dir"]
-    #     #print("yaml file ", os.path.join(common_files_dir, DFMSim3D.YAML_TEMPLATE))
-    #     substitute_placeholders(os.path.join(common_files_dir, DFMSim3D.YAML_TEMPLATE), in_f, params)
-    #     flow_args = ["docker", "run", "-v", "{}:{}".format(os.getcwd(), os.getcwd()), *config["flow123d"]]
-    #     #flow_args = ["singularity", "exec", "/storage/liberec3-tul/home/martin_spetlik/flow_3_1_0.sif", "flow123d"]
-    #
-    #     flow_args.extend(['--output_dir', out_dir, os.path.join(out_dir, in_f)])
-    #
-    #     print("run sample flow args ", flow_args)
-    #     exit()
-    #
-    #     if os.path.exists(os.path.join(out_dir, DFMSim3D.FIELDS_FILE)):
-    #         print("os.path.join(out_dir, DFMSim3D.FIELDS_FILE) ", os.path.join(out_dir, DFMSim3D.FIELDS_FILE))
-    #         return True
-    #     with open(base + "_stdout", "w") as stdout:
-    #         with open(base + "_stderr", "w") as stderr:
-    #             completed = subprocess.run(flow_args, stdout=stdout, stderr=stderr)
-    #         print("Exit status: ", completed.returncode)
-    #         status = completed.returncode == 0
-    #     conv_check = DFMSim3D.check_conv_reasons(os.path.join(out_dir, "flow123.0.log"))
-    #     print("converged: ", conv_check)
-    #
-    #     return DFMSim3D._extract_result(os.getcwd()), status, conv_check # and conv_check
-    #     #return  status, p_loads, outer_reg_names  # and conv_check
+    @staticmethod
+    def _run_sample(bc_pressure_gradient, fr_media, config, sample_dir, bulk_cond_values, bulk_cond_points, dimensions, cond_file=None):
+
+        fr_cond = None
+        if cond_file is None:
+            cond_file, fr_cond = DFMSim3D.create_mesh_fields(fr_media, bulk_cond_values, bulk_cond_points, dimensions,
+                                    mesh_step=config["fine"]["step"],
+                                    sample_dir=sample_dir,
+                                    work_dir=config["sim_config"]["work_dir"])
+
+
+        flow_cfg = dotdict(
+            flow_executable=[
+                "docker",
+                "run",
+                "-v",
+                "{}:{}".format(os.getcwd(), os.getcwd()),
+                "flow123d/ci-gnu:4.0.0a01_94c428",
+                "flow123d",
+                #        - flow123d/endorse_ci:a785dd
+                #        - flow123d/ci-gnu:4.0.0a_d61969
+                # "dbg",
+                # "run",
+                "--output_dir",
+                os.getcwd()
+            ],
+            mesh_file=cond_file,
+            pressure_grad=bc_pressure_gradient,
+            # pressure_grad_0=bc_gradients[0],
+            # pressure_grad_1=bc_gradients[1],
+            # pressure_grad_2=bc_gradients[2]
+        )
+        f_template = "flow_upscale_templ.yaml"
+        shutil.copy(os.path.join(config["sim_config"]["work_dir"], f_template), sample_dir)
+        with workdir_mng(sample_dir):
+            flow_out = call_flow(flow_cfg, f_template, flow_cfg)
+
+        # Project to target grid
+        print(flow_out)
+
+        return cond_file, fr_cond
+
 
     @staticmethod
     def check_conv_reasons(log_fname):
