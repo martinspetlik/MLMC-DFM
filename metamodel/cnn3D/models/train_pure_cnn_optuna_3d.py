@@ -1,30 +1,19 @@
 import os
-import sys
-import argparse
-import logging
 import joblib
 import copy
 import torch
-import torchvision
 import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
 import optuna
-from optuna.trial import TrialState
-from optuna.samplers import TPESampler
 import time
 import yaml
 import numpy as np
-import torch.nn.functional as F
 import torchvision.transforms as transforms
 import torch.optim as optim
-from metamodel.cnn.models.trials.net_optuna_2 import Net
-from metamodel.cnn.datasets.dfm_dataset import DFMDataset
-#from torch.utils.tensorboard import SummaryWriter
-from datetime import datetime
+from metamodel.cnn3D.models.net_optuna import Net
+from metamodel.cnn3D.datasets.dfm3d_dataset import DFM3DDataset
 from metamodel.cnn.models.auxiliary_functions import get_mean_std, log_data, exp_data,\
     quantile_transform_fit, QuantileTRF, NormalizeData, log_all_data, init_norm, log10_data, log10_all_data
-from metamodel.cnn.visualization.visualize_data import plot_samples, plot_dataset
+
 
 
 def get_trained_layers(trials_config, model_kwargs):
@@ -310,10 +299,9 @@ def features_transform(config, data_dir, output_file_name, input_transform_list,
     #################################
     quantile_trf_obj = QuantileTRF()
     if dataset_for_transform is None:
-        dataset_for_transform = DFMDataset(data_dir=data_dir, output_file_name=output_file_name, two_dim=True,
+        dataset_for_transform = DFM3DDataset(zarr_path=data_dir,
                                            fractures_sep=config["fractures_sep"] if "fractures_sep" in config else False,
-                                           cross_section=config["cross_section"] if "cross_section" in config else False
-                                           )
+                                           cross_section=config["cross_section"] if "cross_section" in config else False)
     input_data = np.array([])
     output_data = np.array([])
 
@@ -455,25 +443,32 @@ def prepare_sub_datasets(study, config, data_dir, serialize_path=None):
     return complete_train_set, complete_val_set, complete_test_set
 
 
-def _split_dataset(dataset, config, n_train_samples):
+def _split_dataset(dataset_config, config, n_train_samples):
+    dataset = DFM3DDataset(**dataset_config)
+
     if n_train_samples is None:
         n_train_samples = int(len(dataset) * config["train_samples_ratio"])
 
-    n_train_samples = np.min([n_train_samples, int(len(dataset) * config["train_samples_ratio"])])
+    n_train_val_samples = np.min([n_train_samples, int(len(dataset) * config["train_samples_ratio"])])
 
-    train_val_set = dataset[:n_train_samples]
     if config["val_samples_ratio"] == 0.0:
-        train_set = train_val_set
-        validation_set = []
+        n_train_samples = n_train_val_samples
+        n_val_samples = 0
     else:
-        train_set = train_val_set[:-int(n_train_samples * config["val_samples_ratio"])]
-        validation_set = train_val_set[-int(n_train_samples * config["val_samples_ratio"]):]
+        n_val_samples = int(n_train_val_samples * config["val_samples_ratio"])
+        n_train_samples = n_train_val_samples - n_val_samples
 
     if "n_test_samples" in config and config["n_test_samples"] is not None:
         n_test_samples = config["n_test_samples"]
-        test_set = dataset[-n_test_samples:]
     else:
-        test_set = dataset[n_train_samples:]
+        n_test_samples = len(dataset) - n_train_val_samples
+
+    print("n train sample ", n_train_samples)
+
+    train_set = DFM3DDataset(**dataset_config, mode="train", train_size=n_train_samples, val_size=n_val_samples, test_size=n_test_samples)
+    validation_set = DFM3DDataset(**dataset_config, mode="val", train_size=n_train_samples, val_size=n_val_samples, test_size=n_test_samples)
+    test_set = DFM3DDataset(**dataset_config, mode="test", train_size=n_train_samples, val_size=n_val_samples,
+                                  test_size=n_test_samples)
 
     return train_set, validation_set, test_set
 
@@ -531,7 +526,6 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
                                                                      input_transform_list,
                                                                      output_transform_list)
 
-
     input_transform = transforms.Compose(input_transform_list)
     output_transform = transforms.Compose(output_transform_list)
 
@@ -542,44 +536,46 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
 
     if config["normalize_input"] or config["normalize_output"]:
         if train_dataset is not None:
-            dataset_for_mean_std = train_dataset
-            dataset_for_mean_std.init_transform = init_transform
-            dataset_for_mean_std.input_transform = input_transform
-            dataset_for_mean_std.output_transform = output_transform
+            train_set = train_dataset
+            train_set.init_transform = init_transform
+            train_set.input_transform = input_transform
+            train_set.output_transform = output_transform
         else:
             pass
             print("data dir ", data_dir)
-            dataset_for_mean_std = DFMDataset(data_dir=data_dir,
-                                              output_file_name=output_file_name,
+            train_set = DFM3DDataset(zarr_path=data_dir,
                                               input_transform=input_transform,
                                               output_transform=output_transform,
                                               init_transform=init_transform,
                                               init_norm_use_all_features=config["init_norm_use_all_features"] if "init_norm_use_all_features" in config else False,
-                                              two_dim=True,
                                               input_channels=config["input_channels"] if "input_channels" in config else None,
                                               output_channels=config["output_channels"] if "output_channels" in config else None,
                                               fractures_sep=config["fractures_sep"] if "fractures_sep" in config else False,
-                                              cross_section=config["cross_section"] if "cross_section" in config else False
-                                              )
-        dataset_for_mean_std.shuffle(seed=config["seed"])
+                                              cross_section=config["cross_section"] if "cross_section" in config else False, mode="train", train_size=n_train_samples)
 
-        if n_train_samples is None:
-            n_train_samples = int(len(dataset_for_mean_std) * config["train_samples_ratio"])
+        # dataset_for_mean_std.shuffle(seed=config["seed"])
+        # if n_train_samples is None:
+        #     n_train_samples = int(len(dataset_for_mean_std) * config["train_samples_ratio"])
+        #
+        # n_train_samples = np.min([n_train_samples, int(len(dataset_for_mean_std) * config["train_samples_ratio"])])
+        #
+        # print("n train samples ", n_train_samples)
+        #
+        # train_val_set = dataset_for_mean_std[:n_train_samples]
+        # if config["val_samples_ratio"] == 0:
+        #     train_set = train_val_set
+        # else:
+        #     train_set = train_val_set[:-int(n_train_samples * config["val_samples_ratio"])]
 
-        n_train_samples = np.min([n_train_samples, int(len(dataset_for_mean_std) * config["train_samples_ratio"])])
+        print("len(train_set) ", len(train_set))
 
-        train_val_set = dataset_for_mean_std[:n_train_samples]
-        if config["val_samples_ratio"] == 0:
-            train_set = train_val_set
-        else:
-            train_set = train_val_set[:-int(n_train_samples * config["val_samples_ratio"])]
-
-        print("len(train_val_set) ", len(dataset_for_mean_std))
         train_loader_mean_std = torch.utils.data.DataLoader(train_set, batch_size=config["batch_size_train"], shuffle=False) #@TODO: use train_set AGAIN
         iqr = []
         if "output_iqr_scale" in config:
             iqr = config["output_iqr_scale"]
-        input_mean, input_std, output_mean, output_std, output_quantiles = get_mean_std(train_loader_mean_std, output_iqr=iqr)
+        input_mean, input_std, output_mean, output_std, output_quantiles = get_mean_std(train_loader_mean_std, output_iqr=iqr, mean_dims=[0, 2, 3, 4])
+        input_mean = input_mean.reshape(input_mean.shape[0], 1, 1, 1)
+        input_std = input_std.reshape(input_std.shape[0], 1, 1, 1)
         print("input mean: {}, std:{}, output mean: {}, std: {}".format(input_mean, input_std, output_mean, output_std))
         print("output quantiles: {}".format(output_quantiles))
 
@@ -662,21 +658,19 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
         # ============================
         # Datasets and data loaders
         # ============================
-        dataset = DFMDataset(data_dir=data_dir,
-                             output_file_name=output_file_name,
-                             input_transform=data_input_transform,
-                             output_transform=data_output_transform,
-                             init_transform=data_init_transform,
-                             init_norm_use_all_features=config[
-                                 "init_norm_use_all_features"] if "init_norm_use_all_features" in config else False,
-                             input_channels=config["input_channels"] if "input_channels" in config else None,
-                             output_channels=config["output_channels"] if "output_channels" in config else None,
-                             fractures_sep=config["fractures_sep"] if "fractures_sep" in config else False,
-                             cross_section=config["cross_section"] if "cross_section" in config else False
-                             )
-        dataset.shuffle(config["seed"])
+        dataset_config = {"zarr_path": data_dir,
+                          "input_transform": data_input_transform,
+                          "output_transform": data_output_transform,
+                          "init_transform": data_init_transform,
+                          "init_norm_use_all_features": config[
+                              "init_norm_use_all_features"] if "init_norm_use_all_features" in config else False,
+                          "input_channels": config["input_channels"] if "input_channels" in config else None,
+                          "output_channels": config["output_channels"] if "output_channels" in config else None,
+                          "fractures_sep": config["fractures_sep"] if "fractures_sep" in config else False,
+                          "cross_section": config["cross_section"] if "cross_section" in config else False
+                          }
 
-        train_set, validation_set, test_set = _split_dataset(dataset, config, n_train_samples)
+        train_set, validation_set, test_set = _split_dataset(dataset_config, config, n_train_samples)
     else:
         train_dataset.init_transform = data_init_transform
         train_dataset.input_transform = data_input_transform
@@ -694,21 +688,32 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
         if len(input_transformations) > 0:
             data_input_transform = transforms.Compose(input_transformations)
 
-        dataset = DFMDataset(data_dir=data_dir,
-                             output_file_name=output_file_name,
-                             input_transform=data_input_transform,
-                             output_transform=data_output_transform,
-                             init_transform=data_init_transform,
-                             init_norm_use_all_features=config[
-                                 "init_norm_use_all_features"] if "init_norm_use_all_features" in config else False,
-                             input_channels=config["input_channels"] if "input_channels" in config else None,
-                             output_channels=config["output_channels"] if "output_channels" in config else None,
-                             fractures_sep=config["fractures_sep"] if "fractures_sep" in config else False,
-                             cross_section=config["cross_section"] if "cross_section" in config else False
-                             )
-        dataset.shuffle(config["seed"])
+        # dataset = DFM3DDataset(zarr_path=data_dir,
+        #                      input_transform=data_input_transform,
+        #                      output_transform=data_output_transform,
+        #                      init_transform=data_init_transform,
+        #                      init_norm_use_all_features=config[
+        #                          "init_norm_use_all_features"] if "init_norm_use_all_features" in config else False,
+        #                      input_channels=config["input_channels"] if "input_channels" in config else None,
+        #                      output_channels=config["output_channels"] if "output_channels" in config else None,
+        #                      fractures_sep=config["fractures_sep"] if "fractures_sep" in config else False,
+        #                      cross_section=config["cross_section"] if "cross_section" in config else False
+        #                      )
+        #dataset.shuffle(config["seed"])
 
-        train_set, validation_set, test_set = _split_dataset(dataset, config, n_train_samples)
+        dataset_config = {"zarr_path": data_dir,
+                             "input_transform":data_input_transform,
+                             "output_transform":data_output_transform,
+                             "init_transform":data_init_transform,
+                             "init_norm_use_all_features":config[
+                                 "init_norm_use_all_features"] if "init_norm_use_all_features" in config else False,
+                             "input_channels":config["input_channels"] if "input_channels" in config else None,
+                             "output_channels":config["output_channels"] if "output_channels" in config else None,
+                             "fractures_sep":config["fractures_sep"] if "fractures_sep" in config else False,
+                             "cross_section":config["cross_section"] if "cross_section" in config else False
+                          }
+
+        train_set, validation_set, test_set = _split_dataset(dataset_config, config, n_train_samples)
 
         # train_loader_mean_std = torch.utils.data.DataLoader(train_set, batch_size=config["batch_size_train"],
         #                                                     shuffle=False)
@@ -791,7 +796,9 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
         return data_init_transform, data_input_transform, data_output_transform
 
     if serialize_path is not None:
-        joblib.dump(dataset, os.path.join(serialize_path, "dataset.pkl"))
+        joblib.dump(train_set, os.path.join(serialize_path, "train_dataset.pkl"))
+        joblib.dump(validation_set, os.path.join(serialize_path, "val_dataset.pkl"))
+        joblib.dump(test_set, os.path.join(serialize_path, "test_dataset.pkl"))
 
     return train_set, validation_set, test_set
 

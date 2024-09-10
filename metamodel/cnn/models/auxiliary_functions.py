@@ -68,7 +68,7 @@ def log_all_data(data):
         # flatten_data[positive_data_indices] = preprocessed_positive_k_xy
         # flatten_data[negative_data_indices] = preprocessed_negative_k_xy
 
-        print("data[1].shape ", data[1].shape)
+        #print("data[1].shape ", data[1].shape)
         #
         # output_data[1][...] = np.reshape(flatten_data, data[1].shape)
         output_data[1][...] = torch.log(data[1] + 0.03)#torch.abs(torch.min(data[1])))
@@ -157,12 +157,16 @@ def log_data(data):
         output_data[1][...] = data[1]
         output_data[2][...] = torch.log(data[2])
         output_data[3][...] = data[3]
+    elif data.shape[0] == 6:
+        output_data[0][...] = torch.log(data[0])  # k_xx
+        output_data[1][...] = torch.log(data[1])  # k_yy
+        output_data[2][...] = torch.log(data[2])  # k_zz
+        output_data[3][...] = data[3]  # k_yz
+        output_data[4][...] = data[4]  # k_xz
+        output_data[5][...] = data[5]  # k_xy
     elif data.shape[0] < 3:
         for i in range(data.shape[0]):
             output_data[i][...] = torch.log(data[i])
-    else:
-        raise NotImplementedError("Log transformation implemented for 2D case only")
-
     return output_data
 
 
@@ -184,6 +188,7 @@ def log10_data(data):
         raise NotImplementedError("Log transformation implemented for 2D case only")
 
     return output_data
+
 
 def quantile_transform_fit(data, indices=[], transform_type=None):
     transform_obj = []
@@ -248,7 +253,6 @@ def quantile_inv_transform_trf(data, quantile_trfs):
 #             return_data[i][...] = data[i]
 #     return return_data
 
-
 def exp_data(data):
     output_data = torch.empty((data.shape))
     if data.shape[0] == 3:
@@ -261,6 +265,33 @@ def exp_data(data):
     else:
         raise NotImplementedError("Log transformation implemented for 2D case only")
     return output_data
+
+
+# def exp_data(data):
+#     print("data shape ", data.shape)
+#     # print("data ", data)
+#
+#     output_data = torch.empty((data.shape))
+#     if data.shape[0] == 3:
+#         output_data[0][...] = torch.exp(data[0])
+#         output_data[1][...] = data[1]
+#         output_data[2][...] = torch.exp(data[2])
+#     elif data.shape[0] < 3:
+#         for i in range(data.shape[0]):
+#             output_data[i][...] = torch.exp(data[i])
+#     elif len(data.shape) == 4:
+#         if data.shape[1] == 3:
+#             data = np.transpose(data, (1, 2, 3, 0))
+#             output_data = np.transpose(output_data, (1, 2, 3, 0))
+#             #print("data[:][0] ", data[:][0])
+#             output_data[0][...] = torch.exp(data[0][...])
+#             output_data[1][...] = data[1][...]
+#             output_data[2][...] = torch.exp(data[2][...])
+#             output_data = np.transpose(output_data, (3, 0, 1, 2))
+#     else:
+#         raise NotImplementedError("Log transformation implemented for 2D case only")
+#     #print("output data ", output_data)
+#     return output_data
 
 def power_10_data(data):
     output_data = torch.empty((data.shape))
@@ -312,7 +343,7 @@ def power_10_all_data(data):
     return output_data
 
 
-def get_mean_std(data_loader, output_iqr=[]):
+def get_mean_std(data_loader, output_iqr=[], mean_dims=None):
     channels_sum = None
     channels_sqrd_sum = None
     output_channels_sum = None
@@ -320,6 +351,10 @@ def get_mean_std(data_loader, output_iqr=[]):
     num_batches = 0
     output_data_list = []
     quantiles = []
+
+    if mean_dims is None:
+        mean_dims = [0, 2, 3]
+
     for input, output in data_loader:
         if channels_sum is None:
             channels_sum = list(np.zeros(input.shape[1]))
@@ -330,8 +365,8 @@ def get_mean_std(data_loader, output_iqr=[]):
         if len(output_iqr) > 0:
             output_data_list.extend(output.numpy())
 
-        channels_sum += (torch.nanmean(input, dim=[0, 2, 3])).numpy()
-        channels_sqrd_sum += (torch.nanmean(input ** 2, dim=[0, 2, 3])).numpy()
+        channels_sum += (torch.nanmean(input, dim=mean_dims)).numpy()
+        channels_sqrd_sum += (torch.nanmean(input ** 2, dim=mean_dims)).numpy()
         output_channels_sum += (torch.nanmean(output, dim=[0])).numpy()
         output_channels_sqrd_sum += (torch.nanmean(output ** 2, dim=[0])).numpy()
         num_batches += 1
@@ -348,6 +383,7 @@ def get_mean_std(data_loader, output_iqr=[]):
 
     return mean, std, output_mean, output_std, quantiles
     #return mean, std, output_mean, output_std
+
 
 
 def reshape_to_tensors(tn_array, dim=2):
@@ -370,13 +406,14 @@ def check_shapes(n_conv_layers, kernel_size, stride, pool_size, pool_stride, poo
     #n_layers = 0
 
     for i in range(n_conv_layers):
-        # print("input size ", input_size)
-        # print("kernel size ", kernel_size)
+        #print("input size ", input_size)
+        #print("kernel size ", kernel_size)
 
         if input_size < kernel_size:
             return -1, input_size
 
         input_size = int(((input_size - kernel_size) / stride)) + 1
+
 
         if pool_indices is not None:
             if i in list(pool_indices.keys()):
