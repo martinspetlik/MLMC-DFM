@@ -372,6 +372,7 @@ def prepare_sub_datasets(study, config, data_dir, serialize_path=None):
             prepare_dset_config["log10_all_output"] = dset_config["log10_all_output"]
         prepare_dset_config["normalize_output"] = dset_config["normalize_output"]
         prepare_dset_config["n_train_samples"] = dset_config["n_train_samples"]
+        prepare_dset_config["n_val_samples"] = dset_config["n_val_samples"]
         prepare_dset_config["n_test_samples"] = dset_config["n_test_samples"]
         prepare_dset_config["val_samples_ratio"] = dset_config["val_samples_ratio"]
         print("prepare_dset_config ", prepare_dset_config)
@@ -443,27 +444,24 @@ def prepare_sub_datasets(study, config, data_dir, serialize_path=None):
     return complete_train_set, complete_val_set, complete_test_set
 
 
-def _split_dataset(dataset_config, config, n_train_samples):
+def _split_dataset(dataset_config, config, n_train_samples, n_val_samples, n_test_samples):
     dataset = DFM3DDataset(**dataset_config)
 
     if n_train_samples is None:
         n_train_samples = int(len(dataset) * config["train_samples_ratio"])
+        n_train_val_samples = np.min([n_train_samples, int(len(dataset) * config["train_samples_ratio"])])
 
-    n_train_val_samples = np.min([n_train_samples, int(len(dataset) * config["train_samples_ratio"])])
+    if n_val_samples is None:
+        if config["val_samples_ratio"] == 0.0:
+            n_train_samples = n_train_val_samples
+            n_val_samples = 0
+        else:
+            n_val_samples = int(n_train_val_samples * config["val_samples_ratio"])
+            n_train_samples = n_train_val_samples - n_val_samples
 
-    if config["val_samples_ratio"] == 0.0:
-        n_train_samples = n_train_val_samples
-        n_val_samples = 0
-    else:
-        n_val_samples = int(n_train_val_samples * config["val_samples_ratio"])
-        n_train_samples = n_train_val_samples - n_val_samples
-
-    if "n_test_samples" in config and config["n_test_samples"] is not None:
-        n_test_samples = config["n_test_samples"]
-    else:
+    if n_test_samples is None:
         n_test_samples = len(dataset) - n_train_val_samples
 
-    print("n train sample ", n_train_samples)
 
     train_set = DFM3DDataset(**dataset_config, mode="train", train_size=n_train_samples, val_size=n_val_samples, test_size=n_test_samples)
     validation_set = DFM3DDataset(**dataset_config, mode="val", train_size=n_train_samples, val_size=n_val_samples, test_size=n_test_samples)
@@ -486,6 +484,14 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
     n_train_samples = None
     if "n_train_samples" in config and config["n_train_samples"] is not None:
         n_train_samples = config["n_train_samples"]
+    n_val_samples = None
+    if "n_val_samples" in config and config["n_val_samples"] is not None:
+        n_val_samples = config["n_val_samples"]
+    n_test_samples = None
+    if "n_test_samples" in config and config["n_test_samples"] is not None:
+        n_test_samples = config["n_test_samples"]
+
+    print("n train samples: {}, n val samples: {}, n test samples: {}".format(n_train_samples, n_val_samples, n_test_samples))
 
     init_transform = []
     input_transform_list = []
@@ -551,7 +557,10 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
                                               input_channels=config["input_channels"] if "input_channels" in config else None,
                                               output_channels=config["output_channels"] if "output_channels" in config else None,
                                               fractures_sep=config["fractures_sep"] if "fractures_sep" in config else False,
-                                              cross_section=config["cross_section"] if "cross_section" in config else False, mode="train", train_size=n_train_samples)
+                                              cross_section=config["cross_section"] if "cross_section" in config else False, mode="train",
+                                     train_size=n_train_samples,
+                                     val_size=n_val_samples,
+                                     test_size=n_test_samples)
 
         # dataset_for_mean_std.shuffle(seed=config["seed"])
         # if n_train_samples is None:
@@ -567,15 +576,17 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
         # else:
         #     train_set = train_val_set[:-int(n_train_samples * config["val_samples_ratio"])]
 
-        print("len(train_set) ", len(train_set))
+        print("len(train_set) for get mean std", len(train_set))
 
         train_loader_mean_std = torch.utils.data.DataLoader(train_set, batch_size=config["batch_size_train"], shuffle=False) #@TODO: use train_set AGAIN
         iqr = []
         if "output_iqr_scale" in config:
             iqr = config["output_iqr_scale"]
         input_mean, input_std, output_mean, output_std, output_quantiles = get_mean_std(train_loader_mean_std, output_iqr=iqr, mean_dims=[0, 2, 3, 4])
+
         input_mean = input_mean.reshape(input_mean.shape[0], 1, 1, 1)
         input_std = input_std.reshape(input_std.shape[0], 1, 1, 1)
+
         print("input mean: {}, std:{}, output mean: {}, std: {}".format(input_mean, input_std, output_mean, output_std))
         print("output quantiles: {}".format(output_quantiles))
 
@@ -670,7 +681,9 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
                           "cross_section": config["cross_section"] if "cross_section" in config else False
                           }
 
-        train_set, validation_set, test_set = _split_dataset(dataset_config, config, n_train_samples)
+        train_set, validation_set, test_set = _split_dataset(dataset_config, config, n_train_samples=n_train_samples,
+                                                             n_val_samples=n_val_samples, n_test_samples=n_test_samples)
+
     else:
         train_dataset.init_transform = data_init_transform
         train_dataset.input_transform = data_input_transform

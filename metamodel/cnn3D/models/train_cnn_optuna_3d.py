@@ -85,8 +85,11 @@ def objective(trial, trials_config, train_loader, validation_loader):
         n_train_samples = trial.suggest_categorical("n_train_samples", trials_config["n_train_samples"])
         config["n_train_samples"] = n_train_samples
 
+        if "n_val_samples" in trials_config and trials_config["n_val_samples"] is not None:
+            config["n_val_samples"] = trial.suggest_categorical("n_val_samples",trials_config["n_val_samples"])
+
         if "n_test_samples" in trials_config and trials_config["n_test_samples"] is not None:
-            config["n_test_samples"] = trials_config["n_test_samples"]
+            config["n_test_samples"] =  trial.suggest_categorical("n_test_samples",trials_config["n_test_samples"])
 
         if "sub_datasets" in config and len(config["sub_datasets"]) > 0:
             train_set, validation_set, test_set = prepare_sub_datasets(study, config, data_dir=data_dir,

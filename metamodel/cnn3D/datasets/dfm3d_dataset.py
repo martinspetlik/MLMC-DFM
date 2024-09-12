@@ -17,7 +17,8 @@ class DFM3DDataset(Dataset):
     """DFM models dataset"""
 
     def __init__(self, zarr_path, input_transform=None, output_transform=None, init_transform=None,
-                 input_channels=None, output_channels=None, fractures_sep=False, cross_section=False, plot=False, init_norm_use_all_features=False, mode="whole", train_size=None, val_size=None, test_size=None, chunk_size=128):
+                 input_channels=None, output_channels=None, fractures_sep=False, cross_section=False, plot=False,
+                 init_norm_use_all_features=False, mode="whole", train_size=None, val_size=None, test_size=None, chunk_size=128):
         super(DFM3DDataset, self).__init__()
         print("zarr path ", zarr_path)
 
@@ -72,6 +73,8 @@ class DFM3DDataset(Dataset):
             self.start = train_size + val_size
             self.end = train_size + val_size + test_size
 
+        self.end = np.min([self.end, total_size])
+
         print("start: {} end: {} ".format(self.start, self.end))
 
     def __len__(self):
@@ -86,24 +89,23 @@ class DFM3DDataset(Dataset):
     #             yield torch.tensor(input_item), torch.tensor(output_item)
 
     def __getitem__(self, idx):
+        idx = idx + self.start
+
+        if idx > self.end:
+            raise IndexError("Index has to be between start: {} and end: {}".format(self.start, self.end))
 
         #print("idx ", idx)
 
         input_sample = self.inputs[idx]
         output_sample = self.outputs[idx]
 
-        if isinstance(idx, slice):
-            new_dataset = copy.deepcopy(self)
-            new_dataset.inputs = input_sample
-            new_dataset.outputs = output_sample
-            return new_dataset
+        if isinstance(idx, (slice, list)):
+            raise NotImplementedError("Dataset index has to be int")
+            # new_dataset = copy.deepcopy(self)
+            # new_dataset.inputs = input_sample
+            # new_dataset.outputs = output_sample
+            # return new_dataset
 
-        idx = idx + self.start
-
-        if idx > self.end:
-            raise IndexError("Index has to be between start: {} and end: {}".format(self.start, self.end))
-
-        #print("getitem idx ", idx)
 
         # Convert to PyTorch tensors
         input_tensor = torch.tensor(input_sample, dtype=torch.float32)
