@@ -30,7 +30,6 @@ class DFM3DDataset(Dataset):
         self.inputs = zarr_file['inputs']
         self.outputs = zarr_file['outputs']
 
-
         #self._remove_zero_rows()
 
         # Read the channel names (optional, for reference)
@@ -117,10 +116,21 @@ class DFM3DDataset(Dataset):
         #output_tensor = output_tensor.permute(0, 4, 1, 2, 3)
 
         #@TODO: refactor
-        # if self.init_transform is not None:
-        #     bulk_features_avg = np.mean(bulk_features)
-        #     self._bulk_features_avg = bulk_features_avg
-
+        if self.init_transform is not None:
+            #print("input_sample[input_sample < np.max(np.abs(input_sample)) / 1e3] ", input_sample[input_sample < np.max(np.abs(input_sample)) / 1e2])
+            bulk_features_avg = np.mean(input_sample[input_sample < np.max(np.abs(input_sample)) / 1e2])
+            bulk_features_avg = np.abs(bulk_features_avg)
+            #
+            #
+            # print("avg input sample ", np.mean(input_sample))
+            #
+            # print("avg input sample ", np.mean(input_sample[input_sample<np.max(np.abs(input_sample))/1e3]))
+            #
+            # print("input sample min: {}, max: {}".format(np.min(np.abs(input_sample)), np.max(np.abs(input_sample))))
+            #
+            # print("order of magnitude min: {}, max: {}".format(min_order_of_magnitude, max_order_of_magnitude))
+            # exit()
+            self._bulk_features_avg = bulk_features_avg
 
         # flatten_bulk_features = bulk_features.reshape(-1)
         # if fractures_features is not None:
@@ -160,21 +170,25 @@ class DFM3DDataset(Dataset):
         if self._output_channels is not None and len(output_tensor) > 0:
             output_tensor = output_tensor[self._output_channels]
 
-        # if self.init_transform is not None:
-        #     reshaped_output = torch.reshape(output_features, (*output_features.shape, 1, 1))
-        #     final_features, reshaped_output = self.init_transform((bulk_features_avg, final_features, reshaped_output, self._cross_section))
-        # else:
+        if self.init_transform is not None:
+            #reshaped_output = torch.reshape(output_features, (*output_features.shape, 1, 1))
+            #print("bulk features avg ", bulk_features_avg)
+            input_tensor, reshaped_output = self.init_transform((bulk_features_avg, input_tensor, output_tensor, self._cross_section))
+        else:
+            reshaped_output = torch.reshape(output_tensor, (*output_tensor.shape, 1, 1))
 
 
-        reshaped_output = torch.reshape(output_tensor, (*output_tensor.shape, 1, 1))
+        #print("reshaped output ", reshaped_output)
+
+        #print("reshaped output shape ", reshaped_output.shape)
 
         # else:
         #     print("else reshaped output ", reshaped_output)
 
 
-            #print("reshaped output shape", reshaped_output.shape)
+        #print("reshaped output shape", reshaped_output.shape)
 
-            #exit()
+        #exit()
 
         #print("input transform ", self.input_transform)
         #print("output transform ", self.output_transform)
@@ -192,7 +206,6 @@ class DFM3DDataset(Dataset):
         # else:
         #     pass
         #     #print("else output_features orig", output_features_orig)
-
 
         # DFM3DDataset._check_nans(final_features, str_err="Input features contains NaN values, {}".format(bulk_path), file=bulk_path)
         #
@@ -216,6 +229,8 @@ class DFM3DDataset(Dataset):
         #         pass
         #         #print("else")
 
+
+        #print("output tensor ", output_tensor)
 
         return input_tensor, output_tensor
 
