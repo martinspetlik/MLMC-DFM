@@ -110,8 +110,15 @@ def init_norm(data):
     bulk_features_avg, input, output, cross_section_flag = data
     #avg_k = torch.mean(input)
 
+    #print("bulk_features_avg ", bulk_features_avg)
+    # print("input shape ", input.shape)
+    # print("output.shape ", output.shape)
+
     # print("bulk features avg ", bulk_features_avg)
     # print("output ", output)
+
+    #print("cross section flag ", cross_section_flag)
+
 
     if cross_section_flag:
         input[:3, :] /= bulk_features_avg
@@ -120,6 +127,8 @@ def init_norm(data):
     output /= bulk_features_avg
 
     #print("output ", output)
+
+
 
     return input, output
 
@@ -147,27 +156,28 @@ def arcsinh_data(data):
     return output_data
 
 def log_data(data):
-    output_data = torch.empty((data.shape))
+    #output_data = torch.empty((data.shape))
+    #print("data shape ", data.shape)
     if data.shape[0] == 3:
-        output_data[0][...] = torch.log(data[0])
-        output_data[1][...] = data[1]
-        output_data[2][...] = torch.log(data[2])
+        data[0][...] = torch.log(data[0])
+        data[1][...] = data[1]
+        data[2][...] = torch.log(data[2])
     elif data.shape[0] == 4:
-        output_data[0][...] = torch.log(data[0])
-        output_data[1][...] = data[1]
-        output_data[2][...] = torch.log(data[2])
-        output_data[3][...] = data[3]
+        data[0] = torch.log(data[0])
+        #data[1][...] = data[1]
+        data[2] = torch.log(data[2])
+        #data[3][...] = data[3]
     elif data.shape[0] == 6:
-        output_data[0][...] = torch.log(data[0])  # k_xx
-        output_data[1][...] = torch.log(data[1])  # k_yy
-        output_data[2][...] = torch.log(data[2])  # k_zz
-        output_data[3][...] = data[3]  # k_yz
-        output_data[4][...] = data[4]  # k_xz
-        output_data[5][...] = data[5]  # k_xy
+        data[0][...] = torch.log(data[0])  # k_xx
+        data[1][...] = torch.log(data[1])  # k_yy
+        data[2][...] = torch.log(data[2])  # k_zz
+        data[3][...] = data[3]  # k_yz
+        data[4][...] = data[4]  # k_xz
+        data[5][...] = data[5]  # k_xy
     elif data.shape[0] < 3:
         for i in range(data.shape[0]):
-            output_data[i][...] = torch.log(data[i])
-    return output_data
+            data[i][...] = torch.log(data[i])
+    return data
 
 
 def log10_data(data):
@@ -255,11 +265,11 @@ def quantile_inv_transform_trf(data, quantile_trfs):
 
 def exp_data(data):
     output_data = torch.empty((data.shape))
-    if data.shape[0] == 3:
+    if data.shape[0] == 3 and len(data.shape) != 4:
         output_data[0][...] = torch.exp(data[0])
         output_data[1][...] = data[1]
         output_data[2][...] = torch.exp(data[2])
-    elif data.shape[0] < 3:
+    elif data.shape[0] < 3 and len(data.shape) != 4:
         for i in range(data.shape[0]):
             output_data[i][...] = torch.exp(data[i])
     elif len(data.shape) == 4:
@@ -275,6 +285,7 @@ def exp_data(data):
         output_data[5][...] = data[5]  # k_xy
     else:
         raise NotImplementedError("Log transformation implemented for 2D case only")
+
     return output_data
 
 
