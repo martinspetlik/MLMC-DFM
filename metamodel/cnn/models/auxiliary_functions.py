@@ -22,12 +22,12 @@ class QuantileTRF():
 
 class NormalizeData():
     def __init__(self):
-        self.input_indices = [0, 1, 2]
-        self.output_indices = [0, 1, 2]
-        self.input_mean = [0, 0, 0, 0]
-        self.output_mean = [0, 0, 0, 0]
-        self.input_std = [1, 1, 1, 1]
-        self.output_std = [1,1,1, 1]
+        self.input_indices = [0, 1, 2, 3, 4, 5]
+        self.output_indices = [0, 1, 2, 3, 4, 5]
+        self.input_mean = [0, 0, 0, 0, 0, 0]
+        self.output_mean = [0, 0, 0, 0, 0, 0]
+        self.input_std = [1, 1, 1, 1, 1, 1]
+        self.output_std = [1, 1, 1, 1, 1, 1]
         self.output_quantiles = []
 
     def normalize_input(self, data):
@@ -51,6 +51,7 @@ class NormalizeData():
             else:
                 output_data[i][...] = data[i]
         return output_data
+
 
 
 def log_all_data(data):
