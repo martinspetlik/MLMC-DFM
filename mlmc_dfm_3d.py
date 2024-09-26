@@ -107,7 +107,7 @@ class ProcessSimple:
         if recollect:
             raise NotImplementedError("Not supported in released version")
         else:
-            self.generate_jobs(sampler, n_samples=[3], renew=renew)#[1, 1, 1, 3, 3, 3, 3], renew=renew)
+            self.generate_jobs(sampler, n_samples=[2], renew=renew)#[1, 1, 1, 3, 3, 3, 3], renew=renew)
             #self.generate_jobs(sampler, n_samples=[100, 2],renew=renew, target_var=1e-5)
             self.all_collect(sampler)  # Check if all samples are finished
 
@@ -291,18 +291,19 @@ class ProcessSimple:
 
             # # Create the 'inputs' dataset with the specified shape
             inputs = zarr_file.create_dataset('inputs',
-                                              shape=(n_samples,) + (*input_shape_n_voxels, input_shape_n_channels),
+                                              shape=(n_samples,) + (input_shape_n_channels, *input_shape_n_voxels),
                                               dtype='float32',
-                                              chunks=(1, *input_shape_n_voxels, n_cond_tn_channels))
-            inputs[:, :, :, :, :n_cond_tn_channels] = np.zeros((n_samples, *input_shape_n_voxels,
-                                                                     n_cond_tn_channels))  # Populate the first 6 channels
+                                              chunks=(1, n_cond_tn_channels, *input_shape_n_voxels),
+                                              fill_value=0)
+            #inputs[:, :, :, :, :] = np.zeros((n_samples, n_cond_tn_channels, *input_shape_n_voxels,
+            #                                                         ))  # Populate the first 6 channels
             # inputs[:, :, :, :, n_cond_tn_channels] = np.random.rand(n_samples,
             #                                                         *input_shape_n_voxels)  # Populate the last channel
 
             # Create the 'outputs' dataset with the specified shape
             outputs = zarr_file.create_dataset('outputs', shape=(n_samples,) + output_shape, dtype='float32',
-                                               chunks=(1,  n_cond_tn_channels))
-            outputs[:, :n_cond_tn_channels] = np.zeros((n_samples, n_cond_tn_channels))  # Populate the first 6 channels
+                                               chunks=(1,  n_cond_tn_channels), fill_value=0)
+            #outputs[:, :] = np.zeros((n_samples, n_cond_tn_channels))  # Populate the first 6 channels
             # outputs[:, n_cond_tn_channels] = np.random.rand(n_samples)  # Populate the last channel
 
             # Assign metadata to indicate channel names
@@ -316,7 +317,10 @@ class ProcessSimple:
         :param renew: rerun failed samples with same random seed (= same sample id)
         :return: None
         """
-        ProcessSimple.create_zarr_file(n_samples, sampler)
+
+        # Create zarr dir only for homogenization samples generation
+        if len(n_samples) == 1:
+            ProcessSimple.create_zarr_file(n_samples, sampler)
 
 
         if renew:
