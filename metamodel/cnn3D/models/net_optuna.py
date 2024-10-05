@@ -11,7 +11,7 @@ class Net(nn.Module):
                  hidden_activation=F.relu, input_size=256, input_channel=6, conv_layer_obj=[], pool_indices={},
                  use_cnn_dropout=False, use_fc_dropout=False, cnn_dropout_indices=[], fc_dropout_indices=[],
                  cnn_dropout_ratios=[], fc_dropout_ratios=[], n_output_neurons=6,
-                 output_layer=True, output_bias=False, global_pool=None, bias_reduction_layer_indices=[], padding=0):
+                 output_layer=True, output_bias=False, global_pool=None, bias_reduction_layer_indices=[], padding=0, pool=None):
         super(Net, self).__init__()
         self._name = "cnn_net"
         self._use_cnn_dropout = use_cnn_dropout
@@ -74,8 +74,8 @@ class Net(nn.Module):
 
             input_size = int(((input_size - self._convs[-1].kernel_size[0]) / self._convs[-1].stride[0])) + 1
 
-            # if self._pool is not None and i in list(self._pool_indices.keys()):
-            #     input_size = int(((input_size - pool_size) / pool_stride)) + 1
+            if i in list(self._pool_indices.keys()):
+                input_size = int(((input_size - pool_size) / pool_stride)) + 1
 
         if self._global_pool is not None:
             input_size = 1
@@ -143,6 +143,7 @@ class Net(nn.Module):
 
             if self._use_batch_norm:
                 if i in list(self._pool_indices.keys()):
+                    #print("pool i: {}".format(i))
                     #pool = self._pool_indices[i]
                     if self._pool_indices[i] == "max":
                         pool = F.max_pool3d
@@ -181,7 +182,14 @@ class Net(nn.Module):
                 global_pool = F.max_pool3d
             elif self._global_pool == "avg":
                 global_pool = F.avg_pool3d
+
+            if verbose:
+                print("x to global pool: ", x.shape)
+
             x = global_pool(x, kernel_size=x.shape[-1])
+
+            if verbose:
+                print("x from global pool: ", x.shape)
 
         if verbose:
             print("ccn output shape ", x.shape)
