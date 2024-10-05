@@ -6,17 +6,17 @@ import torch.nn.functional as F
 
 class Net(nn.Module):
 
-    def __init__(self, trial=None, n_conv_layers=3, max_channel=6, pool=None, kernel_size=3, stride=1, pool_size=2,
+    def __init__(self, trial=None, n_conv_layers=3, max_channel=6, activation_before_pool=None, kernel_size=3, stride=1, pool_size=2,
                  pool_stride=2, use_batch_norm=True, n_hidden_layers=1, max_hidden_neurons=520, cnn_activation=F.relu,
                  hidden_activation=F.relu, input_size=256, input_channel=6, conv_layer_obj=[], pool_indices={},
                  use_cnn_dropout=False, use_fc_dropout=False, cnn_dropout_indices=[], fc_dropout_indices=[],
                  cnn_dropout_ratios=[], fc_dropout_ratios=[], n_output_neurons=6,
-                 output_layer=True, output_bias=False, global_pool=None, bias_reduction_layer_indices=[]):
+                 output_layer=True, output_bias=False, global_pool=None, bias_reduction_layer_indices=[], padding=0):
         super(Net, self).__init__()
         self._name = "cnn_net"
         self._use_cnn_dropout = use_cnn_dropout
         self._use_fc_dropout = use_fc_dropout
-        self._pool = pool
+        self._activation_before_pool = activation_before_pool
         self._pool_size = pool_size
         self._pool_stride = pool_stride
         self._n_output_neurons = n_output_neurons
@@ -38,8 +38,8 @@ class Net(nn.Module):
         self._bias_reduction_layer_indices= bias_reduction_layer_indices
         self._bias_reduction_layers = nn.ModuleList()
 
-        if self._pool == "None":
-            self._pool = None
+        # if self._pool == "None":
+        #     self._pool = None
 
         ##########################
         ## Conovlutional layers ##
@@ -63,17 +63,19 @@ class Net(nn.Module):
                 else:
                     raise Exception("Not enough conv layer objects")
             else:
+                #print("conv layer i: {}, in_channels: {}, out_channels: {}, kernel size: {}, stride: {}".format(i, channels[i], channels[i + 1], kernel_size, stride))
                 self._convs.append(nn.Conv3d(in_channels=channels[i],
                                              out_channels=channels[i + 1],
                                              kernel_size=kernel_size,
-                                             stride=stride))
+                                             stride=stride,
+                                             padding=padding))
             if self._use_batch_norm:
                 self._batch_norms.append(nn.BatchNorm3d(channels[i + 1]))
 
             input_size = int(((input_size - self._convs[-1].kernel_size[0]) / self._convs[-1].stride[0])) + 1
 
-            if self._pool is not None and i in list(self._pool_indices.keys()):
-                input_size = int(((input_size - pool_size) / pool_stride)) + 1
+            # if self._pool is not None and i in list(self._pool_indices.keys()):
+            #     input_size = int(((input_size - pool_size) / pool_stride)) + 1
 
         if self._global_pool is not None:
             input_size = 1
@@ -140,7 +142,7 @@ class Net(nn.Module):
                 print("conv_i.bias ", conv_i.bias.shape)
 
             if self._use_batch_norm:
-                if self._pool is not None and i in list(self._pool_indices.keys()):
+                if i in list(self._pool_indices.keys()):
                     #pool = self._pool_indices[i]
                     if self._pool_indices[i] == "max":
                         pool = F.max_pool3d
@@ -157,7 +159,7 @@ class Net(nn.Module):
                 else:
                     x = self._cnn_activation(self._batch_norms[i](conv_i(x)))
             else:
-                if self._pool is not None and i in list(self._pool_indices.keys()):
+                if i in list(self._pool_indices.keys()):
                     if self._pool_indices[i] == "max":
                         pool = F.max_pool3d
                     elif self._pool_indices[i] == "avg":

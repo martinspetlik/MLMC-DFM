@@ -38,7 +38,7 @@ def objective(trial, trials_config, train_loader, validation_loader):
     n_conv_layers = trial.suggest_categorical("n_conv_layers", trials_config["n_conv_layers"])
     kernel_size = trial.suggest_categorical("kernel_size", trials_config["kernel_size"])
     stride = trial.suggest_categorical("stride", trials_config["stride"])
-    pool = trial.suggest_categorical("pool", trials_config["pool"])
+    #pool = trial.suggest_categorical("pool", trials_config["pool"])
     pool_size = trial.suggest_categorical("pool_size", trials_config["pool_size"])
     pool_stride = trial.suggest_categorical("pool_stride", trials_config["pool_stride"])
     lr = trial.suggest_categorical("lr", trials_config["lr"])
@@ -58,6 +58,14 @@ def objective(trial, trials_config, train_loader, validation_loader):
     pool_indices = None
     if "pool_indices" in trials_config:
         pool_indices = trial.suggest_categorical("pool_indices", trials_config["pool_indices"])
+
+    padding = 0
+    if "padding" in trials_config:
+        padding = trial.suggest_categorical("padding", trials_config["padding"])
+
+    activation_before_pool = False
+    if "activation_before_pool" in trials_config:
+        activation_before_pool = trial.suggest_categorical("activation_before_pool", trials_config["activation_before_pool"])
 
     if "use_cnn_dropout" in trials_config:
         use_cnn_dropout = trial.suggest_categorical("use_cnn_dropout", trials_config["use_cnn_dropout"])
@@ -153,7 +161,7 @@ def objective(trial, trials_config, train_loader, validation_loader):
     # Initilize model
     model_kwargs = {"n_conv_layers": n_conv_layers,
                     "max_channel": max_channel,
-                    "pool": pool,
+                    "activation_before_pool": activation_before_pool,
                     "pool_size": pool_size,
                     "kernel_size": kernel_size,
                     "stride": stride,
@@ -173,6 +181,7 @@ def objective(trial, trials_config, train_loader, validation_loader):
                     "fc_dropout_indices": fc_dropout_indices if "fc_dropout_indices" in trials_config else [],
                     "cnn_dropout_ratios": cnn_dropout_ratios if "cnn_dropout_ratios" in trials_config else [],
                     "fc_dropout_ratios": fc_dropout_ratios if "fc_dropout_ratios" in trials_config else [],
+                    "padding": padding,
                     }
 
     if "bias_reduction_layer_indices" in trials_config:
