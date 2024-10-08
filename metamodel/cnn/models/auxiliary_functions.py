@@ -158,7 +158,9 @@ def arcsinh_data(data):
 
 def log_data(data):
     #output_data = torch.empty((data.shape))
-    #print("data shape ", data.shape)
+    # print("data shape ", data.shape)
+    # print("data ", data)
+
     if data.shape[0] == 3:
         data[0][...] = torch.log(data[0])
         data[1][...] = data[1]
@@ -178,27 +180,37 @@ def log_data(data):
     elif data.shape[0] < 3:
         for i in range(data.shape[0]):
             data[i][...] = torch.log(data[i])
+
+    #print("log data ", data)
+
     return data
 
 
 def log10_data(data):
     output_data = torch.empty((data.shape))
     if data.shape[0] == 3:
-        output_data[0][...] = torch.log10(data[0])
-        output_data[1][...] = data[1]
-        output_data[2][...] = torch.log10(data[2])
+        data[0][...] = torch.log10(data[0])
+        data[1][...] = data[1]
+        data[2][...] = torch.log10(data[2])
     elif data.shape[0] == 4:
-        output_data[0][...] = torch.log10(data[0])
-        output_data[1][...] = data[1]
-        output_data[2][...] = torch.log10(data[2])
-        output_data[3][...] = data[3]
+        data[0][...] = torch.log10(data[0])
+        data[1][...] = data[1]
+        data[2][...] = torch.log10(data[2])
+        data[3][...] = data[3]
+    elif data.shape[0] == 6:
+        data[0][...] = torch.log10(data[0])  # k_xx
+        data[1][...] = torch.log10(data[1])  # k_yy
+        data[2][...] = torch.log10(data[2])  # k_zz
+        data[3][...] = data[3]  # k_yz
+        data[4][...] = data[4]  # k_xz
+        data[5][...] = data[5]  # k_xy
     elif data.shape[0] < 3:
         for i in range(data.shape[0]):
-            output_data[i][...] = torch.log10(data[i])
+            data[i][...] = torch.log10(data[i])
     else:
         raise NotImplementedError("Log transformation implemented for 2D case only")
 
-    return output_data
+    return data
 
 
 def quantile_transform_fit(data, indices=[], transform_type=None):
@@ -425,7 +437,7 @@ def get_eigendecomp(flatten_values, dim=2):
     return np.linalg.eigh(tensor)
 
 
-def check_shapes(n_conv_layers, kernel_size, stride, pool_size, pool_stride, pool_indices, input_size=256):
+def check_shapes(n_conv_layers, kernel_size, stride, pool_size, pool_stride, pool_indices, input_size=256, padding=0):
     #n_layers = 0
 
     for i in range(n_conv_layers):
@@ -435,13 +447,14 @@ def check_shapes(n_conv_layers, kernel_size, stride, pool_size, pool_stride, poo
         if input_size < kernel_size:
             return -1, input_size
 
-        input_size = int(((input_size - kernel_size) / stride)) + 1
-
+        input_size = int(((input_size - kernel_size + 2* padding) / stride)) + 1
 
         if pool_indices is not None:
             if i in list(pool_indices.keys()):
                 if pool_size > 0 and pool_stride > 0:
                     input_size = int(((input_size - pool_size) / pool_stride)) + 1
+
+        #print("input size ", input_size)
 
     return 0, input_size
 

@@ -143,7 +143,7 @@ def objective(trial, trials_config, train_loader, validation_loader):
     hidden_activation = getattr(F, hidden_activation_name)
 
     flag, input_size = check_shapes(n_conv_layers, kernel_size, stride, pool_size, pool_stride, pool_indices,
-                                    input_size=trials_config["input_size"])
+                                    input_size=trials_config["input_size"], padding=padding)
 
     if "global_pool" in trials_config:
         global_pool = trial.suggest_categorical("global_pool", trials_config["global_pool"])
