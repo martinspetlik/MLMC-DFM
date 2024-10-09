@@ -152,11 +152,19 @@ class Net(nn.Module):
                     if self._use_cnn_dropout and '{}'.format(i) in self._cnn_dropouts:
                         conv_dropout = self._cnn_dropouts['{}'.format(i)]
 
-                        x = self._cnn_activation(pool(conv_dropout(self._batch_norms[i](conv_i(x))),
-                                        kernel_size=self._pool_size, stride=self._pool_stride))
+                        if self._pool_indices[i] == "max":
+                            x = self._cnn_activation(pool(conv_dropout(self._batch_norms[i](conv_i(x))),
+                                            kernel_size=self._pool_size, stride=self._pool_stride))
+                        else:
+                            x = pool(conv_dropout(self._cnn_activation(self._batch_norms[i](conv_i(x))),
+                                                          kernel_size=self._pool_size, stride=self._pool_stride))
                     else:
-                        x = self._cnn_activation(pool(self._batch_norms[i](conv_i(x)),
+                        if self._pool_indices[i] == "max":
+                            x = self._cnn_activation(pool(self._batch_norms[i](conv_i(x)),
                                         kernel_size=self._pool_size, stride=self._pool_stride))
+                        else:
+                            x = pool(self._cnn_activation(self._batch_norms[i](conv_i(x))),
+                                                          kernel_size=self._pool_size, stride=self._pool_stride)
                 else:
                     x = self._cnn_activation(self._batch_norms[i](conv_i(x)))
             else:
@@ -167,10 +175,18 @@ class Net(nn.Module):
                         pool = F.avg_pool3d
                     if self._use_cnn_dropout and '{}'.format(i) in self._cnn_dropouts:
                         conv_dropout = self._cnn_dropouts['{}'.format(i)]
-                        x = self._cnn_activation(pool(conv_dropout(conv_i(x)),
+
+                        if self._pool_indices[i] == "max":
+                            x = self._cnn_activation(pool(conv_dropout(conv_i(x)),
                                         kernel_size=self._pool_size, stride=self._pool_stride))
+                        else:
+                            x = pool(self._cnn_activation(conv_dropout(conv_i(x))),
+                                                          kernel_size=self._pool_size, stride=self._pool_stride)
                     else:
-                        x = self._cnn_activation(pool(conv_i(x), kernel_size=self._pool_size, stride=self._pool_stride))
+                        if self._pool_indices[i] == "max":
+                            x = self._cnn_activation(pool(conv_i(x), kernel_size=self._pool_size, stride=self._pool_stride))
+                        else:
+                            x = pool(self._cnn_activation(conv_i(x)), kernel_size=self._pool_size, stride=self._pool_stride)
                 else:
                     x = self._cnn_activation(conv_i(x))
 
