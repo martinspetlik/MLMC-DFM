@@ -468,6 +468,7 @@ def _split_dataset(dataset_config, config, n_train_samples, n_val_samples, n_tes
     test_set = DFM3DDataset(**dataset_config, mode="test", train_size=n_train_samples, val_size=n_val_samples,
                                   test_size=n_test_samples)
 
+
     return train_set, validation_set, test_set
 
 
@@ -589,6 +590,8 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
 
         print("input mean: {}, std:{}, output mean: {}, std: {}".format(input_mean, input_std, output_mean, output_std))
         print("output quantiles: {}".format(output_quantiles))
+
+
 
         # validation_set = train_val_set[-int(n_train_samples * config["val_samples_ratio"]):]
         #
@@ -802,8 +805,13 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
 
         study.set_user_attr("output_mean", output_mean)
         study.set_user_attr("output_std", output_std)
-
         study.set_user_attr("output_quantiles", output_quantiles)
+
+        if "input_channels" in config:
+            study.set_user_attr("input_channels", config["input_channels"])
+
+        if "output_channels" in config:
+            study.set_user_attr("output_channels", config["output_channels"])
 
     if train_dataset is not None:
         return data_init_transform, data_input_transform, data_output_transform
@@ -812,6 +820,18 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
         joblib.dump(train_set, os.path.join(serialize_path, "train_dataset.pkl"))
         joblib.dump(validation_set, os.path.join(serialize_path, "val_dataset.pkl"))
         joblib.dump(test_set, os.path.join(serialize_path, "test_dataset.pkl"))
+
+    # train_loader_mean_std = torch.utils.data.DataLoader(train_set, batch_size=config["batch_size_train"],
+    #                                                     shuffle=False)  # @TODO: use train_set AGAIN
+    # input_mean, input_std, output_mean, output_std, output_quantiles = get_mean_std(train_loader_mean_std,
+    #                                                                                 output_iqr=iqr,
+    #                                                                                 mean_dims=[0, 2, 3, 4])
+    #
+    # input_mean = input_mean.reshape(input_mean.shape[0], 1, 1, 1)
+    # input_std = input_std.reshape(input_std.shape[0], 1, 1, 1)
+    #
+    # print("FINAL input mean: {}, std:{}, output mean: {}, std: {}".format(input_mean, input_std, output_mean, output_std))
+    # exit()
 
     return train_set, validation_set, test_set
 
