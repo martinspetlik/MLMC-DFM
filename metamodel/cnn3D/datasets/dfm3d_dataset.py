@@ -30,11 +30,15 @@ class DFM3DDataset(Dataset):
         self.inputs = zarr_file['inputs']
         self.outputs = zarr_file['outputs']
 
+        self.bulk_avg = None
+        if "bulk_avg" in zarr_file:
+            self.bulk_avg = zarr_file['bulk_avg']
+
         #self._remove_zero_rows()
 
         # Read the channel names (optional, for reference)
-        self.input_channel_names = self.inputs.attrs['channel_names']
-        self.output_channel_names = self.outputs.attrs['channel_names']
+        # self.input_channel_names = self.inputs.attrs['channel_names']
+        # self.output_channel_names = self.outputs.attrs['channel_names']
 
         self.init_transform = init_transform
         self.input_transform = input_transform
@@ -78,6 +82,7 @@ class DFM3DDataset(Dataset):
 
     def __len__(self):
         # Return the number of samples
+        print("self.end: {}, self.start: {} ".format(self.end, self.start))
         return self.end - self.start #self.inputs.shape[0]
 
     # def __iter__(self):
@@ -98,6 +103,9 @@ class DFM3DDataset(Dataset):
         input_sample = self.inputs[idx]
         output_sample = self.outputs[idx]
 
+        if self.bulk_avg is not None:
+            bulk_avg = self.bulk_avg[idx]
+
         if isinstance(idx, (slice, list)):
             raise NotImplementedError("Dataset index has to be int")
             # new_dataset = copy.deepcopy(self)
@@ -115,11 +123,17 @@ class DFM3DDataset(Dataset):
         #input_tensor = input_tensor.permute(0, 4, 1, 2, 3)
         #output_tensor = output_tensor.permute(0, 4, 1, 2, 3)
 
+        if self._input_channels is not None:
+            input_tensor = input_tensor[self._input_channels]
+        if self._output_channels is not None and len(output_tensor) > 0:
+            output_tensor = output_tensor[self._output_channels]
+
         #@TODO: refactor
         if self.init_transform is not None:
             #print("input_sample[input_sample < np.max(np.abs(input_sample)) / 1e3] ", input_sample[input_sample < np.max(np.abs(input_sample)) / 1e2])
-            bulk_features_avg = np.mean(input_sample[input_sample < np.max(np.abs(input_sample)) / 1e2])
-            bulk_features_avg = np.abs(bulk_features_avg)
+            #bulk_features_avg = np.mean(input_sample[input_sample < np.max(np.abs(input_sample)) / 1e2])
+            #bulk_features_avg = np.abs(bulk_features_avg)
+            bulk_features_avg = np.mean(bulk_avg)
             #
             #
             # print("avg input sample ", np.mean(input_sample))
@@ -130,7 +144,7 @@ class DFM3DDataset(Dataset):
             #
             # print("order of magnitude min: {}, max: {}".format(min_order_of_magnitude, max_order_of_magnitude))
             # exit()
-            self._bulk_features_avg = bulk_features_avg
+            self._bulk_features_avg = np.mean(bulk_avg) #bulk_features_avg
 
         # flatten_bulk_features = bulk_features.reshape(-1)
         # if fractures_features is not None:
@@ -165,39 +179,31 @@ class DFM3DDataset(Dataset):
         # final_features = torch.from_numpy(final_features)
         # output_features = torch.from_numpy(output_features)
 
-        if self._input_channels is not None:
-            input_tensor = input_tensor[self._input_channels]
-        if self._output_channels is not None and len(output_tensor) > 0:
-            output_tensor = output_tensor[self._output_channels]
-
         if self.init_transform is not None:
             #reshaped_output = torch.reshape(output_features, (*output_features.shape, 1, 1))
             #print("bulk features avg ", bulk_features_avg)
-            input_tensor, reshaped_output = self.init_transform((bulk_features_avg, input_tensor, output_tensor, self._cross_section))
-        else:
-            reshaped_output = torch.reshape(output_tensor, (*output_tensor.shape, 1, 1))
+            input_tensor, output_tensor = self.init_transform((bulk_features_avg, input_tensor, output_tensor, self._cross_section))
+            # print("input tensor shape ", input_tensor.shape)
+            # print("reshaped output ", output_tensor.shape)
 
+        reshaped_output = torch.reshape(output_tensor, (*output_tensor.shape, 1, 1))
 
-        #print("reshaped output ", reshaped_output)
+        #print("reshape output shape ", reshaped_output.shape)
 
-        #print("reshaped output shape ", reshaped_output.shape)
-
-        # else:
-        #     print("else reshaped output ", reshaped_output)
-
-
-        #print("reshaped output shape", reshaped_output.shape)
-
-        #exit()
-
-        #print("input transform ", self.input_transform)
-        #print("output transform ", self.output_transform)
         if self.input_transform is not None:
-            #print("input tensor shape ", input_tensor.shape)
+            # print("input tensor shape ", input_tensor.shape)
             input_tensor = self.input_transform(input_tensor)
         if self.output_transform is not None and len(output_tensor) > 0:
             output_tensor = np.squeeze(self.output_transform(reshaped_output))
 
+        #print("reshaped output ", reshaped_output)
+        #print("reshaped output shape ", reshaped_output.shape)
+        # else:
+        #     print("else reshaped output ", reshaped_output)
+        #print("reshaped output shape", reshaped_output.shape)
+        #exit()
+        #print("input transform ", self.input_transform)
+        #print("output transform ", self.output_transform)
         # if output_features[0] < -2:
         #     print("bulk path ", bulk_path)
         #     print("output features orig ", output_features_orig)
@@ -207,10 +213,10 @@ class DFM3DDataset(Dataset):
         #     pass
         #     #print("else output_features orig", output_features_orig)
 
-        # DFM3DDataset._check_nans(final_features, str_err="Input features contains NaN values, {}".format(bulk_path), file=bulk_path)
-        #
-        # if len(output_features) > 0:
-        #     DFM3DDataset._check_nans(output_features, str_err="Output features contains NaN values, {}".format(output_path), file=output_path)
+        DFM3DDataset._check_nans(input_tensor, str_err="Input features contains NaN values, {}".format(idx))
+
+        if len(output_tensor) > 0:
+            DFM3DDataset._check_nans(output_tensor, str_err="Output features contains NaN values, idx: {}".format(idx))
 
 
         #print("final features shape ", final_features.shape)
