@@ -113,7 +113,6 @@ class DFM3DDataset(Dataset):
             # new_dataset.outputs = output_sample
             # return new_dataset
 
-
         # Convert to PyTorch tensors
         input_tensor = torch.tensor(input_sample, dtype=torch.float32)
         output_tensor = torch.tensor(output_sample, dtype=torch.float32)
@@ -134,6 +133,9 @@ class DFM3DDataset(Dataset):
             #bulk_features_avg = np.mean(input_sample[input_sample < np.max(np.abs(input_sample)) / 1e2])
             #bulk_features_avg = np.abs(bulk_features_avg)
             bulk_features_avg = np.mean(bulk_avg)
+
+            #bulk_features_avg = bulk_avg#[:, None, None, None]
+            #print("bulk features avg ", bulk_features_avg)
             #
             #
             # print("avg input sample ", np.mean(input_sample))
@@ -145,6 +147,7 @@ class DFM3DDataset(Dataset):
             # print("order of magnitude min: {}, max: {}".format(min_order_of_magnitude, max_order_of_magnitude))
             # exit()
             self._bulk_features_avg = np.mean(bulk_avg) #bulk_features_avg
+            #self._bulk_features_avg = bulk_avg#[:, None, None, None]
 
         # flatten_bulk_features = bulk_features.reshape(-1)
         # if fractures_features is not None:
@@ -216,6 +219,7 @@ class DFM3DDataset(Dataset):
         DFM3DDataset._check_nans(input_tensor, str_err="Input features contains NaN values, {}".format(idx))
 
         if len(output_tensor) > 0:
+            print("output tensor ", output_tensor)
             DFM3DDataset._check_nans(output_tensor, str_err="Output features contains NaN values, idx: {}".format(idx))
 
 
@@ -245,6 +249,6 @@ class DFM3DDataset(Dataset):
         has_nan = torch.any(torch.isnan(final_features))
         if has_nan:
             print("str err ", str_err)
-            print("file ", os.path.dirname(file))
-            shutil.rmtree(os.path.dirname(file))
-            #raise ValueError(str_err)
+            #print("file ", os.path.dirname(file))
+            #shutil.rmtree(os.path.dirname(file))
+            raise ValueError(str_err)
