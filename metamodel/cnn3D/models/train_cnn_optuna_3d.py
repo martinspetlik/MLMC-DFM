@@ -31,14 +31,15 @@ from metamodel.cnn3D.models.train_pure_cnn_optuna_3d import train_one_epoch, pre
 #from metamodel.cnn.visualization.visualize_data import plot_samples
 
 
-def objective(trial, trials_config, train_loader, validation_loader):
+def objective(trial, trials_config, train_loader, validation_loader, load_existing=False):
     best_vloss = 1_000_000.
+    best_epoch = 0
 
     max_channel = trial.suggest_categorical("max_channel", trials_config["max_channel"])
     n_conv_layers = trial.suggest_categorical("n_conv_layers", trials_config["n_conv_layers"])
     kernel_size = trial.suggest_categorical("kernel_size", trials_config["kernel_size"])
     stride = trial.suggest_categorical("stride", trials_config["stride"])
-    #pool = trial.suggest_categorical("pool", trials_config["pool"])
+    # pool = trial.suggest_categorical("pool", trials_config["pool"])
     pool_size = trial.suggest_categorical("pool_size", trials_config["pool_size"])
     pool_stride = trial.suggest_categorical("pool_stride", trials_config["pool_stride"])
     lr = trial.suggest_categorical("lr", trials_config["lr"])
@@ -65,7 +66,8 @@ def objective(trial, trials_config, train_loader, validation_loader):
 
     activation_before_pool = False
     if "activation_before_pool" in trials_config:
-        activation_before_pool = trial.suggest_categorical("activation_before_pool", trials_config["activation_before_pool"])
+        activation_before_pool = trial.suggest_categorical("activation_before_pool",
+                                                           trials_config["activation_before_pool"])
 
     if "use_cnn_dropout" in trials_config:
         use_cnn_dropout = trial.suggest_categorical("use_cnn_dropout", trials_config["use_cnn_dropout"])
@@ -94,10 +96,10 @@ def objective(trial, trials_config, train_loader, validation_loader):
         config["n_train_samples"] = n_train_samples
 
         if "n_val_samples" in trials_config and trials_config["n_val_samples"] is not None:
-            config["n_val_samples"] = trial.suggest_categorical("n_val_samples",trials_config["n_val_samples"])
+            config["n_val_samples"] = trial.suggest_categorical("n_val_samples", trials_config["n_val_samples"])
 
         if "n_test_samples" in trials_config and trials_config["n_test_samples"] is not None:
-            config["n_test_samples"] =  trial.suggest_categorical("n_test_samples",trials_config["n_test_samples"])
+            config["n_test_samples"] = trial.suggest_categorical("n_test_samples", trials_config["n_test_samples"])
 
         if "sub_datasets" in config and len(config["sub_datasets"]) > 0:
             train_set, validation_set, test_set = prepare_sub_datasets(study, config, data_dir=data_dir,
@@ -113,7 +115,6 @@ def objective(trial, trials_config, train_loader, validation_loader):
         # shuffled_data = ShufflerIterDataPipe(train_set, buffer_size=100)
 
         train_loader = torch.utils.data.DataLoader(train_set, batch_size=config["batch_size_train"], shuffle=True)
-
 
         validation_loader = torch.utils.data.DataLoader(validation_set, batch_size=config["batch_size_train"],
                                                         shuffle=False)
@@ -133,7 +134,7 @@ def objective(trial, trials_config, train_loader, validation_loader):
     cnn_activation_name = "relu"
     if "cnn_activation_name" in trials_config:
         cnn_activation_name = trial.suggest_categorical("cnn_activation_name",
-                                                           trials_config["cnn_activation_name"])
+                                                        trials_config["cnn_activation_name"])
     cnn_activation = getattr(F, cnn_activation_name)
 
     hidden_activation_name = "relu"
@@ -196,6 +197,9 @@ def objective(trial, trials_config, train_loader, validation_loader):
     if "model_class_name" in trials_config:
         model_class_name = trials_config["model_class_name"]
 
+    if "model_file_path" in trials_config:
+        model_file_path = trials_config["model_file_path"]
+
     if model_class_name == "Net":
         model_class = Net
     else:
@@ -218,7 +222,7 @@ def objective(trial, trials_config, train_loader, validation_loader):
             for param in lin.parameters():
                 param.requires_grad = False
 
-    #model = Net(trial, **model_kwargs).to(device)
+    # model = Net(trial, **model_kwargs).to(device)
     # print("model._convs ", model._convs)
     # print("moodel._hidden_layers ", model._hidden_layers)
     # print("moodel._output_layer ", model._output_layer)
@@ -227,9 +231,9 @@ def objective(trial, trials_config, train_loader, validation_loader):
     optimizer_kwargs = {"lr": lr, "weight_decay": L2_penalty}
     non_frozen_parameters = [p for p in model.parameters() if p.requires_grad]
     optimizer = None
-    #print("optimizer kwargs ", optimizer_kwargs)
+    # print("optimizer kwargs ", optimizer_kwargs)
 
-    #print("non frozen parameters ", non_frozen_parameters)
+    # print("non frozen parameters ", non_frozen_parameters)
     if len(non_frozen_parameters) > 0:
         optimizer = getattr(optim, optimizer_name)(params=non_frozen_parameters, **optimizer_kwargs)
 
@@ -241,12 +245,21 @@ def objective(trial, trials_config, train_loader, validation_loader):
     trial.set_user_attr("loss_fn", loss_fn)
     trial.set_user_attr("trials_config", trials_config)
 
+    if load_existing:
+        if not os.path.exists(model_file_path):
+            raise FileNotFoundError("Model file not found at path: {}".format(model_file_path))
+
+        checkpoint = torch.load(model_file_path)
+        model.load_state_dict(checkpoint['best_model_state_dict'])
+        optimizer.load_state_dict(checkpoint['best_optimizer_state_dict'])
+        save_model_best_epoch = checkpoint['best_epoch']
+        best_vloss = np.min(checkpoint['valid_loss'])
+
     # Training of the model
     start_time = time.time()
     avg_loss_list = []
     avg_vloss_list = []
     avg_vloss, avg_loss = best_vloss, best_vloss
-    best_epoch = 0
     model_state_dict = {}
     optimizer_state_dict = {}
 
@@ -283,6 +296,7 @@ def objective(trial, trials_config, train_loader, validation_loader):
     # print("Validation loader, input mean: {}, std: {}".format(input_mean, input_std))
 
     for epoch in range(config["num_epochs"]):
+        epoch = save_model_best_epoch + epoch
         #try:
         if train:
             model.train(True)
@@ -311,6 +325,17 @@ def objective(trial, trials_config, train_loader, validation_loader):
             model_state_dict = model.state_dict()
             if train:
                 optimizer_state_dict = optimizer.state_dict()
+
+            model_path_epoch = os.path.join(output_dir, model_path + "_best_{}".format(epoch))
+
+            torch.save({
+                'best_epoch': best_epoch,
+                'best_model_state_dict': model_state_dict,
+                'best_optimizer_state_dict': optimizer_state_dict,
+                'train_loss': avg_loss_list,
+                'valid_loss': avg_vloss_list,
+                'training_time': time.time() - start_time,
+            }, model_path_epoch)
 
         # For pruning (stops trial early if not promising)
         trial.report(avg_vloss, epoch)
@@ -403,9 +428,9 @@ if __name__ == '__main__':
     torch.backends.cudnn.enabled = False  # Disable cuDNN use of nondeterministic algorithms
     torch.manual_seed(random_seed)
     output_dir = os.path.join(output_dir, "seed_{}".format(random_seed))
-    if os.path.exists(output_dir) and not args.append:
-        shutil.rmtree(output_dir)
-        #raise IsADirectoryError("Results output dir {} already exists".format(output_dir))
+    # if os.path.exists(output_dir) and not args.append:
+    #     shutil.rmtree(output_dir)
+    #     #raise IsADirectoryError("Results output dir {} already exists".format(output_dir))
     if not args.append:
         os.mkdir(output_dir)
     elif not os.path.exists(output_dir):
@@ -416,6 +441,7 @@ if __name__ == '__main__':
         if trials_config["sampler_class"] == "BruteForceSampler":
             sampler = BruteForceSampler(seed=random_seed)
 
+    load_existing = args.append
     study = optuna.create_study(sampler=sampler, direction="minimize")
 
     # ================================
@@ -429,7 +455,7 @@ if __name__ == '__main__':
     #     test_loader = torch.utils.data.DataLoader(test_set, batch_size=config["batch_size_test"], shuffle=False)
 
     def obj_func(trial):
-        return objective(trial, trials_config, train_loader, validation_loader)
+        return objective(trial, trials_config, train_loader, validation_loader, load_existing=load_existing)
 
     study.optimize(obj_func, n_trials=num_trials)
 
