@@ -34,6 +34,7 @@ from metamodel.cnn3D.models.train_pure_cnn_optuna_3d import train_one_epoch, pre
 def objective(trial, trials_config, train_loader, validation_loader, load_existing=False):
     best_vloss = 1_000_000.
     best_epoch = 0
+    save_model_best_epoch = 0
 
     max_channel = trial.suggest_categorical("max_channel", trials_config["max_channel"])
     n_conv_layers = trial.suggest_categorical("n_conv_layers", trials_config["n_conv_layers"])
@@ -245,30 +246,6 @@ def objective(trial, trials_config, train_loader, validation_loader, load_existi
     trial.set_user_attr("loss_fn", loss_fn)
     trial.set_user_attr("trials_config", trials_config)
 
-    if load_existing:
-        if not os.path.exists(model_file_path):
-            raise FileNotFoundError("Model file not found at path: {}".format(model_file_path))
-
-        checkpoint = torch.load(model_file_path)
-        model.load_state_dict(checkpoint['best_model_state_dict'])
-        optimizer.load_state_dict(checkpoint['best_optimizer_state_dict'])
-        save_model_best_epoch = checkpoint['best_epoch']
-        best_vloss = np.min(checkpoint['valid_loss'])
-
-    # Training of the model
-    start_time = time.time()
-    avg_loss_list = []
-    avg_vloss_list = []
-    avg_vloss, avg_loss = best_vloss, best_vloss
-    model_state_dict = {}
-    optimizer_state_dict = {}
-
-    model_path = 'trial_{}_losses_model_{}'.format(trial.number, model._name)
-    # print("model path ", model_path)
-    # if os.path.exists(model_path):
-    #     print("model pat hexists")
-    #     return avg_vloss
-
     scheduler = None
     train = trials_config["train"] if "train" in trials_config else True
 
@@ -281,7 +258,35 @@ def objective(trial, trials_config, train_loader, validation_loader, load_existi
                                                            factor=trial_scheduler["factor"])
             else:
                 scheduler = lr_scheduler.StepLR(optimizer, step_size=trial_scheduler["step_size"],
-                                            gamma=trial_scheduler["gamma"])
+                                                gamma=trial_scheduler["gamma"])
+
+    if load_existing:
+        if not os.path.exists(model_file_path):
+            raise FileNotFoundError("Model file not found at path: {}".format(model_file_path))
+
+        checkpoint = torch.load(model_file_path)
+        model.load_state_dict(checkpoint['best_model_state_dict'])
+        optimizer.load_state_dict(checkpoint['best_optimizer_state_dict'])
+        scheduler.load_state_dict(checkpoint['best_scheduler_state_dict'])
+        save_model_best_epoch = checkpoint['best_epoch']
+        best_vloss = np.min(checkpoint['valid_loss'])
+
+    # Training of the model
+    start_time = time.time()
+    avg_loss_list = []
+    avg_vloss_list = []
+    avg_vloss, avg_loss = best_vloss, best_vloss
+    model_state_dict = {}
+    optimizer_state_dict = {}
+    scheduler_state_dict = {}
+
+    model_path = 'trial_{}_losses_model_{}'.format(trial.number, model._name)
+    # print("model path ", model_path)
+    # if os.path.exists(model_path):
+    #     print("model pat hexists")
+    #     return avg_vloss
+
+
 
     if "save_output_image" in trials_config and trials_config["save_output_image"]:
         model.train(False)
@@ -328,10 +333,13 @@ def objective(trial, trials_config, train_loader, validation_loader, load_existi
 
             model_path_epoch = os.path.join(output_dir, model_path + "_best_{}".format(epoch))
 
+            scheduler_state_dict = scheduler.state_dict()
+
             torch.save({
                 'best_epoch': best_epoch,
                 'best_model_state_dict': model_state_dict,
                 'best_optimizer_state_dict': optimizer_state_dict,
+                'best_scheduler_state_dict': scheduler_state_dict,
                 'train_loss': avg_loss_list,
                 'valid_loss': avg_vloss_list,
                 'training_time': time.time() - start_time,
@@ -355,6 +363,7 @@ def objective(trial, trials_config, train_loader, validation_loader, load_existi
         'best_epoch': best_epoch,
         'best_model_state_dict': model_state_dict,
         'best_optimizer_state_dict': optimizer_state_dict,
+        'best_scheduler_state_dict': scheduler_state_dict,
         'train_loss': avg_loss_list,
         'valid_loss': avg_vloss_list,
         'training_time': time.time() - start_time,
