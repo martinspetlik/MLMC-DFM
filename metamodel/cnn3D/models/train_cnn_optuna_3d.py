@@ -121,6 +121,11 @@ def objective(trial, trials_config, train_loader, validation_loader, load_existi
                                                         shuffle=False)
         test_loader = torch.utils.data.DataLoader(test_set, batch_size=config["batch_size_test"], shuffle=False)
 
+    print("loss function ", loss_function)
+    if loss_function[0] == "CorrelatedOutputLoss":
+        print("loss fn set cov")
+        loss_fn.set_cov(train_loader)
+
     # plot_samples(train_loader, n_samples=25)
     # exit()
 
@@ -286,8 +291,6 @@ def objective(trial, trials_config, train_loader, validation_loader, load_existi
     #     print("model pat hexists")
     #     return avg_vloss
 
-
-
     if "save_output_image" in trials_config and trials_config["save_output_image"]:
         model.train(False)
         sample_id = 0
@@ -437,8 +440,8 @@ if __name__ == '__main__':
     torch.backends.cudnn.enabled = False  # Disable cuDNN use of nondeterministic algorithms
     torch.manual_seed(random_seed)
     output_dir = os.path.join(output_dir, "seed_{}".format(random_seed))
-    # if os.path.exists(output_dir) and not args.append:
-    #     shutil.rmtree(output_dir)
+    if os.path.exists(output_dir) and not args.append:
+        shutil.rmtree(output_dir)
     #     #raise IsADirectoryError("Results output dir {} already exists".format(output_dir))
     if not args.append:
         os.mkdir(output_dir)

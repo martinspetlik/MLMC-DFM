@@ -47,6 +47,7 @@ class NormalizeData():
                 if hasattr(self, 'output_quantiles') and len(self.output_quantiles) > 0:
                     output_data[i][...] =(data[i] - self.output_quantiles[1, i]) / (self.output_quantiles[2, i] - self.output_quantiles[0, i])
                 else:
+
                     output_data[i][...] = (data[i] - self.output_mean[i]) /self.output_std[i]
             else:
                 output_data[i][...] = data[i]
@@ -118,16 +119,15 @@ def init_norm(data):
     # print("bulk features avg ", bulk_features_avg)
     # print("output ", output)
 
-    #print("cross section flag ", cross_section_flag)
+    # if cross_section_flag:
+    #     input[:3, :] /= bulk_features_avg
+    # else:
+    input /= bulk_features_avg#[:, None, None, None]
 
-
-    if cross_section_flag:
-        input[:3, :] /= bulk_features_avg
-    else:
-        input /= bulk_features_avg
+    #print("bulk_features_avg ", bulk_features_avg)
+    #print("orig output ", output)
     output /= bulk_features_avg
-
-    #print("output ", output)
+    #print("divided output ", output)
 
 
 
@@ -187,6 +187,7 @@ def log_data(data):
 
 
 def log10_data(data):
+    #print("data.shape ", data.shape)
     output_data = torch.empty((data.shape))
     if data.shape[0] == 3:
         data[0][...] = torch.log10(data[0])
@@ -391,6 +392,7 @@ def get_mean_std(data_loader, output_iqr=[], mean_dims=None):
         mean_dims = [0, 2, 3]
 
     for input, output in data_loader:
+        #print("output ", output)
         if channels_sum is None:
             channels_sum = list(np.zeros(input.shape[1]))
             channels_sqrd_sum = list(np.zeros(input.shape[1]))
@@ -1561,6 +1563,75 @@ class WeightedL1LossSum(nn.Module):
         return torch.mean(abs_values)
 
 
+import torch
+import torch.nn as nn
+
+
+class CorrelatedOutputLoss(nn.Module):
+    def __init__(self, loss_fn_params):
+        super(CorrelatedOutputLoss, self).__init__()
+        # Store the inverse covariance matrix (Sigma^{-1})
+        self.inv_cov_matrix = None #torch.linalg.inv(covariance_matrix)
+
+    def set_cov(self, dataloader):
+        mean_sum = None
+        total_samples = 0
+
+        for batch in dataloader:
+            inputs, outputs = batch
+
+            if torch.cuda.is_available():
+                outputs = outputs.cuda()
+
+            if mean_sum is None:
+                mean_sum = outputs.sum(dim=0)
+            else:
+                mean_sum += outputs.sum(dim=0)
+            total_samples += outputs.size(0)
+
+        # Mean vector
+        mean_vector = mean_sum / total_samples
+
+        # Step 2: Calculate the covariance matrix
+        cov_sum = None
+        for batch in dataloader:
+            inputs, outputs = batch
+            if torch.cuda.is_available():
+                outputs = outputs.cuda()
+
+
+            centered_data = outputs - mean_vector  # Center the data
+            batch_cov = torch.einsum('bi,bj->ij', centered_data, centered_data)  # Outer product
+            if cov_sum is None:
+                cov_sum = batch_cov
+            else:
+                cov_sum += batch_cov
+
+        # Final covariance matrix
+        covariance_matrix = cov_sum / (total_samples - 1)
+
+        self.inv_cov_matrix = torch.linalg.inv(covariance_matrix)
+
+        print("self. inv cov matrix ", self.inv_cov_matrix)
+
+
+
+
+
+    def forward(self, predicted, target):
+        # Difference between true and predicted values
+        diff = target - predicted  # Shape: (batch_size, 6)
+
+        #print("diff ", diff)
+
+        # Mahalanobis distance calculation
+        # diff.T @ Sigma^{-1} @ diff
+        mahalanobis = torch.einsum('bi,ij,bj->b', diff, self.inv_cov_matrix, diff)  # Shape: (batch_size,)
+
+        # Return the mean Mahalanobis distance across the batch
+        return mahalanobis.mean()
+
+
 def get_loss_fn(loss_function):
     loss_fn_name = loss_function[0]
     loss_fn_params = loss_function[1]
@@ -1600,6 +1671,8 @@ def get_loss_fn(loss_function):
         return MSELossLargeEmph(loss_fn_params)
     elif loss_fn_name == "MSELossLargeEmphAvg":
         return MSELossLargeEmphAvg(loss_fn_params)
+    elif loss_fn_name == "CorrelatedOutputLoss":
+        return CorrelatedOutputLoss(loss_fn_params)
     # elif loss_fn_name == "CosineSimilarity":
     #     return CosineSimilarity
 
