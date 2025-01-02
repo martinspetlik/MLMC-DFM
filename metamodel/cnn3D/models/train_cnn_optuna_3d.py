@@ -56,6 +56,7 @@ def objective(trial, trials_config, train_loader, validation_loader, load_existi
         loss_function = trial.suggest_categorical("loss_function", trials_config["loss_function"])
 
     loss_fn = get_loss_fn(loss_function)
+    loss_fn_validation = None
 
     pool_indices = None
     if "pool_indices" in trials_config:
@@ -69,7 +70,6 @@ def objective(trial, trials_config, train_loader, validation_loader, load_existi
     if "activation_before_pool" in trials_config:
         activation_before_pool = trial.suggest_categorical("activation_before_pool",
                                                            trials_config["activation_before_pool"])
-
     if "use_cnn_dropout" in trials_config:
         use_cnn_dropout = trial.suggest_categorical("use_cnn_dropout", trials_config["use_cnn_dropout"])
 
@@ -126,8 +126,13 @@ def objective(trial, trials_config, train_loader, validation_loader, load_existi
         print("loss fn set cov")
         loss_fn.set_cov(train_loader)
 
-    # plot_samples(train_loader, n_samples=25)
-    # exit()
+        loss_fn_validation = get_loss_fn(loss_function)
+        loss_fn_validation.set_cov(validation_loader)
+
+        np.save("cov_mat_validation_set", loss_fn_validation.covariance_matrix.cpu())
+        np.save("cov_mat_training_set", loss_fn.covariance_matrix.cpu())
+
+        print("loss_fn_validation ", loss_fn_validation)
 
     optimizer_name = "Adam"
     if "optimizer_name" in trials_config:
@@ -315,7 +320,10 @@ def objective(trial, trials_config, train_loader, validation_loader, load_existi
             avg_vloss = avg_loss
             avg_vacc = 0
         else:
-            avg_vloss, avg_vacc = validate(model, validation_loader, loss_fn=loss_fn, use_cuda=use_cuda)   # Evaluate the model
+            if loss_fn_validation is None:
+                loss_fn_validation = loss_fn
+
+            avg_vloss, avg_vacc = validate(model, validation_loader, loss_fn=loss_fn_validation, use_cuda=use_cuda)   # Evaluate the model
 
         if scheduler is not None:
             scheduler.step(avg_vloss)

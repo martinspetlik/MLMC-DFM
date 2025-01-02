@@ -124,7 +124,6 @@ def train_one_epoch(model, optimizer, train_loader, config, loss_fn=nn.MSELoss()
         optimizer.zero_grad()
 
         outputs = torch.squeeze(model(inputs))
-
         loss = loss_fn(outputs, targets)
         loss.backward()
 
@@ -135,6 +134,7 @@ def train_one_epoch(model, optimizer, train_loader, config, loss_fn=nn.MSELoss()
 
     train_loss = running_loss / (i + 1)
     return train_loss
+
 
 def save_output_dataset(model, data_loader, study, output_data_dir, sample_id=0, use_cuda=False):
 
@@ -462,12 +462,10 @@ def _split_dataset(dataset_config, config, n_train_samples, n_val_samples, n_tes
     if n_test_samples is None:
         n_test_samples = len(dataset) - n_train_val_samples
 
-
     train_set = DFM3DDataset(**dataset_config, mode="train", train_size=n_train_samples, val_size=n_val_samples, test_size=n_test_samples)
     validation_set = DFM3DDataset(**dataset_config, mode="val", train_size=n_train_samples, val_size=n_val_samples, test_size=n_test_samples)
     test_set = DFM3DDataset(**dataset_config, mode="test", train_size=n_train_samples, val_size=n_val_samples,
                                   test_size=n_test_samples)
-
 
     return train_set, validation_set, test_set
 
@@ -548,7 +546,6 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
             train_set.input_transform = input_transform
             train_set.output_transform = output_transform
         else:
-            pass
             print("data dir ", data_dir)
             train_set = DFM3DDataset(zarr_path=data_dir,
                                               input_transform=input_transform,
@@ -681,8 +678,7 @@ def prepare_dataset(study, config, data_dir, serialize_path=None, train_dataset=
                           "input_channels": config["input_channels"] if "input_channels" in config else None,
                           "output_channels": config["output_channels"] if "output_channels" in config else None,
                           "fractures_sep": config["fractures_sep"] if "fractures_sep" in config else False,
-                          "cross_section": config["cross_section"] if "cross_section" in config else False
-                          }
+                          "cross_section": config["cross_section"] if "cross_section" in config else False}
 
         train_set, validation_set, test_set = _split_dataset(dataset_config, config, n_train_samples=n_train_samples,
                                                              n_val_samples=n_val_samples, n_test_samples=n_test_samples)

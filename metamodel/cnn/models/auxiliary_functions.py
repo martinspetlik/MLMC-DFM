@@ -5,6 +5,33 @@ import torch.nn.functional as F
 from sklearn.preprocessing import QuantileTransformer, RobustScaler
 
 
+voigt_coords = {
+            1: [(0, 0)],
+            2: [(0, 0), (1, 1), (0, 1)],
+            3: [(0, 0), (1, 1), (2, 2), (1, 2), (0, 2), (0, 1)]
+        }
+
+idx_to_full = {
+            1: [(0, 0)],
+            3: [[0, 2], [2, 1]],
+            6: [[0, 5, 4], [5, 1, 3], [4, 3, 2]]
+        }
+
+idx_to_voigt = {
+    1: ([0], [0]),
+    2: ([0, 1, 0], [0, 1, 1]),
+    3: ([0, 1, 2, 1, 0, 0], [0, 1, 2, 2, 2, 1])
+}
+
+def voigt_to_tn(vec):
+    """
+    :param vec: (N, n_voigt)
+    :return: (N, dim, dim)
+    """
+    _, n_voigt = vec.shape
+    return vec[:, idx_to_full[n_voigt]]
+
+
 class QuantileTRF():
     def __init__(self):
         self.quantile_trfs_out = None
@@ -54,7 +81,6 @@ class NormalizeData():
         return output_data
 
 
-
 def log_all_data(data):
     output_data = torch.empty((data.shape))
     if data.shape[0] == 3:
@@ -79,6 +105,7 @@ def log_all_data(data):
         raise NotImplementedError("Log transformation implemented for 2D case only")
 
     return output_data
+
 
 def log10_all_data(data):
     output_data = torch.empty((data.shape))
@@ -486,9 +513,230 @@ def get_mse_nrmse_r2(targets, predictions):
     return mse_k, rmse_k, nrmse_k, r2_k
 
 
+import sympy as sp
+
+
+def calculate_eigen(matrix):
+    trace = np.trace(matrix)
+    det = np.linalg.det(matrix)
+    trace_squared = np.trace(matrix @ matrix)
+
+    # Coefficients of the cubic characteristic polynomial
+    a = -trace
+    b = (trace ** 2 - trace_squared) / 2
+    c = -det
+
+    # Solve the cubic equation using np.roots
+    coeffs = [1, a, b, c]
+    eigenvalues = np.roots(coeffs)
+
+    eigenvectors = []
+    # Solve for eigenvectors corresponding to each eigenvalue
+    for eigenvalue in eigenvalues:
+        # Construct (A - lambda * I) for eigenvector equation
+        A_minus_lambda_I = matrix - eigenvalue * np.eye(3)
+
+        # Find the null space (eigenvector) by solving (A - lambda * I) * v = 0
+        # Since it is a homogeneous system, the null space can be found using np.linalg.svd or np.linalg.matrix_rank
+        # Find the eigenvector (null space of A - lambda * I)
+
+        # Perform SVD to get the null space
+        _, _, vh = np.linalg.svd(A_minus_lambda_I)
+        eigenvector = vh[-1]  # The last row of vh corresponds to the null space (eigenvector)
+
+        # Normalize the eigenvector
+        eigenvector = eigenvector / np.linalg.norm(eigenvector)
+        eigenvectors.append(eigenvector.astype("float"))
+
+    # print("eigenvalues: ", eigenvalues)
+    # print("eigenvectors: ", eigenvectors)
+
+    return eigenvalues.astype("float"), eigenvectors
+
+
+def get_mse_nrmse_r2_eigh_3D(targets, predictions):
+    targets_arr = np.array(targets)
+    predictions_arr = np.array(predictions)
+
+    target_evals = []
+    pred_evals = []
+    target_evecs = []
+    pred_evecs = []
+
+    pred_evec_1 = []
+    pred_evec_2 = []
+    pred_evec_3 = []
+    target_evec_1 = []
+    target_evec_2 = []
+    target_evec_3 = []
+
+    targets_arr = voigt_to_tn(targets_arr)
+    predictions_arr = voigt_to_tn(predictions_arr)
+
+    # print("targets arr ", targets_arr)
+    # print("predictions arr ", predictions_arr)
+
+    for matrix in targets_arr:
+        eigenvalues, eigenvectors = calculate_eigen(matrix)
+
+        target_evals.append(eigenvalues)
+
+        target_evec_1.append(eigenvectors[0])
+        target_evec_2.append(eigenvectors[1])
+        target_evec_3.append(eigenvectors[2])
+        #target_evecs.append(eigenvectors)
+
+    #print("target evals ", target_evals)
+
+    for matrix in predictions_arr:
+        eigenvalues, eigenvectors = calculate_eigen(matrix)
+
+        pred_evals.append(eigenvalues)
+        #pred_evecs.append(eigenvectors)
+
+        pred_evec_1.append(eigenvectors[0])
+        pred_evec_2.append(eigenvectors[1])
+        pred_evec_3.append(eigenvectors[2])
+
+    target_evals = np.array(target_evals)
+    #target_evecs = np.array(target_evecs)
+
+    target_evec_1 = np.array(target_evec_1)
+    target_evec_2 = np.array(target_evec_2)
+    target_evec_3 = np.array(target_evec_3)
+
+    pred_evals = np.array(pred_evals)
+    #pred_evecs = np.array(pred_evecs)
+
+    # print("target evals ", target_evals)
+    # print("pred evals ", pred_evals)
+    #
+    # print("target evals[<=0] ", target_evals[target_evals <= 0])
+    # print("pred evals[<=0] ", pred_evals[pred_evals <= 0])
+
+    pred_evec_1 = np.array(pred_evec_1)
+    pred_evec_2 = np.array(pred_evec_2)
+    pred_evec_3 = np.array(pred_evec_3)
+
+    # Calculate MSE for eigenvalues
+    # evals_mse = torch.mean((pred_evals - true_evals) ** 2)
+
+    squared_err_k = []
+    std_tar_k = []
+    r2_k = []
+    mse_k = []
+    rmse_k = []
+    nrmse_k = []
+
+    for i in range(target_evals.shape[1]):
+        targets = np.squeeze(target_evals[:, i, ...])
+        predictions = np.squeeze(pred_evals[:, i, ...])
+        squared_err_k.append((targets - predictions) ** 2)
+        std_tar_k.append(np.std(targets))
+        r2_k.append(1 - (np.sum(squared_err_k[i]) /
+                         np.sum((targets - np.mean(targets)) ** 2)))
+        mse_k.append(np.mean(squared_err_k[i]))
+        rmse_k.append(np.sqrt(mse_k[i]))
+        nrmse_k.append(rmse_k[i] / std_tar_k[i])
+
+    squared_err_evec_1 = []
+    std_tar_evec_1 = []
+    r2_evec_1 = []
+    mse_evec_1 = []
+    rmse_evec_1 = []
+    nrmse_evec_1 = []
+
+    # print("target evec 1 shape ", target_evec_1.shape)
+    # print("pred evec 1 shape ", pred_evec_1.shape)
+    #
+    # print("target evec 1 ", target_evec_1)
+    # print("pred evec 1 ", pred_evec_1)
+    #
+    # print("pred evec 2", pred_evec_2)
+    # print("pred evec 3 ", pred_evec_3)
+
+
+    for i in range(target_evec_1.shape[1]):
+        targets_evec_1 = np.squeeze(target_evec_1[:, i, ...])
+        predictions_evec_1 = np.squeeze(pred_evec_1[:, i, ...])
+
+        # print("targets_evec_1 ", targets_evec_1.shape)
+        # print("predictions_evec_1 ", predictions_evec_1.shape)
+
+        squared_err_evec_1.append((targets_evec_1 - predictions_evec_1) ** 2)
+
+        # print("squared err evec 1 ", squared_err_evec_1[i])
+        # print("(targets_evec_1 - np.mean(targets_evec_1)) ** 2) ", (targets_evec_1 - np.mean(targets_evec_1)) ** 2)
+        #
+        # print("np.sum(squared_err_evec_1[i]) ", np.sum(squared_err_evec_1[i]))
+        # print("np.sum((targets_evec_1 - np.mean(targets_evec_1)) ** 2) ", np.sum((targets_evec_1 - np.mean(targets_evec_1)) ** 2))
+
+        std_tar_evec_1.append(np.std(targets_evec_1))
+        r2_evec_1.append(1 - (np.sum(squared_err_evec_1[i]) /
+                              np.sum((targets_evec_1 - np.mean(targets_evec_1)) ** 2)))
+        mse_evec_1.append(np.mean(squared_err_evec_1[i]))
+        rmse_evec_1.append(np.sqrt(mse_evec_1[i]))
+        nrmse_evec_1.append(rmse_evec_1[i] / std_tar_evec_1[i])
+
+    squared_err_evec_2 = []
+    std_tar_evec_2 = []
+    r2_evec_2 = []
+    mse_evec_2 = []
+    rmse_evec_2 = []
+    nrmse_evec_2 = []
+
+    for i in range(target_evec_2.shape[1]):
+        targets_evec_2 = np.squeeze(target_evec_2[:, i, ...])
+        predictions_evec_2 = np.squeeze(pred_evec_2[:, i, ...])
+        squared_err_evec_2.append((targets_evec_2 - predictions_evec_2) ** 2)
+        std_tar_evec_2.append(np.std(targets_evec_2))
+        r2_evec_2.append(1 - (np.sum(squared_err_evec_2[i]) /
+                              np.sum((targets_evec_2 - np.mean(targets_evec_2)) ** 2)))
+        mse_evec_2.append(np.mean(squared_err_evec_2[i]))
+        rmse_evec_2.append(np.sqrt(mse_evec_2[i]))
+        nrmse_evec_2.append(rmse_evec_2[i] / std_tar_evec_2[i])
+
+    squared_err_evec_3 = []
+    std_tar_evec_3 = []
+    r2_evec_3 = []
+    mse_evec_3 = []
+    rmse_evec_3 = []
+    nrmse_evec_3 = []
+
+    for i in range(target_evec_3.shape[1]):
+        targets_evec_3 = np.squeeze(target_evec_3[:, i, ...])
+        predictions_evec_3 = np.squeeze(pred_evec_3[:, i, ...])
+        squared_err_evec_3.append((targets_evec_3 - predictions_evec_3) ** 2)
+        std_tar_evec_3.append(np.std(targets_evec_3))
+        r2_evec_3.append(1 - (np.sum(squared_err_evec_3[i]) /
+                              np.sum((targets_evec_3 - np.mean(targets_evec_3)) ** 2)))
+        mse_evec_3.append(np.mean(squared_err_evec_3[i]))
+        rmse_evec_3.append(np.sqrt(mse_evec_3[i]))
+        nrmse_evec_3.append(rmse_evec_3[i] / std_tar_evec_3[i])
+
+    # targets = true_evec_2  # np.squeeze(targets_arr[:, i, ...])
+    # predictions = pred_evec_2  # np.squeeze(predictions_arr[:, i, ...])
+    # squared_err_evec_2 = (targets - predictions) ** 2
+    # std_tar_evec_2 = np.std(targets)
+    # r2_evec_2 = 1 - (np.sum(squared_err_evec_2) /
+    #                  np.sum((targets - np.mean(targets)) ** 2))
+    # mse_evec_2 = np.mean(squared_err_evec_2)
+    # rmse_evec_2 = np.sqrt(mse_evec_2)
+    # nrmse_evec_2 = rmse_evec_2 / std_tar_evec_2
+
+    print("EVALS: mse: {}, r2: {}, rmse: {}, nrmse: {}".format(mse_k, r2_k, rmse_k, nrmse_k))
+    print("EVEC_1: mse: {}, r2: {}, rmse: {}, nrmse: {}".format(mse_evec_1, r2_evec_1, rmse_evec_1, nrmse_evec_1))
+    print("EVEC_2: mse: {}, r2: {}, rmse: {}, nrmse: {}".format(mse_evec_2, r2_evec_2, rmse_evec_2, nrmse_evec_2))
+    print("EVEC_3: mse: {}, r2: {}, rmse: {}, nrmse: {}".format(mse_evec_3, r2_evec_3, rmse_evec_3, nrmse_evec_3))
+
+    # return mse_k, rmse_k, nrmse_k, r2_k
+
 def get_mse_nrmse_r2_eigh(targets, predictions):
     targets_arr = np.array(targets)
     predictions_arr = np.array(predictions)
+
+    #eigenvalues, eigenvectors = calculate_eigen(targets)
+    #print("eigenvalues ", eigenvalues)
 
     # print("targets arr shape", targets_arr.shape)
     # print("predictions arr shape ", predictions_arr.shape)
@@ -539,6 +787,10 @@ def get_mse_nrmse_r2_eigh(targets, predictions):
                               y_true_resized[:, 0, 1] * y_true_resized[:, 1, 0]))) / 2
 
     true_evals = np.stack([eval_1, eval_2], axis=1)
+
+    print("target eigenvalues ", true_evals)
+
+
 
     # print("pred evals ", pred_evals)
     # print("true evals ", true_evals)
@@ -1571,9 +1823,12 @@ class CorrelatedOutputLoss(nn.Module):
     def __init__(self, loss_fn_params):
         super(CorrelatedOutputLoss, self).__init__()
         # Store the inverse covariance matrix (Sigma^{-1})
+        self.covariance_matrix = None
         self.inv_cov_matrix = None #torch.linalg.inv(covariance_matrix)
 
-    def set_cov(self, dataloader):
+
+    @staticmethod
+    def calculate_cov(dataloader):
         mean_sum = None
         total_samples = 0
 
@@ -1599,7 +1854,6 @@ class CorrelatedOutputLoss(nn.Module):
             if torch.cuda.is_available():
                 outputs = outputs.cuda()
 
-
             centered_data = outputs - mean_vector  # Center the data
             batch_cov = torch.einsum('bi,bj->ij', centered_data, centered_data)  # Outer product
             if cov_sum is None:
@@ -1610,15 +1864,19 @@ class CorrelatedOutputLoss(nn.Module):
         # Final covariance matrix
         covariance_matrix = cov_sum / (total_samples - 1)
 
-        self.inv_cov_matrix = torch.linalg.inv(covariance_matrix)
+        return covariance_matrix
+
+    def set_cov(self, dataloader):
+        self.covariance_matrix = CorrelatedOutputLoss.calculate_cov(dataloader)
+        self.inv_cov_matrix = torch.linalg.inv(self.covariance_matrix)
 
         print("self. inv cov matrix ", self.inv_cov_matrix)
 
-
-
-
-
     def forward(self, predicted, target):
+
+        # get_mse_nrmse_r2_eigh_3D(target.cpu(), predicted.cpu().detach().numpy())
+        # exit()
+
         # Difference between true and predicted values
         diff = target - predicted  # Shape: (batch_size, 6)
 
@@ -1630,6 +1888,28 @@ class CorrelatedOutputLoss(nn.Module):
 
         # Return the mean Mahalanobis distance across the batch
         return mahalanobis.mean()
+
+
+# class MaxEigenValue(nn.Module):
+#     def __init__(self, weights):
+#         super(MaxEigenValue, self).__init__()
+#
+#     def forward(self, y_pred, y_true):
+#         print("y pred shape", y_pred.shape)
+#
+#         abs_values = torch.abs(y_pred - y_true)
+#
+#         tn_abs_values = voigt_to_tn(abs_values)
+#
+#         eigenvalues = torch.linalg.eigvals(tn_abs_values)
+#         print("eigenvalues ", eigenvalues)
+#         max_eigenvalues = eigenvalues.max(dim=-1).values
+#
+#         print("abs value ", abs_values.shape)
+#         print("tn abs values ", tn_abs_values.shape)
+#
+#         print("max eigenvalues ", max_eigenvalues)
+#         return torch.mean(abs_values)
 
 
 def get_loss_fn(loss_function):
@@ -1673,6 +1953,8 @@ def get_loss_fn(loss_function):
         return MSELossLargeEmphAvg(loss_fn_params)
     elif loss_fn_name == "CorrelatedOutputLoss":
         return CorrelatedOutputLoss(loss_fn_params)
+    # elif loss_fn_name == "MaxEigenValue":
+    #     return MaxEigenValue(loss_fn_params)
     # elif loss_fn_name == "CosineSimilarity":
     #     return CosineSimilarity
 
