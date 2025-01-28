@@ -314,9 +314,17 @@ def exp_data(data):
         for i in range(data.shape[0]):
             output_data[i][...] = torch.exp(data[i])
     elif len(data.shape) == 4:
-        output_data[:, 0, ...] = torch.exp(data[:, 0])
-        output_data[:, 1, ...] = data[:, 1]
-        output_data[:, 2,...] = torch.exp(data[:, 2])
+        if data.shape[1] == 6:
+            output_data[:, 0, ...] = torch.exp(data[:, 0])
+            output_data[:, 1, ...] = torch.exp(data[:, 1])
+            output_data[:, 2, ...] = torch.exp(data[:, 2])
+            output_data[:, 3, ...] = data[:, 3]
+            output_data[:, 4, ...] = data[:, 4]
+            output_data[:, 5, ...] = data[:, 5]
+        else:
+            output_data[:, 0, ...] = torch.exp(data[:, 0])
+            output_data[:, 1, ...] = data[:, 1]
+            output_data[:, 2,...] = torch.exp(data[:, 2])
     elif data.shape[0] == 6:
         output_data[0][...] = torch.exp(data[0])  # k_xx
         output_data[1][...] = torch.exp(data[1])  # k_yy
@@ -326,6 +334,8 @@ def exp_data(data):
         output_data[5][...] = data[5]  # k_xy
     else:
         raise NotImplementedError("Log transformation implemented for 2D case only")
+
+
 
     return output_data
 

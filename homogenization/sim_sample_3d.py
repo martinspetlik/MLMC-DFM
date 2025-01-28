@@ -7,7 +7,8 @@ import time
 import copy
 import torch
 import joblib
-import ruamel.yaml as yaml
+#import ruamel.yaml as yaml
+import yaml
 from typing import List
 import gstools
 from mlmc.level_simulation import LevelSimulation
@@ -19,13 +20,12 @@ import homogenization.fracture as fracture
 #from homogenization.both_sample import FlowProblem, BothSample
 #from metamodel.cnn.datasets import create_dataset
 from metamodel.cnn.postprocess.optuna_results import load_study, load_models, get_saved_model_path, get_inverse_transform, get_transform
-from metamodel.cnn.datasets.dfm_dataset import DFMDataset
+from metamodel.cnn3D.datasets.dfm3d_dataset import DFM3DDataset
 #from npy_append_array import NpyAppendArray
 import numpy.random as rnd
 from pathlib import Path
 import pyvista as pv
 from homogenization.gstools_bulk_3D import GSToolsBulk3D
-
 from bgem import stochastic
 from bgem import stochastic
 from bgem.gmsh import gmsh, options
@@ -35,7 +35,6 @@ from bgem.upscale import fem_plot, fem, voigt_to_tn, tn_to_voigt, FracturedMedia
 from bgem.upscale.homogenization import equivalent_posdef_tensor
 import decovalex_dfnmap as dmap
 from typing import *
-from bgem.upscale.fields import voigt_to_tn
 import zarr
 from bgem.upscale.voxelize import fr_conductivity
 from bgem.upscale import *
@@ -557,12 +556,13 @@ class DFMSim3D(Simulation):
         return pred_cond_tensors
 
     @staticmethod
-    def create_zarr_file(dir_path, n_samples, config_dict):
+    def create_zarr_file(dir_path, n_samples, config_dict, centers=False):
         input_shape_n_voxels = config_dict["sim_config"]["geometry"]["n_voxels"]
         input_shape_n_channels = 6  # 6 channels for cond_tn
         n_cond_tn_channels = 6  # 1 channel for cross_section
         # n_cross_section_channels = 1
         output_shape = (6,)
+        centers_shape = (3,)
 
         zarr_file_path = os.path.join(dir_path, DFMSim3D.ZARR_FILE)
 
@@ -583,6 +583,9 @@ class DFMSim3D(Simulation):
             # Create the 'outputs' dataset with the specified shape
             outputs = zarr_file.create_dataset('outputs', shape=(n_samples,) + output_shape, dtype='float32',
                                                chunks=(1, n_cond_tn_channels), fill_value=0)
+
+            bulk_avg = zarr_file.create_dataset('bulk_avg', shape=(n_samples,) + output_shape, dtype='float32',
+                                                chunks=(1, n_cond_tn_channels), fill_value=0)
             # outputs[:, :] = np.zeros((n_samples, n_cond_tn_channels))  # Populate the first 6 channels
             # outputs[:, n_cond_tn_channels] = np.random.rand(n_samples)  # Populate the last channel
 
@@ -591,8 +594,149 @@ class DFMSim3D(Simulation):
                                              'cond_tn_5']
             outputs.attrs['channel_names'] = ['cond_tn_0', 'cond_tn_1', 'cond_tn_2', 'cond_tn_3', 'cond_tn_4',
                                               'cond_tn_5']
+            bulk_avg.attrs['channel_names'] = ['cond_tn_0', 'cond_tn_1', 'cond_tn_2', 'cond_tn_3', 'cond_tn_4',
+                                               'cond_tn_5']
+
+
+            if centers:
+                centers = zarr_file.create_dataset('centers', shape=(n_samples,) + centers_shape, dtype='float32',
+                                                   chunks=(1), fill_value=0)
+                centers.attrs['channel_names'] = ['center_x', 'center_y', 'center_z']
 
         return zarr_file_path
+
+    @staticmethod
+    def predict_on_hom_sample(config, bulk_cond_values, bulk_cond_points, dfn,
+                                        fr_cond,
+                                        fem_grid_rast, centers):
+        index = 0
+        batch_size = 1
+
+        n_steps = config["sim_config"]["geometry"]["n_voxels"]
+
+        zarr_file_path = DFMSim3D.create_zarr_file(os.getcwd(), n_samples=1, config_dict=config, centers=True)
+        zarr_file = zarr.open(zarr_file_path, mode='r+')
+
+        bulk_cond_fem_rast = DFMSim3D._bulk_cond_to_rast_grid(bulk_cond_values, bulk_cond_points,
+                                                              fem_grid_rast.grid)
+
+        bulk_cond_fem_rast_voigt = tn_to_voigt(bulk_cond_fem_rast)
+        bulk_cond_fem_rast_voigt = bulk_cond_fem_rast_voigt.reshape(*n_steps,
+                                                                    bulk_cond_fem_rast_voigt.shape[-1]).T
+        if len(dfn) == 0:
+            rasterized_input = bulk_cond_fem_rast
+        else:
+            rasterized_input = DFMSim3D.rasterize(fem_grid_rast, dfn, bulk_cond=bulk_cond_fem_rast, fr_cond=fr_cond)
+
+        rasterized_input_voigt = tn_to_voigt(rasterized_input)
+
+        # print("before reshape rasterized_input_voigt ", rasterized_input_voigt)
+        # print("before reshape rasterized_input_voigt shape", rasterized_input_voigt.shape)
+
+        rasterized_input_voigt = rasterized_input_voigt.reshape(*n_steps, rasterized_input_voigt.shape[-1]).T
+
+        # print("rasterized_input_voigt[:, 0, 0, 0] ", rasterized_input_voigt[:, 0, 0, 0])
+        #
+        # print("rasterized_input_voigt ", rasterized_input_voigt)
+        # print("rasterized_input_voigt shape ", rasterized_input_voigt.shape)
+
+        zarr_file["inputs"][index, :] = rasterized_input_voigt
+        zarr_file["centers"][index, :] = centers
+
+        #print("zarr_file[inputs][index, :].shape ", zarr_file["inputs"][index, :].shape)
+
+        hom_block_bulk = bulk_cond_fem_rast_voigt
+
+        # print("hom_block_bulk shape ", hom_block_bulk.shape)
+        # print("np.mean(hom_block_bulk, axis=(1, 2, 3)) ", np.mean(hom_block_bulk, axis=(1, 2, 3)))
+
+        zarr_file["bulk_avg"][index, :] = np.mean(hom_block_bulk, axis=(1, 2, 3))
+
+        index += 1
+
+        if DFMSim3D.model is None:
+            nn_path = config["sim_config"]["nn_path"]
+            study = load_study(nn_path)
+            model_path = get_saved_model_path(nn_path, study.best_trial)
+            model_kwargs = study.best_trial.user_attrs["model_kwargs"]
+            DFMSim3D.model = study.best_trial.user_attrs["model_class"](**model_kwargs)
+            if not torch.cuda.is_available():
+                DFMSim3D.checkpoint = torch.load(model_path, map_location=torch.device('cpu'))
+            else:
+                DFMSim3D.checkpoint = torch.load(model_path)
+            DFMSim3D.inverse_transform = get_inverse_transform(study, results_dir=nn_path)
+            DFMSim3D.transform = get_transform(study, results_dir=nn_path)
+
+        ##
+        # Create dataset
+        ##
+        dataset_for_prediction = DFM3DDataset(zarr_path=zarr_file_path,
+                                              init_transform=DFMSim3D.transform[0],
+                                              input_transform=DFMSim3D.transform[1],
+                                              output_transform=DFMSim3D.transform[2],
+                                              return_centers_bulk_avg=True)
+
+        dset_prediction_loader = torch.utils.data.DataLoader(dataset_for_prediction, batch_size=batch_size,
+                                                             shuffle=False)
+        with torch.no_grad():
+            DFMSim3D.model.load_state_dict(DFMSim3D.checkpoint['best_model_state_dict'])
+            DFMSim3D.model.eval()
+
+            print(" torch.cuda.is_available() ", torch.cuda.is_available())
+
+            for i, sample in enumerate(dset_prediction_loader):
+                # print("i ", i)
+                inputs, targets, centers, bulk_features_avg = sample
+                # print("inputs ", inputs.shape)
+                # print("centers ", centers)
+                # print("bulk features avg ", bulk_features_avg)
+                inputs = inputs.float()
+                # sample_n = dataset_for_prediction._bulk_file_paths[i].split('/')[-2]
+                # center = sample_center[sample_n]
+                # print("torch.cuda.is_available() ", torch.cuda.is_available())
+                if torch.cuda.is_available():
+                    # print("cuda available")
+                    inputs = inputs.cuda()
+                    DFMSim3D.model = DFMSim3D.model.cuda()
+                predictions = DFMSim3D.model(inputs)
+                predictions = np.squeeze(predictions)
+
+
+                inv_predictions = torch.squeeze(
+                    DFMSim3D.inverse_transform(torch.reshape(predictions, (*predictions.shape, 1, 1))))
+
+                # print("inv predictions shape ", inv_predictions.shape)
+                # print("bulk_features_avg.shape ", bulk_features_avg.shape)
+                # print("inv predictions ", inv_predictions)
+
+                if dataset_for_prediction.init_transform is not None:
+                    # print("dataset_for_prediction._bulk_features_avg ", dataset_for_prediction._bulk_features_avg)
+                    if len(inv_predictions.shape) > 1:
+                        bulk_features_avg = bulk_features_avg.view(-1, 1)
+                    inv_predictions *= bulk_features_avg
+
+                # print("inv predictions scaled ", inv_predictions)
+                # return
+                # return pred_cond_tensors
+
+                # print("inv prediction shape ", inv_predictions.shape)
+
+                # pred_cond_tn = np.array([[inv_predictions[0], inv_predictions[1]],
+                #                          [inv_predictions[1], inv_predictions[2]]])
+
+                # if pred_cond_tn is not None:
+
+                # print("list(centers.numpy()) ", centers.tolist())
+                # print("type list(centers.numpy()) ", type(centers.tolist()))
+
+                # print("centers ", centers)
+                # print("centers.numpy ", centers.numpy())
+                # print("centers.numpy.shape ", centers.numpy().shape)
+                #
+                #
+                #print("inv_predictions.numpy() ", inv_predictions.numpy().shape)
+
+                return inv_predictions.numpy()
 
     @staticmethod
     def homogenization(config, dfn, bulk_cond_values, bulk_cond_points, seed=None, hom_dir_name="homogenization"):
@@ -708,170 +852,192 @@ class DFMSim3D(Simulation):
         time_measurements = []
         sample_center = {}
 
+        # bulk_cond_values = []
+        # bulk_cond_points = []
+
         fine_flow = None
 
-        zarr_file_path = DFMSim3D.create_zarr_file(sample_dir, n_samples=int(n_subdomains_per_axes**3), config_dict=config)
+        # if "nn_path" in sim_config["nn_path"]:
+        #     zarr_file_path = DFMSim3D.create_zarr_file(os.getcwd(), n_samples=int(n_subdomains_per_axes ** 3), config_dict=config)
+        #
+        #     n_steps = config["sim_config"]["geometry"]["n_voxels"]
 
-        k = 0
-        if "rasterize_at_once" in config["sim_config"] and config["sim_config"]["rasterize_at_once"]:
-            fields_file = config["sim_config"]["fields_file_to_rast"] if "fields_file_to_rast" in config["sim_config"] else "fields_fine_to_rast.msh"
-            mesh_file = config["sim_config"]["mesh_file_to_rast"] if "mesh_file_to_rast" in config["sim_config"] else "mesh_fine_to_rast.msh"
+        k = -1
+        # if "rasterize_at_once" in config["sim_config"] and config["sim_config"]["rasterize_at_once"]:
+        #     fields_file = config["sim_config"]["fields_file_to_rast"] if "fields_file_to_rast" in config["sim_config"] else "fields_fine_to_rast.msh"
+        #     mesh_file = config["sim_config"]["mesh_file_to_rast"] if "mesh_file_to_rast" in config["sim_config"] else "mesh_fine_to_rast.msh"
+        #
+        #     pred_cond_tensors = DFMSim3D.rasterize_at_once(sample_dir, dataset_path, config, n_subdomains, fractures,
+        #                                                  h_dir, seed=seed, fields_file=fields_file, mesh_file=mesh_file)
+        #     # print("pred cond tensors ", pred_cond_tensors)
+        # else:
+        #create_hom_samples_start_time = time.time()
+        for i in range(n_subdomains_per_axes):
+            center_x = subdomain_box[0] / 2 + (lx - subdomain_box[0]) / (n_subdomains_per_axes - 1) * i - lx / 2
 
-            pred_cond_tensors = DFMSim3D.rasterize_at_once(sample_dir, dataset_path, config, n_subdomains, fractures,
-                                                         h_dir, seed=seed, fields_file=fields_file, mesh_file=mesh_file)
-            # print("pred cond tensors ", pred_cond_tensors)
-        else:
-            #create_hom_samples_start_time = time.time()
-            for i in range(n_subdomains_per_axes):
-                center_x = subdomain_box[0] / 2 + (lx - subdomain_box[0]) / (n_subdomains_per_axes - 1) * i - lx / 2
+            for j in range(n_subdomains_per_axes):
+                #start_time = time.time()
 
-                for j in range(n_subdomains_per_axes):
-                    #start_time = time.time()
+                center_y = subdomain_box[1] / 2 + (ly - subdomain_box[1]) / (n_subdomains_per_axes - 1) * j - ly / 2
 
-                    center_y = subdomain_box[1] / 2 + (ly - subdomain_box[1]) / (n_subdomains_per_axes - 1) * j - ly / 2
+                for l in range(n_subdomains_per_axes):
+                    k += 1
+                    subdir_name = "i_{}_j_{}_l_{}_k_{}".format(i, j, l, k)
+                    os.mkdir(subdir_name)
+                    os.chdir(subdir_name)
 
-                    for l in range(n_subdomains_per_axes):
-                        k += 1
-                        subdir_name = "i_{}_j_{}_l_{}_k_{}".format(i, j, l, k)
-                        os.mkdir(subdir_name)
-                        os.chdir(subdir_name)
+                    hom_sample_dir = Path(os.getcwd()).absolute()
 
-                        hom_sample_dir = Path(os.getcwd()).absolute()
+                    center_z = subdomain_box[1] / 2 + (lz - subdomain_box[1]) / (n_subdomains_per_axes - 1) * l - lz / 2
 
-                        center_z = subdomain_box[1] / 2 + (lz - subdomain_box[1]) / (n_subdomains_per_axes - 1) * l - lz / 2
+                    # center_z_2 = subdomain_box[1] / 2 + (lz - subdomain_box[1]) / (
+                    #             n_subdomains_per_axes - 1) * (l+1) - lz / 2
 
-                        # center_z_2 = subdomain_box[1] / 2 + (lz - subdomain_box[1]) / (
-                        #             n_subdomains_per_axes - 1) * (l+1) - lz / 2
+                    #center_x = 0.0
+                    #center_y = -7.5
+                    #center_z = -7.5
+                    #k = 10
+                    #
+                    print("center x:{} y:{}, z:{}, k: {}".format(center_x, center_y, center_z, k))
 
-                        # center_x = 0.0
-                        # center_y = -7.5
-                        # center_z = -7.5
-                        # k = 10
-                        #
-                        print("center x:{} y:{}, z:{}, k: {}".format(center_x, center_y, center_z, k))
+                    # box_size_x = subdomain_box[0]
+                    # box_size_y = subdomain_box[1]
+                    # box_size_z = subdomain_box[2]
 
-                        # box_size_x = subdomain_box[0]
-                        # box_size_y = subdomain_box[1]
-                        # box_size_z = subdomain_box[2]
+                    #outer_cube = DFMSim3D.get_outer_cube(center_x, center_y, center_z, box_size_x, box_size_y, box_size_z)
+                    #sim_config["geometry"]["outer_cube"] = outer_cube
+                    #print("work_dir ", work_dir)
 
-                        #outer_cube = DFMSim3D.get_outer_cube(center_x, center_y, center_z, box_size_x, box_size_y, box_size_z)
-                        #sim_config["geometry"]["outer_cube"] = outer_cube
-                        #print("work_dir ", work_dir)
+                    #print("outer polygon ", outer_polygon)
+                    #print("center x:{} y:{}".format(center_x, center_y))
 
-                        #print("outer polygon ", outer_polygon)
-                        #print("center x:{} y:{}".format(center_x, center_y))
+                    #sim_config["work_dir"] = work_dir
+                    #config["homogenization"] = True
 
-                        #sim_config["work_dir"] = work_dir
-                        #config["homogenization"] = True
+                    subdomain_box_run_samples = copy.deepcopy(subdomain_box)
 
-                        subdomain_box_run_samples = copy.deepcopy(subdomain_box)
+                    while True:
+                        try:
+                            # subdomain_box_run_samples[0] += subdomain_box_run_samples[0] * 0.1
+                            # subdomain_box_run_samples[1] += subdomain_box_run_samples[1] * 0.1
+                            # subdomain_box_run_samples[2] += subdomain_box_run_samples[2] * 0.1
+                            print("center x:{} y:{}, z:{}, k: {}".format(center_x, center_y, center_z, k))
+                            #print("subdomain_box_run_samples ", subdomain_box_run_samples)
 
-                        while True:
-                            try:
-                                # subdomain_box_run_samples[0] += subdomain_box_run_samples[0] * 0.1
-                                # subdomain_box_run_samples[1] += subdomain_box_run_samples[1] * 0.1
-                                # subdomain_box_run_samples[2] += subdomain_box_run_samples[2] * 0.1
-                                print("center x:{} y:{}, z:{}, k: {}".format(center_x, center_y, center_z, k))
+                            bc_pressure_gradient = [1, 0, 0]
+                            cond_file, fr_cond = DFMSim3D._run_sample(bc_pressure_gradient, copy.deepcopy(fr_media), config, hom_sample_dir,
+                                                                      bulk_cond_values, bulk_cond_points, subdomain_box_run_samples, mesh_step=config["fine"]["step"], center=[center_x, center_y, center_z])
+                            flux_response_0 = DFMSim3D.get_flux_response()  # bc_pressure_gradient, fr_media, fem_grid, config, sample_dir,
+                            # sim_config)
 
-                                bc_pressure_gradient = [1, 0, 0]
-                                cond_file, fr_cond = DFMSim3D._run_sample(bc_pressure_gradient, copy.deepcopy(fr_media), config, hom_sample_dir,
-                                                                          bulk_cond_values, bulk_cond_points, subdomain_box_run_samples, center=[center_x, center_y, center_z])
-                                flux_response_0 = DFMSim3D.get_flux_response()  # bc_pressure_gradient, fr_media, fem_grid, config, sample_dir,
-                                # sim_config)
+                            bc_pressure_gradient = [0, 1, 0]
+                            DFMSim3D._run_sample(bc_pressure_gradient, copy.deepcopy(fr_media), config, hom_sample_dir, bulk_cond_values,
+                                                 bulk_cond_points,
+                                                 subdomain_box_run_samples, mesh_step=config["fine"]["step"], cond_file=cond_file, center=[center_x, center_y, center_z])
+                            flux_response_1 = DFMSim3D.get_flux_response()  # bc_pressure_gradient, fr_media, fem_grid, config, sample_dir,
+                            # sim_config)
 
-                                bc_pressure_gradient = [0, 1, 0]
-                                DFMSim3D._run_sample(bc_pressure_gradient, copy.deepcopy(fr_media), config, hom_sample_dir, bulk_cond_values,
-                                                     bulk_cond_points,
-                                                     subdomain_box_run_samples, cond_file=cond_file, center=[center_x, center_y, center_z])
-                                flux_response_1 = DFMSim3D.get_flux_response()  # bc_pressure_gradient, fr_media, fem_grid, config, sample_dir,
-                                # sim_config)
+                            bc_pressure_gradient = [0, 0, 1]
+                            DFMSim3D._run_sample(bc_pressure_gradient, copy.deepcopy(fr_media), config, hom_sample_dir, bulk_cond_values,
+                                                 bulk_cond_points,
+                                                 subdomain_box_run_samples,  mesh_step=config["fine"]["step"], cond_file=cond_file, center=[center_x, center_y, center_z])
 
-                                bc_pressure_gradient = [0, 0, 1]
-                                DFMSim3D._run_sample(bc_pressure_gradient, copy.deepcopy(fr_media), config, hom_sample_dir, bulk_cond_values,
-                                                     bulk_cond_points,
-                                                     subdomain_box_run_samples, cond_file=cond_file, center=[center_x, center_y, center_z])
+                            flux_response_2 = DFMSim3D.get_flux_response()  # bc_pressure_gradient, fr_media, fem_grid, config, sample_dir,
+                            # sim_config)
 
-                                flux_response_2 = DFMSim3D.get_flux_response()  # bc_pressure_gradient, fr_media, fem_grid, config, sample_dir,
-                                # sim_config)
+                            bc_pressure_gradients = np.stack(([1, 0, 0], [0, 1, 0], [0, 0, 1]), axis=0)
+                            flux_responses = np.squeeze(
+                                np.stack((flux_response_0, flux_response_1, flux_response_2), axis=0))
 
-                                bc_pressure_gradients = np.stack(([1, 0, 0], [0, 1, 0], [0, 0, 1]), axis=0)
-                                flux_responses = np.squeeze(
-                                    np.stack((flux_response_0, flux_response_1, flux_response_2), axis=0))
+                            # exit()
+                            break
+
+                        except:
+                            # subdomain_box_run_samples[0] += subdomain_box_run_samples[0] * 0.05
+                            # subdomain_box_run_samples[1] += subdomain_box_run_samples[1] * 0.05
+                            # subdomain_box_run_samples[2] += subdomain_box_run_samples[2] * 0.05
+                            #
+                            current_dir = os.getcwd()
+                            center_x += center_x * 0.05
+                            center_y += center_y * 0.05
+                            center_z += center_z * 0.05
+
+                            # Loop through the files in the directory and delete them
+                            # for filename in os.listdir(current_dir):
+                            #     file_path = os.path.join(current_dir, filename)
+                            #
+                            #     # Check if it's a file and delete it
+                            #     if os.path.isfile(file_path):
+                            #         os.remove(file_path)
+                            #         print(f"Deleted: {file_path}")
+
+                    equivalent_cond_tn_voigt = equivalent_posdef_tensor(np.array(bc_pressure_gradients),
+                                                                        flux_responses)
+
+                    # print("equivalent_cond_tn_voigt ", equivalent_cond_tn_voigt)
+
+                    equivalent_cond_tn = voigt_to_tn(np.array([equivalent_cond_tn_voigt]))  # np.zeros((3, 3))
+                    #print("equivalent cond tn ", equivalent_cond_tn)
+                    # evals, evecs = np.linalg.eigh(equivalent_cond_tn)
+                    # print("evals equivalent cond tn ", evals)
+                    # assert np.all(evals) > 0
+
+                    cond_tensors[(center_x, center_y, center_z)] = equivalent_cond_tn
 
 
-
-                                # exit()
-                                break
-
-                            except:
-                                # subdomain_box_run_samples[0] += subdomain_box_run_samples[0] * 0.05
-                                # subdomain_box_run_samples[1] += subdomain_box_run_samples[1] * 0.05
-                                # subdomain_box_run_samples[2] += subdomain_box_run_samples[2] * 0.05
-                                #
-                                current_dir = os.getcwd()
-                                center_x += center_x * 0.05
-                                center_y += center_y * 0.05
-                                center_z += center_z * 0.05
-
-
-                                # Loop through the files in the directory and delete them
-                                for filename in os.listdir(current_dir):
-                                    file_path = os.path.join(current_dir, filename)
-
-                                    # Check if it's a file and delete it
-                                    if os.path.isfile(file_path):
-                                        os.remove(file_path)
-                                        print(f"Deleted: {file_path}")
-
-                        equivalent_cond_tn_voigt = equivalent_posdef_tensor(np.array(bc_pressure_gradients),
-                                                                            flux_responses)
-
-                        # print("equivalent_cond_tn_voigt ", equivalent_cond_tn_voigt)
-
-                        equivalent_cond_tn = voigt_to_tn(np.array([equivalent_cond_tn_voigt]))  # np.zeros((3, 3))
-                        print("equivalent cond tn ", equivalent_cond_tn)
-                        evals, evecs = np.linalg.eigh(equivalent_cond_tn)
-                        print("evals equivalent cond tn ", evals)
-                        assert np.all(evals) > 0
-
+                    try:
                         fem_grid_rast = fem.fem_grid(15, config["sim_config"]["geometry"]["n_voxels"], fem.Fe.Q(dim=3), origin=[center_x-subdomain_box[0]/2, center_y-subdomain_box[0]/2, center_z-subdomain_box[0]/2])
 
-                        print("fem_grid_rast.grid ", fem_grid_rast.grid)
-                        print("fem_grid_rast.grid center ", fem_grid_rast.grid.grid_center())
+                        equivalent_cond_tn_predictions = DFMSim3D.predict_on_hom_sample(config, bulk_cond_values, bulk_cond_points, dfn, fr_cond,
+                                                       fem_grid_rast, (center_x, center_y, center_z))
 
-                        # bulk_cond_fem_rast = DFMSim3D._bulk_cond_to_rast_grid(bulk_cond_values, bulk_cond_points,
-                        #                                                       fem_grid_rast.grid)
-
-                        #rasterized_input = DFMSim3D.rasterize(fem_grid_rast, dfn, bulk_cond=bulk_cond_fem_rast,
-                        #                                      fr_cond=fr_cond)
-
-                        #rasterized_input_voigt = tn_to_voigt(rasterized_input)
-                        #rasterized_input_voigt = rasterized_input_voigt.reshape(*config["sim_config"]["geometry"]["n_voxels"],
-                        #                                                        rasterized_input_voigt.shape[-1]).T
-
-                        fine_res = np.squeeze(equivalent_cond_tn_voigt)
-
-                        DFMSim3D.rasterize_save_to_zarr(zarr_file_path, config, k, fine_res, bulk_cond_values,
-                                                        bulk_cond_points, dfn, fr_cond,
-                                                        fem_grid_rast, n_steps=config["sim_config"]["geometry"]["n_voxels"])
-
-                        #np.save("equivalent_cond_tn", equivalent_cond_tn)
-                        #np.savez_compressed("rasterized_input_voigt ", rasterized_input_voigt)
-
-                        # if os.path.exists(zarr_file_path):
-                        #     zarr_file = zarr.open(zarr_file_path, mode='r+')
-                        #
-                        #     zarr_file["inputs"][k, ...] = rasterized_input_voigt
-                        #     zarr_file["outputs"][k, :] = fine_res
-
-                        os.chdir(h_dir)
+                        pred_cond_tensors[(center_x, center_y, center_z)] = equivalent_cond_tn_predictions
+                    except:
+                        continue
 
 
+                    # print("equivalent_cond_tn ", tn_to_voigt(equivalent_cond_tn))
+                    # print("equivalent_cond_tn_predictions ", equivalent_cond_tn_predictions)
+                    # exit()
+
+                    #print("fem_grid_rast.grid ", fem_grid_rast.grid)
+                    #print("fem_grid_rast.grid center ", fem_grid_rast.grid.grid_center())
+
+                    # bulk_cond_fem_rast = DFMSim3D._bulk_cond_to_rast_grid(bulk_cond_values, bulk_cond_points,
+                    #                                                       fem_grid_rast.grid)
+
+                    #rasterized_input = DFMSim3D.rasterize(fem_grid_rast, dfn, bulk_cond=bulk_cond_fem_rast,
+                    #                                      fr_cond=fr_cond)
+
+                    #rasterized_input_voigt = tn_to_voigt(rasterized_input)
+                    #rasterized_input_voigt = rasterized_input_voigt.reshape(*config["sim_config"]["geometry"]["n_voxels"],
+                    #                                                        rasterized_input_voigt.shape[-1]).T
+
+                    # fine_res = np.squeeze(equivalent_cond_tn_voigt)
+                    #
+                    # DFMSim3D.rasterize_save_to_zarr(zarr_file_path, config, k, fine_res, bulk_cond_values,
+                    #                                 bulk_cond_points, dfn, fr_cond,
+                    #                                 fem_grid_rast, n_steps=config["sim_config"]["geometry"]["n_voxels"])
+
+                    #np.save("equivalent_cond_tn", equivalent_cond_tn)
+                    #np.savez_compressed("rasterized_input_voigt ", rasterized_input_voigt)
+
+                    # if os.path.exists(zarr_file_path):
+                    #     zarr_file = zarr.open(zarr_file_path, mode='r+')
+                    #
+                    #     zarr_file["inputs"][k, ...] = rasterized_input_voigt
+                    #     zarr_file["outputs"][k, :] = fine_res
+
+                    os.chdir(h_dir)
 
         try:
             shutil.move(h_dir, sample_dir)
         except:
             pass
+
+        os.chdir(sample_dir)
+
+        return cond_tensors, pred_cond_tensors
 
     @staticmethod
     def _remove_files():
@@ -966,13 +1132,16 @@ class DFMSim3D(Simulation):
         region_map = {}
         for i, fr in enumerate(fractures):
             shape = base_shape.copy()
-            #print("fr: ", i, "tag: ", shape.dim_tags, "fr.r: ", fr.r)
+
+            #print("fr: ", i, "tag: ", shape.dim_tags, "fr.r: ", fr.r, "fr.rx: ", fr.rx, "fr.ry: ", fr.ry)
             region_name = f"fam_{fr.family}_{i:03d}"
             shape = shape.scale([fr.rx, fr.ry, 1]) \
                 .rotate(axis=[0, 0, 1], angle=fr.shape_angle) \
                 .rotate(axis=fr.rotation_axis, angle=fr.rotation_angle) \
                 .translate(fr.center + shift) \
                 .set_region(region_name)
+
+
             region_map[region_name] = i
             shapes.append(shape)
 
@@ -1028,7 +1197,7 @@ class DFMSim3D(Simulation):
 
         mesh_file = work_dir / (factory.model_name + ".msh2")
 
-        print("mesh file name ", mesh_file)
+        #print("mesh file name ", mesh_file)
         factory.write_mesh(str(mesh_file), format=gmsh.MeshFormat.msh2)
         return mesh_file, fr_region_map
 
@@ -1130,7 +1299,7 @@ class DFMSim3D(Simulation):
             flow_out = call_flow(flow_cfg, f_template, flow_cfg)
 
         # Project to target grid
-        print(flow_out)
+        #print(flow_out)
         # vel_p0 = velocity_p0(target_grid, flow_out)
         # projection of fields
         return flow_out
@@ -1301,6 +1470,8 @@ class DFMSim3D(Simulation):
             return np.linalg.norm(np.cross(nodes[1] - nodes[0], nodes[2] - nodes[0]))
         elif len(nodes) == 4:
 
+            #print("nodes ", nodes)
+
             AB = nodes[1] - nodes[0]
             AC = nodes[2] - nodes[0]
             AD = nodes[3] - nodes[0]
@@ -1314,10 +1485,58 @@ class DFMSim3D(Simulation):
             # The volume is 1/6 of the absolute value of the dot product
             volume = abs(dot_product) / 6.0
 
+            #print("volume ", volume)
+
             return volume
 
         else:
             assert False
+
+    @staticmethod
+    def get_outflow(sample_dir):
+        # extract the flux
+        balance_file = os.path.join(sample_dir, "water_balance.yaml")
+
+        print("balance file ", balance_file)
+
+        #balance_file = "/home/martin/Documents/MLMC-DFM/test/01_cond_field/test.yaml"
+        # try:
+        #
+        # except yaml.YAMLError as e:
+        #     print(f"YAML parsing error: {e}")
+        # except Exception as e:
+        #     print(f"Unexpected error: {e}")
+
+        with open(balance_file, "r") as f:
+            balance = yaml.safe_load(f)
+            print("balance ", balance)
+
+        flux_regions = ['.IMPLICIT_BOUNDARY']#['.side_2']
+        total_flux = 0.0
+        found = False
+
+        print("found ", found)
+        for flux_item in balance['data']:
+            if flux_item['time'] > 0:
+                break
+
+            if flux_item['region'] in flux_regions:
+                flux = float(flux_item['data'][0])
+                flux_in = float(flux_item['data'][1])
+                flux_out = float(flux_item['data'][2])
+                # if flux_in > 1e-10:
+                #    raise Exception("Possitive inflow at outlet region.")
+                total_flux += flux_out  # flux field
+                found = True
+
+        # Get flow123d computing time
+        # run_time = FlowSim.get_run_time(sample_dir)
+
+        print("found ", found)
+
+        if not found:
+            raise Exception
+        return np.array([-total_flux])
 
 
     @staticmethod
@@ -1338,6 +1557,8 @@ class DFMSim3D(Simulation):
 
         ele_reg_vol = {eid: (tags[0] - 10000, DFMSim3D.element_volume(out_mesh, nodes))
                        for eid, (tele, tags, nodes) in out_mesh.elements.items()}
+
+        #print("ele reg vol ", ele_reg_vol)
 
         velocity_field = out_mesh.element_data['velocity_p0']
 
@@ -1492,6 +1713,24 @@ class DFMSim3D(Simulation):
             dfn = DFMSim3D.fracture_random_set(sample_seed, fr_range, sim_config["work_dir"], max_frac=geom["n_frac_limit"])
             dfn_to_homogenization = []
 
+            fr_rad_values = []
+            total_area = 0
+            total_excluded_volume = []
+            for fr in dfn:
+                # fr.r should be a radius of inscribed circle
+                print("fr.r ", fr.r)
+                #print("fr.R", fr.R)
+                total_area += 4 * fr.r ** 2
+                #total_excluded_volume.append(32/3 * np.pi * fr.r ** 3)
+                total_excluded_volume.append(4*np.sqrt(2) * fr.r ** 3)
+                fr_rad_values.append(fr.radius[0] * (fr.radius[1] ** 2) + (fr.radius[0] ** 2) * fr.radius[1])
+
+            print("Whole sample mean fr rad values ", np.mean(fr_rad_values))
+            rho_3D = (np.pi ** 2) / 2 * np.mean(fr_rad_values) * (len(dfn) / fr_range[1] ** 3)
+            rho_3D_new = np.mean(total_excluded_volume) * len(dfn) / fr_range[1] ** 3
+            print("orig DFN rho_3D ", rho_3D)
+            print("orig DFN rho_3D_new ", rho_3D_new)
+
             for fr in dfn:
                 #print("fr.r ", fr.r)
                 if fr.r <= coarse_step:
@@ -1505,6 +1744,20 @@ class DFMSim3D(Simulation):
         ########################
         ########################
 
+        total_area = 0
+        fr_rad_values = []
+        for fr in dfn:
+            fr_rad_values.append(fr.radius[0] * (fr.radius[1] ** 2) + (fr.radius[0] ** 2) * fr.radius[1])
+            total_area += (fr.radius[0] * fr.radius[1])
+
+        print("total area ", total_area)
+        #print("dfn.area ", dfn.area)
+
+        print("Whole sample mean fr rad values ", np.mean(fr_rad_values))
+        rho_3D = np.pi ** 2 / 2 * np.mean(fr_rad_values) * (len(dfn) / fr_range[1] ** 3)
+        print("DFN to homogenization rho_3D ", rho_3D)
+
+        # exit()
         # steps = (int(fine_step), int(fine_step), int(fine_step))
 
         # n_steps_coef = 1.5
@@ -1532,6 +1785,8 @@ class DFMSim3D(Simulation):
 
         #n_steps_cond_grid = (2,2,2)
 
+        print("n steps cond grid ", n_steps_cond_grid)
+
         fem_grid_cond = fem.fem_grid(fem_grid_cond_domain_size, n_steps_cond_grid, fem.Fe.Q(dim=3),
                                      origin=-fem_grid_cond_domain_size / 2)  # 27 cells
         fem_grid_rast = fem.fem_grid(domain_size, n_steps, fem.Fe.Q(dim=3),
@@ -1542,6 +1797,10 @@ class DFMSim3D(Simulation):
         ## Bulk conductivity ##
         #######################
         bulk_cond_values, bulk_cond_points = DFMSim3D.generate_grid_cond(fem_grid_cond, config, seed=sample_seed)
+
+        print("bulk cond values shape ", bulk_cond_values.shape)
+        print("bulk cond points shaoe ", bulk_cond_points.shape)
+
 
         # grid_cond = DFMSim3D.homo_decovalex(fr_media, fem_grid.grid)
         # grid_cond = grid_cond.reshape(*n_steps, grid_cond.shape[-1])
@@ -1571,19 +1830,19 @@ class DFMSim3D(Simulation):
 
         bc_pressure_gradient = [1, 0, 0]
         cond_file, fr_cond = DFMSim3D._run_sample(bc_pressure_gradient, fr_media, config, sample_dir, bulk_cond_values,
-                                                  bulk_cond_points, dimensions)
+                                                  bulk_cond_points, dimensions,  mesh_step=config["fine"]["step"])
         flux_response_0 = DFMSim3D.get_flux_response()  # bc_pressure_gradient, fr_media, fem_grid, config, sample_dir,
         # sim_config)
 
         bc_pressure_gradient = [0, 1, 0]
         DFMSim3D._run_sample(bc_pressure_gradient, fr_media, config, sample_dir, bulk_cond_values, bulk_cond_points,
-                             dimensions, cond_file=cond_file)
+                             dimensions, cond_file=cond_file,  mesh_step=config["fine"]["step"])
         flux_response_1 = DFMSim3D.get_flux_response()  # bc_pressure_gradient, fr_media, fem_grid, config, sample_dir,
         # sim_config)
 
         bc_pressure_gradient = [0, 0, 1]
         DFMSim3D._run_sample(bc_pressure_gradient, fr_media, config, sample_dir, bulk_cond_values, bulk_cond_points,
-                             dimensions, cond_file=cond_file)
+                             dimensions, cond_file=cond_file, mesh_step=config["fine"]["step"])
         flux_response_2 = DFMSim3D.get_flux_response()  # bc_pressure_gradient, fr_media, fem_grid, config, sample_dir,
         # sim_config)
 
@@ -1614,7 +1873,6 @@ class DFMSim3D(Simulation):
         # print("flux_responses ", flux_responses)
 
         equivalent_cond_tn_voigt = equivalent_posdef_tensor(np.array(bc_pressure_gradients), flux_responses)
-
         # print("equivalent_cond_tn_voigt ", equivalent_cond_tn_voigt)
 
         equivalent_cond_tn = voigt_to_tn(np.array([equivalent_cond_tn_voigt]))  # np.zeros((3, 3))
@@ -1633,9 +1891,9 @@ class DFMSim3D(Simulation):
 
         fine_res = np.squeeze(equivalent_cond_tn_voigt)
 
-        #print("fine res shape ", fine_res.shape)
+        print("fine res", fine_res)
 
-        DFMSim3D._remove_files()
+        #DFMSim3D._remove_files()
 
         gen_hom_samples = False
         if "generate_hom_samples" in config["sim_config"] and config["sim_config"]["generate_hom_samples"]:
@@ -1662,8 +1920,8 @@ class DFMSim3D(Simulation):
         #######################
         # Shape of the data
         zarr_file_path = os.path.join(config["fine"]["common_files_dir"], DFMSim3D.ZARR_FILE)
-        DFMSim3D.rasterize_save_to_zarr(zarr_file_path, config, sample_idx, fine_res, bulk_cond_values, bulk_cond_points, dfn, fr_cond,
-                               fem_grid_rast, n_steps)
+        DFMSim3D.rasterize_save_to_zarr(zarr_file_path, config, sample_idx, bulk_cond_values, bulk_cond_points, dfn, fr_cond,
+                               fem_grid_rast, n_steps, fine_res)
 
         # zarr_file_path = os.path.join(config["fine"]["common_files_dir"], DFMSim3D.ZARR_FILE)
         # if os.path.exists(zarr_file_path):
@@ -1686,7 +1944,7 @@ class DFMSim3D(Simulation):
         return fine_res, coarse_res
 
     @staticmethod
-    def rasterize_save_to_zarr(zarr_file_path, config, sample_idx, fine_res, bulk_cond_values, bulk_cond_points, dfn, fr_cond, fem_grid_rast, n_steps):
+    def rasterize_save_to_zarr(zarr_file_path, config, sample_idx, bulk_cond_values, bulk_cond_points, dfn, fr_cond, fem_grid_rast, n_steps, fine_res=None):
         if os.path.exists(zarr_file_path):
             zarr_file = zarr.open(zarr_file_path, mode='r+')
             # Write data to the specified slice or index
@@ -1706,7 +1964,8 @@ class DFMSim3D(Simulation):
 
             zarr_file["inputs"][sample_idx, ...] = rasterized_input_voigt
             zarr_file["bulk_avg"][sample_idx, :] = np.mean(tn_to_voigt(bulk_cond_fem_rast), axis=0)
-            zarr_file["outputs"][sample_idx, :] = fine_res
+            if fine_res is not None:
+                zarr_file["outputs"][sample_idx, :] = fine_res
 
     @staticmethod
     def _bulk_cond_to_rast_grid(bulk_cond_values, bulk_cond_points, grid_rast):
@@ -1726,7 +1985,296 @@ class DFMSim3D(Simulation):
         else:
             return geometry["subdomain_box"], 4, 4
 
-        return [hom_box_size, hom_box_size, hom_box_size], int(n_centers), int(n_total_centers)
+        return [hom_box_size, hom_box_size, hom_box_size], int(n_centers+1), int(n_total_centers)
+
+    @staticmethod
+    def get_equivalent_cond_tn(fr_media, config, sample_dir, bulk_cond_values, bulk_cond_points, dimensions, mesh_step):
+        bc_pressure_gradient = [1, 0, 0]
+        cond_file, fr_cond = DFMSim3D._run_sample(bc_pressure_gradient, fr_media, config, sample_dir, bulk_cond_values,
+                                                  bulk_cond_points, dimensions, mesh_step)
+        flux_response_0 = DFMSim3D.get_flux_response()  # bc_pressure_gradient, fr_media, fem_grid, config, sample_dir,
+        # sim_config)
+
+        bc_pressure_gradient = [0, 1, 0]
+        DFMSim3D._run_sample(bc_pressure_gradient, fr_media, config, sample_dir, bulk_cond_values, bulk_cond_points,
+                             dimensions, mesh_step=mesh_step, cond_file=cond_file)
+        flux_response_1 = DFMSim3D.get_flux_response()  # bc_pressure_gradient, fr_media, fem_grid, config, sample_dir,
+        # sim_config)
+
+        bc_pressure_gradient = [0, 0, 1]
+        DFMSim3D._run_sample(bc_pressure_gradient, fr_media, config, sample_dir, bulk_cond_values, bulk_cond_points,
+                             dimensions, mesh_step=mesh_step, cond_file=cond_file)
+        flux_response_2 = DFMSim3D.get_flux_response()  # bc_pressure_gradient, fr_media, fem_grid, config, sample_dir,
+        # sim_config)
+
+        # print("flux response ", flux_response_0)
+
+        bc_pressure_gradients = np.stack(([1, 0, 0], [0, 1, 0], [0, 0, 1]), axis=0)
+        flux_responses = np.squeeze(np.stack((flux_response_0, flux_response_1, flux_response_2), axis=0))
+
+        equivalent_cond_tn_voigt = equivalent_posdef_tensor(np.array(bc_pressure_gradients), flux_responses)
+
+        # print("equivalent_cond_tn_voigt ", equivalent_cond_tn_voigt)
+
+        #equivalent_cond_tn = voigt_to_tn(np.array([equivalent_cond_tn_voigt]))  # np.zeros((3, 3))
+
+        return equivalent_cond_tn_voigt, fr_cond
+
+    @staticmethod
+    def rasterize_at_once_zarr(config, dfn_to_homogenization, bulk_cond_values, bulk_cond_points, fem_grid_rast, n_subdomains_per_axes):
+        zarr_file_path = DFMSim3D.create_zarr_file(os.getcwd(), n_samples=int(n_subdomains_per_axes ** 3), config_dict=config, centers=True)
+        #n_steps = config["sim_config"]["geometry"]["n_voxels"]
+
+        #@TODO: Take average bulk into account
+
+        fem_grid_n_steps = fem_grid_rast.grid.shape
+        #print("fem_grid_n_steps ", fem_grid_n_steps)
+
+        bulk_cond_fem_rast = DFMSim3D._bulk_cond_to_rast_grid(bulk_cond_values, bulk_cond_points,
+                                                              fem_grid_rast.grid)
+
+        fr_cond, fr_cross_section = [], []
+        if len(dfn_to_homogenization) > 0:
+            fr_cross_section, fr_cond = fr_conductivity(dfn_to_homogenization, cross_section_factor=1e-4)
+
+        bulk_cond_fem_rast_voigt = tn_to_voigt(bulk_cond_fem_rast)
+        bulk_cond_fem_rast_voigt = bulk_cond_fem_rast_voigt.reshape(*fem_grid_n_steps, bulk_cond_fem_rast_voigt.shape[-1]).T
+        #print("bulk cond fem rast ", bulk_cond_fem_rast.shape)
+
+        if len(dfn_to_homogenization) == 0:
+            rasterized_input = bulk_cond_fem_rast
+        else:
+            rasterized_input = DFMSim3D.rasterize(fem_grid_rast, dfn_to_homogenization, bulk_cond=bulk_cond_fem_rast,
+                                                  fr_cond=fr_cond)
+
+        rasterized_input_voigt = tn_to_voigt(rasterized_input)
+
+        rasterized_input_voigt = rasterized_input_voigt.reshape(*fem_grid_n_steps, rasterized_input_voigt.shape[-1]).T
+
+        #print("rasterized input voigt ", rasterized_input_voigt.shape)
+
+        domain_box = config["sim_config"]["geometry"]["orig_domain_box"]
+        subdomain_box = config["sim_config"]["geometry"]["subdomain_box"]
+        subdomain_pixel_size = 64
+        pixel_stride = subdomain_pixel_size // 2
+
+        lx, ly, lz = domain_box
+        lx += subdomain_box[0]
+        ly += subdomain_box[1]
+        lz += subdomain_box[2]
+
+        batch_size = 5
+
+        C, H, W, D = rasterized_input_voigt.shape
+
+        # Calculate the number of subdomains in each dimension
+        num_subdomains_x = (H - subdomain_pixel_size) // pixel_stride + 1
+        num_subdomains_y = (W - subdomain_pixel_size) // pixel_stride + 1
+        num_subdomains_z = (D - subdomain_pixel_size) // pixel_stride + 1
+
+        index = 0
+        dict_centers = []
+        dict_cond_tn_values = []
+
+        zarr_file = zarr.open(zarr_file_path, mode='r+')
+        for i in range(num_subdomains_x):
+            center_x = subdomain_box[0] / 2 + (lx - subdomain_box[0]) / (n_subdomains_per_axes - 1) * i - lx / 2
+
+            for j in range(num_subdomains_y):
+                #start_time = time.time()
+
+                center_y = subdomain_box[1] / 2 + (ly - subdomain_box[1]) / (n_subdomains_per_axes - 1) * j - ly / 2
+
+                for l in range(num_subdomains_z):
+
+                    #subdir_name = "i_{}_j_{}_l_{}_k_{}".format(i, j, l, k)
+                    #os.mkdir(subdir_name)
+                    #os.chdir(subdir_name)
+
+                    #hom_sample_dir = Path(os.getcwd()).absolute()
+
+                    center_z = subdomain_box[1] / 2 + (lz - subdomain_box[1]) / (n_subdomains_per_axes - 1) * l - lz / 2
+
+                    # center_z_2 = subdomain_box[1] / 2 + (lz - subdomain_box[1]) / (
+                    #             n_subdomains_per_axes - 1) * (l+1) - lz / 2
+
+                    #center_x = 0.0
+                    #center_y = -7.5
+                    #center_z = -7.5
+                    #k = 10
+                    #
+
+                    zarr_file["centers"][index, :] = (center_x, center_y, center_z)
+
+                    zarr_file["inputs"][index, :] = rasterized_input_voigt[:,
+                                                    i * pixel_stride: i * pixel_stride + subdomain_pixel_size,
+                                                    j * pixel_stride: j * pixel_stride + subdomain_pixel_size,
+                                                    l * pixel_stride: l * pixel_stride + subdomain_pixel_size]
+
+
+                    # if index == 0:
+                    #     print("center x:{} y:{}, z:{}, k: {}".format(center_x, center_y, center_z, index))
+                    #     # print("rasterized_input_voigt[:,] ", rasterized_input_voigt[:,
+                    #     #                             i * pixel_stride: i * pixel_stride + subdomain_pixel_size,
+                    #     #                             j * pixel_stride: j * pixel_stride + subdomain_pixel_size,
+                    #     #                             l * pixel_stride: l * pixel_stride + subdomain_pixel_size])
+                    #
+                    #     print("rasterized_input_voigt[:, 0, 0, 0] ", rasterized_input_voigt[:, 0, 0, 0])
+
+
+
+                    #print("i * pixel_stride: {}, i * pixel_stride + subdomain_pixel_size: {}".format(i * pixel_stride, i * pixel_stride + subdomain_pixel_size))
+
+                    #print("zarr_file[inputs][index, :].shape ", zarr_file["inputs"][index, :].shape)
+
+
+                    hom_block_bulk = bulk_cond_fem_rast_voigt[:,
+                                     i * pixel_stride: i * pixel_stride + subdomain_pixel_size,
+                                     j * pixel_stride: j * pixel_stride + subdomain_pixel_size,
+                                     l * pixel_stride: l * pixel_stride + subdomain_pixel_size]
+
+                    #print("hom_block_bulk shape ", hom_block_bulk.shape)
+                    #print("np.mean(hom_block_bulk, axis=(1, 2, 3)) ", np.mean(hom_block_bulk, axis=(1, 2, 3)))
+
+                    zarr_file["bulk_avg"][index, :] = np.mean(hom_block_bulk, axis=(1, 2, 3))
+                    index += 1
+
+        if DFMSim3D.model is None:
+            nn_path = config["sim_config"]["nn_path"]
+            study = load_study(nn_path)
+            model_path = get_saved_model_path(nn_path, study.best_trial)
+            model_kwargs = study.best_trial.user_attrs["model_kwargs"]
+            DFMSim3D.model = study.best_trial.user_attrs["model_class"](**model_kwargs)
+            if not torch.cuda.is_available():
+                DFMSim3D.checkpoint = torch.load(model_path, map_location=torch.device('cpu'))
+            else:
+                DFMSim3D.checkpoint = torch.load(model_path)
+            DFMSim3D.inverse_transform = get_inverse_transform(study, results_dir=nn_path)
+            DFMSim3D.transform = get_transform(study, results_dir=nn_path)
+
+        ##
+        # Create dataset
+        ##
+        dataset_for_prediction = DFM3DDataset(zarr_path=zarr_file_path,
+                                                init_transform=DFMSim3D.transform[0],
+                                                input_transform=DFMSim3D.transform[1],
+                                                output_transform=DFMSim3D.transform[2],
+                                              return_centers_bulk_avg=True)
+
+        dset_prediction_loader = torch.utils.data.DataLoader(dataset_for_prediction, batch_size=batch_size,
+                                                             shuffle=False)
+        with torch.no_grad():
+            DFMSim3D.model.load_state_dict(DFMSim3D.checkpoint['best_model_state_dict'])
+            DFMSim3D.model.eval()
+
+            #print(" torch.cuda.is_available() ", torch.cuda.is_available())
+
+            for i, sample in enumerate(dset_prediction_loader):
+                # print("i ", i)
+                inputs, targets, centers, bulk_features_avg = sample
+                # print("inputs ", inputs.shape)
+                # print("centers ", centers)
+                #print("bulk features avg ", bulk_features_avg)
+                inputs = inputs.float()
+                # sample_n = dataset_for_prediction._bulk_file_paths[i].split('/')[-2]
+                # center = sample_center[sample_n]
+                # print("torch.cuda.is_available() ", torch.cuda.is_available())
+                if torch.cuda.is_available():
+                    # print("cuda available")
+                    inputs = inputs.cuda()
+                    DFMSim3D.model = DFMSim3D.model.cuda()
+                predictions = DFMSim3D.model(inputs)
+                predictions = np.squeeze(predictions)
+
+                #print("dset_prediction_loader ", dset_prediction_loader._bulk_features_avg)
+
+                #print("zarr predictions ", predictions)
+                #print("torch.reshape(predictions, (*predictions.shape, 1, 1))) ", torch.reshape(predictions, (*predictions.shape, 1, 1)).shape)
+
+                # if np.any(predictions < 0):
+                #     print("inputs ", inputs)
+                #     print("negative predictions ", predictions)
+
+                inv_predictions = torch.squeeze(
+                    DFMSim3D.inverse_transform(torch.reshape(predictions, (*predictions.shape, 1, 1))))
+
+                # print("inv predictions shape ", inv_predictions.shape)
+                # print("bulk_features_avg.shape ", bulk_features_avg.shape)
+                #print("inv predictions ", inv_predictions)
+
+                if dataset_for_prediction.init_transform is not None:
+                    # print("dataset_for_prediction._bulk_features_avg ", dataset_for_prediction._bulk_features_avg)
+                    if len(inv_predictions.shape) > 1:
+                        bulk_features_avg = bulk_features_avg.view(-1, 1)
+
+                    # print("bulk_features_avg ", bulk_features_avg)
+                    # print("inv predictions ", inv_predictions)
+
+                    inv_predictions *= bulk_features_avg
+
+                # print("inv predictions scaled ", inv_predictions)
+                # exit()
+                # return
+                # return pred_cond_tensors
+
+                # print("inv prediction shape ", inv_predictions.shape)
+
+                # pred_cond_tn = np.array([[inv_predictions[0], inv_predictions[1]],
+                #                          [inv_predictions[1], inv_predictions[2]]])
+
+                # if pred_cond_tn is not None:
+
+                # print("list(centers.numpy()) ", centers.tolist())
+                # print("type list(centers.numpy()) ", type(centers.tolist()))
+
+                # print("centers ", centers)
+                # print("centers.numpy ", centers.numpy())
+                # print("centers.numpy.shape ", centers.numpy().shape)
+                #
+                #
+                print("inv_predictions.numpy() ", inv_predictions.numpy().shape)
+                # print("len(inv_predictions.numpy().shape) ", len(inv_predictions.numpy().shape))
+
+                inv_predictions_numpy = inv_predictions.numpy()
+
+                print("len(inv_predictions_numpy.shape) ", len(inv_predictions_numpy.shape))
+                if len(inv_predictions_numpy.shape) == 1:
+                    inv_predictions_numpy = np.expand_dims(inv_predictions_numpy, axis=0)
+
+                print("voigt_to_tn(inv_predictions_numpy) ", voigt_to_tn(inv_predictions_numpy))
+
+                if len(inv_predictions.numpy().shape) == 1:
+                    dict_cond_tn_values.extend([list(voigt_to_tn(inv_predictions_numpy))])
+                else:
+                    dict_cond_tn_values.extend(list(voigt_to_tn(inv_predictions_numpy)))
+
+                # print("list(inv_predictions.numpy()) ", list(inv_predictions.numpy()))
+
+                centers_tuples = map(tuple, centers.numpy())
+                # print("centers_tuples ", list(centers_tuples))
+
+                dict_centers.extend(centers_tuples)
+                # dict_cond_tn_values.extend(list(inv_predictions.numpy()))
+
+                # result_dict = dict(zip(dict_centers, dict_cond_tn_values))
+                #
+                # print("result dict ", result_dict)
+                #exit()
+
+        # result_dict = dict(zip(map(tuple, np.array(dict_centers).flatten()), np.array(dict_cond_tn_values)))
+        #
+        # print("result dicts ", result_dict)
+
+        print("dict centers ", dict_centers)
+        print("dict_cond_tn_values ", dict_cond_tn_values)
+
+        #exit()
+
+        pred_cond_tensors = dict(zip(dict_centers, dict_cond_tn_values))
+
+        return pred_cond_tensors
+
+
 
     @staticmethod
     def calculate(config, seed):
@@ -1737,19 +2285,28 @@ class DFMSim3D(Simulation):
         :param seed: random seed, int
         :return: List[fine result, coarse result], both flatten arrays (see mlmc.sim.synth_simulation.calculate())
         """
-        from bgem.upscale import fem_plot, fem, voigt_to_tn, tn_to_voigt, FracturedMedia, voxelize
-
         sample_dir = Path(os.getcwd()).absolute()
         #print("sample dir ", sample_dir)
 
         basename = os.path.basename(sample_dir)
         sample_idx = int(basename.split('S')[1])
 
-        if "scratch_dir" in config and os.path.exists(config["scratch_dir"]):
-            sample_dir = os.path.join(config["scratch_dir"], basename)
+        print("os environ get SCRATCHDIR ", os.environ.get("SCRATCHDIR"))
 
-        print("sample dir ", sample_dir)
+        scratch_sample_path = None
+        if os.environ.get("SCRATCHDIR") is not None:
+            #hom_dir_abs_path = os.path.join(config["sim_config"]["scratch_dir"], hom_dir_name)
+            #scratch_samples = os.path.join(os.environ.get("SCRATCHDIR"), hom_dir_name)
+
+            scratch_sample_path = os.path.join(os.environ.get("SCRATCHDIR"), basename)
+
+            shutil.move(sample_dir, scratch_sample_path)
+            os.chdir(scratch_sample_path)
+
+
+        #print("sample dir ", sample_dir)
         #print("sample idx ", sample_idx)
+        print("os.getcwd()", os.getcwd())
 
         sample_seed = config["sim_config"]["seed"] + seed
         print("sample seed ", sample_seed)
@@ -1777,8 +2334,7 @@ class DFMSim3D(Simulation):
         sim_config = config["sim_config"]
         geom = sim_config["geometry"]
 
-        subdomain_box, n_nonoverlap_subdomains, n_subdomains_per_axes = DFMSim3D._calculate_subdomains(coarse_step,
-                                                                   config["sim_config"]["geometry"])
+        subdomain_box, n_nonoverlap_subdomains, n_subdomains_per_axes = DFMSim3D._calculate_subdomains(coarse_step, config["sim_config"]["geometry"])
 
         print("calculated subdomain box: {}, n subdomains per axes: {}, n_nonoverlap_subdomains: {}".format(subdomain_box, n_subdomains_per_axes, n_nonoverlap_subdomains))
 
@@ -1791,8 +2347,12 @@ class DFMSim3D(Simulation):
         orig_domain_box = config["sim_config"]["geometry"]["orig_domain_box"]
         if coarse_step > 0 and "use_larger_domain" in config["sim_config"] and config["sim_config"][
             "use_larger_domain"]:
+
             sub_domain_box = config["sim_config"]["geometry"]["subdomain_box"]
             orig_frac_box = config["sim_config"]["geometry"]["fractures_box"]
+
+            print("subdomain box ", subdomain_box)
+            print("orig domain box ", orig_domain_box)
 
             # config["sim_config"]["geometry"]["domain_box"] = [orig_domain_box[0] + 2 * sub_domain_box[0],
             #                                                   orig_domain_box[1] + 2 * sub_domain_box[1],
@@ -1817,8 +2377,8 @@ class DFMSim3D(Simulation):
         ###################
         dfn = DFMSim3D.fracture_random_set(sample_seed, fr_range, sim_config["work_dir"], max_frac=geom["n_frac_limit"])
 
-        n_steps = config["sim_config"]["geometry"]["n_voxels"]
-        print("n steps ", n_steps)
+        #n_steps = config["sim_config"]["geometry"]["n_voxels"]
+        #print("n steps ", n_steps)
 
         fraction_factor = 2
 
@@ -1832,200 +2392,319 @@ class DFMSim3D(Simulation):
 
         fem_grid_cond_domain_size = int(fem_grid_cond_domain_size)
 
+        print("fem_grid_cond_domain_size ", fem_grid_cond_domain_size)
+
+
         n_steps_cond_grid = (fem_grid_cond_domain_size, fem_grid_cond_domain_size, fem_grid_cond_domain_size)
 
         #n_steps_cond_grid = (2,2,2)
 
         print("n steps cond grid ", n_steps_cond_grid)
 
+
         #fem_grid_cond = fem.fem_grid(fem_grid_cond_domain_size, n_steps_cond_grid, fem.Fe.Q(dim=3),
         #                             origin=-fem_grid_cond_domain_size / 2)  # 27 cells
 
         fem_grid_cond = fem.fem_grid(fem_grid_cond_domain_size, n_steps_cond_grid, fem.Fe.Q(dim=3), origin=-fem_grid_cond_domain_size / 2)
-        fem_grid_rast = fem.fem_grid(domain_size, n_steps, fem.Fe.Q(dim=3), origin=-domain_size / 2)
-
-        #######################
-        ## Bulk conductivity ##
-        #######################
-
-        #print("bulk step: {}, fr step: {}".format(bulk_step, fr_step))
-
         bulk_cond_values, bulk_cond_points = DFMSim3D.generate_grid_cond(fem_grid_cond, config, seed=sample_seed)
 
         print("bulk cond values shape ", bulk_cond_values.shape)
         print("bulk cond points shape ", bulk_cond_points.shape)
 
+        #######################
+        ## Bulk conductivity ##
+        #######################
+
+        fr_rad_values = []
+        total_area = 0
+        total_excluded_volume = 0
+        for fr in dfn:
+            print("fr.r ", fr.r)
+            total_area += 4 * fr.r**2
+            total_excluded_volume += np.pi * fr.r**3
+            fr_rad_values.append(fr.radius[0] * (fr.radius[1] ** 2) + (fr.radius[0] ** 2) * fr.radius[1])
+
+        # Square fractures:
+
+        # print("Whole sample mean fr rad values ", np.mean(fr_rad_values))
+        # rho_3D = np.pi ** 2 / 2 * np.mean(fr_rad_values) * (len(dfn) / fr_range[1] ** 3)
+        # rho_3D_new = total_excluded_volume * (len(dfn) / fr_range[1] ** 3)
+        # print("rho_3D ", rho_3D)
+        # print("rho_3D_new ", rho_3D_new)
+        # #exit()
+
+        #print("bulk step: {}, fr step: {}".format(bulk_step, fr_step))
+
+        dimensions = config["sim_config"]["geometry"]["orig_domain_box"] #config["sim_config"]["geometry"]["domain_box"]
+
+        fine_res = [0, 0, 0, 0, 0, 0]
+        print("fine sample dimensions ", dimensions)
+
+        if not gen_hom_samples:
+            if "flow_sim" in config["sim_config"] and config["sim_config"]["flow_sim"]:
+                bc_pressure_gradient = [1, 0, 0]
+                cond_file, fr_cond = DFMSim3D._run_sample_flow(bc_pressure_gradient, fr_media, config, sample_dir, bulk_cond_values, bulk_cond_points, dimensions, mesh_step=config["fine"]["step"])
+                print("cond file ", cond_file)
+                fine_res = DFMSim3D.get_outflow(sample_dir)
+
+                fine_res = [fine_res[0], fine_res[0], fine_res[0], fine_res[0], fine_res[0], fine_res[0]]
+                print("fine res ", fine_res)
+                # if not conv_check:
+                #     raise Exception("fine sample not converged")
+                #
+                # fine_res = [fine_res[0], fine_res[0], fine_res[0]]
+                if os.path.exists("flow_fields.pvd"):
+                    shutil.move("flow_fields.pvd", "flow_field_fine.pvd")
+                if os.path.exists("flow_fields"):
+                    shutil.move("flow_fields", "flow_fields_fine")
+                if os.path.exists("flow_fields.msh"):
+                    shutil.move("flow_fields.msh", "flow_fields_fine.msh")
+                if os.path.exists("water_balance.yaml"):
+                    shutil.move("water_balance.yaml", "water_balance_fine.yaml")
+                if os.path.exists("water_balance.txt"):
+                    shutil.move("water_balance.txt", "water_balance_fine.txt")
+            else:
+                fine_res, fr_cond = DFMSim3D.get_equivalent_cond_tn(fr_media, config, sample_dir, bulk_cond_values, bulk_cond_points, dimensions, mesh_step=config["fine"]["step"])
+
+            if os.path.exists("flow123.0.log"):
+                shutil.move("flow123.0.log", "fine_flow123.0.log")
+            if os.path.exists("flow_upscale_templ.yaml_stderr"):
+                shutil.move("flow_upscale_templ.yaml_stderr", "fine_flow_upscale_templ.yaml_stderr")
+            if os.path.exists("flow_upscale_templ.yaml_stdout"):
+                shutil.move("flow_upscale_templ.yaml_stdout", "fine_flow_upscale_templ.yaml_stdout")
+            if os.path.exists("flow_upscale_templ.yaml.yaml"):
+                shutil.move("flow_upscale_templ.yaml.yaml", "fine_flow_upscale_templ.yaml.yaml")
+            if os.path.exists("homo_cube.brep"):
+                shutil.move("homo_cube.brep", "fine_homo_cube.brep")
+            if os.path.exists("homo_cube_healed.msh2"):
+                shutil.move("homo_cube_healed.msh2", "fine_homo_cube_healed.msh2")
+            if os.path.exists("homo_cube.heal_stats.yaml"):
+                shutil.move("homo_cube.heal_stats.yaml", "fine_homo_cube.heal_stats.yaml")
+            if os.path.exists("homo_cube.msh2"):
+                shutil.move("homo_cube.msh2", "fine_homo_cube.msh2")
+            if os.path.exists("input_fields.msh"):
+                shutil.move("input_fields.msh", "fine_input_fields.msh")
+
+
         #####################
         ### Coarse sample ###
         #####################
-        print("fine_step", config["fine"]["step"])
-        print("coarse_step", config["coarse"]["step"])
-
-        print("fr range ", fr_range)
+        coarse_res = [0, 0, 0, 0, 0, 0]
+        # print("fine_step", config["fine"]["step"])
+        # print("coarse_step", config["coarse"]["step"])
+        #
+        # print("fr range ", fr_range)
         #print("n frac limit ", geom["n_frac_limit"])
 
-        fr_rad_values = []
-        for fr in dfn:
-            print("fr.r ", fr.r)
-            fr_rad_values.append(fr.radius[0] * fr.radius[1] ** 2 + fr.radius[0] ** 2 * fr.radius[1])
-
-        print("Whole sample mean fr rad values ", np.mean(fr_rad_values))
-        rho_3D = np.pi**2/2 * np.mean(fr_rad_values) * (len(dfn)/fr_range[1]**3)
-        print("rho_3D ", rho_3D)
-        #     if fr.r <= coarse_step:
-        #         dfn_to_homogenization.append(fr)
-        # print("len dfn_to_homogenization ", len(dfn_to_homogenization))
-
-        #dfn = stochastic.FractureSet.from_list(dfn_to_homogenization)
-
-        #dfn = dfn_to_homogenization
-        ########################
-        ########################
-        ########################
-        #### Homogenization ####
-        ########################
-        fine_res, coarse_res = [], []
-
-        if gen_hom_samples_split:
-            config["sim_config"]["geometry"]["domain_box"] = hom_domain_box
-            DFMSim3D.homogenization(config, dfn, bulk_cond_values, bulk_cond_points)
-        else:
-
-
-            #exit()
-
-
-            #steps = (int(fine_step), int(fine_step), int(fine_step))
-
-            #n_steps_coef = 1.5
-            #n_steps = (int(domain_size/int(fine_step)*n_steps_coef), int(domain_size/int(fine_step)*n_steps_coef), int(domain_size/int(fine_step)*n_steps_coef))
-
-            #n_steps = (64, 64, 64)
-            #n_steps = (25, 25, 25)
-            #n_steps = (4, 4, 4)
-
-
-            #grid_cond = DFMSim3D.homo_decovalex(fr_media, fem_grid.grid)
-            #grid_cond = grid_cond.reshape(*n_steps, grid_cond.shape[-1])
-
-            #print("grid_cond shape ", grid_cond.shape)
-            #@TODO: rasterize input
-
-            # print(grid_cond.shape)
-            # print("np.array(bc_pressure_gradient)[None, :] ", np.array(bc_pressure_gradient)[None, :])
-
-            # grid_cond = np.ones(grid.n_elements)[:, None] * np.array([1, 1, 1, 0, 0, 0])[None, :]
-
-            ######
-            ## @TODO: there is no flow123d called inside
-            # pressure = fem_grid.solve_sparse(grid_cond, np.array(bc_pressure_gradient)[None, :])
-            # assert not np.any(np.isnan(pressure))
-
-            ##################################
-            ## Create mesh and input fields ##
-            ##################################
-            dimensions = (domain_size, domain_size, domain_size)
-
-            print("sample_dir ", sample_dir)
-
-
-            # bc_pressure_gradient = [1, 0, 0]
-            # flux_response_0 = DFMSim3D.get_flux_response(bc_pressure_gradient, fr_media, fem_grid, config, sample_dir, sim_config)
-            #
-            # exit()
-
-            bc_pressure_gradient = [1, 0, 0]
-            cond_file, fr_cond = DFMSim3D._run_sample(bc_pressure_gradient, fr_media, config, sample_dir, bulk_cond_values, bulk_cond_points, dimensions)
-            flux_response_0 = DFMSim3D.get_flux_response()#bc_pressure_gradient, fr_media, fem_grid, config, sample_dir,
-                                                         #sim_config)
-
-
-            bc_pressure_gradient = [0, 1, 0]
-            DFMSim3D._run_sample(bc_pressure_gradient, fr_media, config, sample_dir, bulk_cond_values, bulk_cond_points,
-                                 dimensions, cond_file=cond_file)
-            flux_response_1 = DFMSim3D.get_flux_response()#bc_pressure_gradient, fr_media, fem_grid, config, sample_dir,
-                                                         #sim_config)
-
-            bc_pressure_gradient = [0, 0, 1]
-            DFMSim3D._run_sample(bc_pressure_gradient, fr_media, config, sample_dir, bulk_cond_values, bulk_cond_points,
-                                 dimensions, cond_file=cond_file)
-            flux_response_2 = DFMSim3D.get_flux_response()#bc_pressure_gradient, fr_media, fem_grid, config, sample_dir,
-                                                         #sim_config)
-
-            #print("flux response ", flux_response_0)
-
-
-
-            bc_pressure_gradients = np.stack(([1, 0, 0], [0, 1, 0], [0, 0, 1]), axis=0)
-            flux_responses = np.squeeze(np.stack((flux_response_0, flux_response_1, flux_response_2), axis=0))
-
-
-            equivalent_cond_tn_voigt = equivalent_posdef_tensor(np.array(bc_pressure_gradients), flux_responses)
-
-            #print("equivalent_cond_tn_voigt ", equivalent_cond_tn_voigt)
-
-            equivalent_cond_tn = voigt_to_tn(np.array([equivalent_cond_tn_voigt])) #np.zeros((3, 3))
-
-            # # Map the Voigt vector to the symmetric matrix
-            # equivalent_cond_tn[0, 0] = equivalent_cond_tn_voigt[0]  # xx
-            # equivalent_cond_tn[1, 1] = equivalent_cond_tn_voigt[1]  # yy
-            # equivalent_cond_tn[2, 2] = equivalent_cond_tn_voigt[2]  # zz
-            # equivalent_cond_tn[1, 2] = equivalent_cond_tn[2, 1] = equivalent_cond_tn_voigt[3]  # yz or zy
-            # equivalent_cond_tn[0, 2] = equivalent_cond_tn[2, 0] = equivalent_cond_tn_voigt[4]  # xz or zx
-            # equivalent_cond_tn[0, 1] = equivalent_cond_tn[1, 0] = equivalent_cond_tn_voigt[5]  # xy or yx
-            print("equivalent cond tn ", equivalent_cond_tn)
-            evals, evecs = np.linalg.eigh(equivalent_cond_tn)
-            print("evals equivalent cond tn ", evals)
-            assert np.all(evals) > 0
-
-
-            fine_res = np.squeeze(equivalent_cond_tn_voigt)
-
-            print("fine res shape ", fine_res.shape)
-
-            DFMSim3D._remove_files()
-
-            gen_hom_samples = False
-            if "generate_hom_samples" in config["sim_config"] and config["sim_config"]["generate_hom_samples"]:
-                gen_hom_samples = True
-
-            cond_tn_pop = os.path.join(config["fine"]["common_files_dir"], DFMSim3D.COND_TN_POP_FILE)
-            if os.path.exists(cond_tn_pop):
-                config["fine"]["cond_tn_pop_file"] = cond_tn_pop
+        # rasterize bulk for homogenization
+        if coarse_step > 0:
+            dfn_to_homogenization = []
+            for fr in dfn:
+                if fr.r <= coarse_step:
+                    dfn_to_homogenization.append(fr)
+            dfn_to_homogenization = stochastic.FractureSet.from_list(dfn_to_homogenization)
 
             if "nn_path" in config["sim_config"]:
-                pred_cond_tn_pop = os.path.join(config["fine"]["common_files_dir"], DFMSim3D.PRED_COND_TN_POP_FILE)
-                if os.path.exists(pred_cond_tn_pop):
-                    config["fine"]["pred_cond_tn_pop_file"] = pred_cond_tn_pop
+                domain_size = config["sim_config"]["geometry"]["domain_box"]
 
-            sample_cond_tns = os.path.join(config["fine"]["common_files_dir"], DFMSim3D.SAMPLES_COND_TNS_DIR)
-            if os.path.exists(sample_cond_tns):
-                config["fine"]["sample_cond_tns"] = sample_cond_tns
+                #print("n voxels ", config["sim_config"]["geometry"]["n_voxels"])
 
-            coarse_res = [0, 0, 0, 0, 0, 0]
-            # print("fine res ", fine_res)
+                n_steps_per_axes = config["sim_config"]["geometry"]["n_voxels"][0]
+                fem_grid_n_steps = [n_steps_per_axes * n_nonoverlap_subdomains] * 3
+
+                #print("fem_grid_n_steps ", fem_grid_n_steps)
+
+                #print("domain size ", domain_size)
+                fem_grid_rast = fem.fem_grid(domain_size, fem_grid_n_steps, fem.Fe.Q(dim=3), origin=-domain_size[0] / 2)
+                cond_tensors = DFMSim3D.rasterize_at_once_zarr(config, dfn_to_homogenization, bulk_cond_values, bulk_cond_points, fem_grid_rast, n_subdomains_per_axes)
+
+            else:
+                print("=== COARSE PROBLEM ===")
+                if config["sim_config"]["use_larger_domain"]:
+                    # print("hom domain box ", hom_domain_box)
+                    config["sim_config"]["geometry"]["domain_box"] = hom_domain_box
+                    config["sim_config"]["geometry"]["fractures_box"] = hom_domain_box
+                    # print("config geometry ", config["sim_config"]["geometry"])
+
+                # import cProfile
+                # import pstats
+                #
+                # pr = cProfile.Profile()
+                # pr.enable()
+
+                cond_tensors, pred_cond_tensors_homo = DFMSim3D.homogenization(config, dfn_to_homogenization, bulk_cond_values, bulk_cond_points)
+
+                # print("cond tensors rast ", cond_tensors)
+                # print("cond tensors homo ", cond_tensors_homo)
+                # print("pred cond tensors homo ", pred_cond_tensors_homo)
 
 
-            #if coarse_step > 0:
+            hom_bulk_cond_values, hom_bulk_cond_points = np.squeeze(np.array(list(cond_tensors.values()))), np.array(list(cond_tensors.keys()))
+
+            #print("homogenized cond tensors ", cond_tensors)
+
+            #print("hom bulk cond values shape ", hom_bulk_cond_values.shape)
+            #print("hom bulk cond points shape ", hom_bulk_cond_points.shape)
+
+            #print("dimensions ", dimensions)
+
+            if "flow_sim" in config["sim_config"] and config["sim_config"]["flow_sim"]:
+                bc_pressure_gradient = [1, 0, 0]
+                cond_file, fr_cond = DFMSim3D._run_sample_flow(bc_pressure_gradient, fr_media, config, sample_dir, hom_bulk_cond_values, hom_bulk_cond_points, dimensions, mesh_step=config["coarse"]["step"])
+                coarse_res = DFMSim3D.get_outflow(sample_dir)
+
+                coarse_res = [coarse_res[0], coarse_res[0], coarse_res[0], coarse_res[0], coarse_res[0], coarse_res[0]]
+
+                # if not conv_check:
+                #     raise Exception("fine sample not converged")
+                #
+                # fine_res = [fine_res[0], fine_res[0], fine_res[0]]
+                if os.path.exists("flow_fields.pvd"):
+                    shutil.move("flow_fields.pvd", "flow_field_fine.pvd")
+                if os.path.exists("flow_fields"):
+                    shutil.move("flow_fields", "flow_fields_fine")
+                if os.path.exists("flow_fields.msh"):
+                    shutil.move("flow_fields.msh", "flow_fields_fine.msh")
+                if os.path.exists("water_balance.yaml"):
+                    shutil.move("water_balance.yaml", "water_balance_fine.yaml")
+                if os.path.exists("water_balance.txt"):
+                    shutil.move("water_balance.txt", "water_balance_fine.txt")
+            else:
+                coarse_res, fr_cond_coarse = DFMSim3D.get_equivalent_cond_tn(fr_media, config, sample_dir, bulk_cond_values, bulk_cond_points, dimensions, mesh_step=config["coarse"]["step"])
+
+            print("coarse res ", coarse_res)
+
+            if os.path.exists("flow_fields.pvd"):
+                os.remove("flow_fields.pvd")
+            if os.path.exists("flow_fields"):
+                shutil.rmtree("flow_fields")
+
+            if os.path.exists("flow_fields.msh"):
+                shutil.move("flow_fields.msh", "flow_fields_fine.msh")
+            if os.path.exists("mesh_fine.msh"):
+                shutil.move("mesh_fine.msh", "mesh_fine_fine.msh")
 
 
+            # if "flow_sim" in config["sim_config"] and config["sim_config"]["flow_sim"]:
+            #     pass
+            # else:
+            #     #exit()
+            #     #steps = (int(fine_step), int(fine_step), int(fine_step))
+            #
+            #     #n_steps_coef = 1.5
+            #     #n_steps = (int(domain_size/int(fine_step)*n_steps_coef), int(domain_size/int(fine_step)*n_steps_coef), int(domain_size/int(fine_step)*n_steps_coef))
+            #
+            #     #n_steps = (64, 64, 64)
+            #     #n_steps = (25, 25, 25)
+            #     #n_steps = (4, 4, 4)
+            #
+            #
+            #     #grid_cond = DFMSim3D.homo_decovalex(fr_media, fem_grid.grid)
+            #     #grid_cond = grid_cond.reshape(*n_steps, grid_cond.shape[-1])
+            #
+            #     #print("grid_cond shape ", grid_cond.shape)
+            #     #@TODO: rasterize input
+            #
+            #     # print(grid_cond.shape)
+            #     # print("np.array(bc_pressure_gradient)[None, :] ", np.array(bc_pressure_gradient)[None, :])
+            #
+            #     # grid_cond = np.ones(grid.n_elements)[:, None] * np.array([1, 1, 1, 0, 0, 0])[None, :]
+            #
+            #     ######
+            #     ## @TODO: there is no flow123d called inside
+            #     # pressure = fem_grid.solve_sparse(grid_cond, np.array(bc_pressure_gradient)[None, :])
+            #     # assert not np.any(np.isnan(pressure))
+            #
+            #     ##################################
+            #     ## Create mesh and input fields ##
+            #     ##################################
+            #     dimensions = (domain_size, domain_size, domain_size)
+            #
+            #     print("sample_dir ", sample_dir)
+            #
+            #     equivalent_cond_tn = DFMSim3D.get_equivalent_cond_tn(fr_media, config, sample_dir, bulk_cond_values, bulk_cond_points, dimensions)
+            #
+            #     # bc_pressure_gradient = [1, 0, 0]
+            #     # cond_file, fr_cond = DFMSim3D._run_sample(bc_pressure_gradient, fr_media, config, sample_dir, bulk_cond_values, bulk_cond_points, dimensions)
+            #     # flux_response_0 = DFMSim3D.get_flux_response()
+            #     #
+            #     # bc_pressure_gradient = [0, 1, 0]
+            #     # DFMSim3D._run_sample(bc_pressure_gradient, fr_media, config, sample_dir, bulk_cond_values, bulk_cond_points,
+            #     #                      dimensions, cond_file=cond_file)
+            #     # flux_response_1 = DFMSim3D.get_flux_response()
+            #     #
+            #     # bc_pressure_gradient = [0, 0, 1]
+            #     # DFMSim3D._run_sample(bc_pressure_gradient, fr_media, config, sample_dir, bulk_cond_values, bulk_cond_points,
+            #     #                      dimensions, cond_file=cond_file)
+            #     # flux_response_2 = DFMSim3D.get_flux_response()
+            #     #
+            #     # bc_pressure_gradients = np.stack(([1, 0, 0], [0, 1, 0], [0, 0, 1]), axis=0)
+            #     # flux_responses = np.squeeze(np.stack((flux_response_0, flux_response_1, flux_response_2), axis=0))
+            #     #
+            #     # equivalent_cond_tn_voigt = equivalent_posdef_tensor(np.array(bc_pressure_gradients), flux_responses)
+            #     # equivalent_cond_tn = voigt_to_tn(np.array([equivalent_cond_tn_voigt])) #np.zeros((3, 3))
+            #
+            #     # # Map the Voigt vector to the symmetric matrix
+            #     # equivalent_cond_tn[0, 0] = equivalent_cond_tn_voigt[0]  # xx
+            #     # equivalent_cond_tn[1, 1] = equivalent_cond_tn_voigt[1]  # yy
+            #     # equivalent_cond_tn[2, 2] = equivalent_cond_tn_voigt[2]  # zz
+            #     # equivalent_cond_tn[1, 2] = equivalent_cond_tn[2, 1] = equivalent_cond_tn_voigt[3]  # yz or zy
+            #     # equivalent_cond_tn[0, 2] = equivalent_cond_tn[2, 0] = equivalent_cond_tn_voigt[4]  # xz or zx
+            #     # equivalent_cond_tn[0, 1] = equivalent_cond_tn[1, 0] = equivalent_cond_tn_voigt[5]  # xy or yx
+            #     print("equivalent cond tn ", equivalent_cond_tn)
+            #     evals, evecs = np.linalg.eigh(equivalent_cond_tn)
+            #     print("evals equivalent cond tn ", evals)
+            #     assert np.all(evals) > 0
+            #
+            #
+            #     fine_res = np.squeeze(equivalent_cond_tn_voigt)
+            #
+            #     print("fine res shape ", fine_res.shape)
+            #
+            #     #DFMSim3D._remove_files()
+            #
+            #     gen_hom_samples = False
+            #     if "generate_hom_samples" in config["sim_config"] and config["sim_config"]["generate_hom_samples"]:
+            #         gen_hom_samples = True
+            #
+            #     cond_tn_pop = os.path.join(config["fine"]["common_files_dir"], DFMSim3D.COND_TN_POP_FILE)
+            #     if os.path.exists(cond_tn_pop):
+            #         config["fine"]["cond_tn_pop_file"] = cond_tn_pop
+            #
+            #     if "nn_path" in config["sim_config"]:
+            #         pred_cond_tn_pop = os.path.join(config["fine"]["common_files_dir"], DFMSim3D.PRED_COND_TN_POP_FILE)
+            #         if os.path.exists(pred_cond_tn_pop):
+            #             config["fine"]["pred_cond_tn_pop_file"] = pred_cond_tn_pop
+            #
+            #     sample_cond_tns = os.path.join(config["fine"]["common_files_dir"], DFMSim3D.SAMPLES_COND_TNS_DIR)
+            #     if os.path.exists(sample_cond_tns):
+            #         config["fine"]["sample_cond_tns"] = sample_cond_tns
+            #
+            #     coarse_res = [0, 0, 0, 0, 0, 0]
+            #     # print("fine res ", fine_res)
+            #
+            #
+            #     #if coarse_step > 0:
+            #
+            #     #######################
+            #     ## save to zarr file  #
+            #     #######################
+            #     # Shape of the data
+            #     zarr_file_path = os.path.join(config["fine"]["common_files_dir"], DFMSim3D.ZARR_FILE)
+            #     if os.path.exists(zarr_file_path):
+            #         zarr_file = zarr.open(zarr_file_path, mode='r+')
+            #         # Write data to the specified slice or index
+            #         rasterized_input = DFMSim3D.rasterize(fem_grid_rast, dfn, bulk_cond=bulk_cond_values, fr_cond=fr_cond)
+            #
+            #         rasterized_input_voigt = tn_to_voigt(rasterized_input)
+            #         rasterized_input_voigt = rasterized_input_voigt.reshape(*n_steps, rasterized_input_voigt.shape[-1]).T
+            #
+            #         zarr_file["inputs"][sample_idx, ...] = rasterized_input_voigt
+            #         zarr_file["outputs"][sample_idx, :] = fine_res
 
-            #######################
-            ## save to zarr file  #
-            #######################
-            # Shape of the data
+        if scratch_sample_path is not None:
+            shutil.move(scratch_sample_path, sample_dir)
 
-            zarr_file_path = os.path.join(config["fine"]["common_files_dir"], DFMSim3D.ZARR_FILE)
-            if os.path.exists(zarr_file_path):
-                zarr_file = zarr.open(zarr_file_path, mode='r+')
-                # Write data to the specified slice or index
-                rasterized_input = DFMSim3D.rasterize(fem_grid_rast, dfn, bulk_cond=bulk_cond_values, fr_cond=fr_cond)
-
-                rasterized_input_voigt = tn_to_voigt(rasterized_input)
-                rasterized_input_voigt = rasterized_input_voigt.reshape(*n_steps, rasterized_input_voigt.shape[-1]).T
-
-                zarr_file["inputs"][sample_idx, ...] = rasterized_input_voigt
-                zarr_file["outputs"][sample_idx, :] = fine_res
 
         return fine_res, coarse_res
 
@@ -2043,6 +2722,7 @@ class DFMSim3D(Simulation):
         # print("BULKFIelds bulk_conductivity ", bulk_conductivity)
         if "gstools" in config["sim_config"] and config["sim_config"]["gstools"]:
             bulk_model = GSToolsBulk3D(**bulk_conductivity)
+            #bulk_model = GSToolsBulk3DNew(**bulk_conductivity)
             bulk_model.seed = seed
             print("bulkfieldsgstools")
         else:
@@ -2148,16 +2828,62 @@ class DFMSim3D(Simulation):
     #     # return  status, p_loads, outer_reg_names  # and conv_check
 
     @staticmethod
-    def _run_sample(bc_pressure_gradient, fr_media, config, sample_dir, bulk_cond_values, bulk_cond_points, dimensions, cond_file=None, center=[0,0,0]):
+    def _run_sample_flow(bc_pressure_gradient, fr_media, config, sample_dir, bulk_cond_values, bulk_cond_points, dimensions,
+                    mesh_step, cond_file=None, center=[0, 0, 0]):
 
         fr_cond = None
         if cond_file is None:
             cond_file, fr_cond = DFMSim3D.create_mesh_fields(fr_media, bulk_cond_values, bulk_cond_points, dimensions,
-                                    mesh_step=config["fine"]["step"],
+                                                             mesh_step=mesh_step,
+                                                             sample_dir=sample_dir,
+                                                             work_dir=config["sim_config"]["work_dir"],
+                                                             center=center,
+                                                             )
+
+        flow_cfg = dotdict(
+            flow_executable=[
+                "docker",
+                "run",
+                "-v",
+                "{}:{}".format(os.getcwd(), os.getcwd()),
+                # "flow123d/ci-gnu:3.9.0_49fc60d4d",
+                "flow123d/ci-gnu:4.0.0a01_94c428",
+                # "flow123d/ci-gnu:4.0.3dev_71cc9c",
+                "flow123d",
+                #        - flow123d/endorse_ci:a785dd
+                #        - flow123d/ci-gnu:4.0.0a_d61969
+                # "dbg",
+                # "run",
+                "--output_dir",
+                os.getcwd()
+            ],
+            mesh_file=cond_file,
+            pressure_grad=bc_pressure_gradient,
+            # pressure_grad_0=bc_gradients[0],
+            # pressure_grad_1=bc_gradients[1],
+            # pressure_grad_2=bc_gradients[2]
+        )
+        f_template = "01_conductivity_3D.yaml"
+        shutil.copy(os.path.join(config["sim_config"]["work_dir"], f_template), sample_dir)
+        with workdir_mng(sample_dir):
+            flow_out = call_flow(flow_cfg, f_template, flow_cfg)
+
+        # Project to target grid
+        print(flow_out)
+
+
+        return cond_file, fr_cond
+
+    @staticmethod
+    def _run_sample(bc_pressure_gradient, fr_media, config, sample_dir, bulk_cond_values, bulk_cond_points, dimensions, mesh_step, cond_file=None, center=[0,0,0]):
+
+        fr_cond = None
+        if cond_file is None:
+            cond_file, fr_cond = DFMSim3D.create_mesh_fields(fr_media, bulk_cond_values, bulk_cond_points, dimensions,
+                                    mesh_step=mesh_step,
                                     sample_dir=sample_dir,
                                     work_dir=config["sim_config"]["work_dir"],
-                                                             center=center,
-                                                        )
+                                                             center=center)
 
         flow_cfg = dotdict(
             flow_executable=[
@@ -2191,25 +2917,6 @@ class DFMSim3D(Simulation):
         print(flow_out)
 
         return cond_file, fr_cond
-
-
-    @staticmethod
-    def check_conv_reasons(log_fname):
-        with open(log_fname, "r") as f:
-            for line in f:
-                tokens = line.split(" ")
-                try:
-                    i = tokens.index('convergence')
-                    if tokens[i + 1] == 'reason':
-                        value = tokens[i + 2].rstrip(",")
-                        conv_reason = int(value)
-                        if conv_reason < 0:
-                            print("Failed to converge: ", conv_reason)
-                            return False
-                except ValueError:
-                    continue
-        return True
-
 
     def _substitute_yaml(self, yaml_tmpl, yaml_out):
         """
@@ -2269,7 +2976,7 @@ class DFMSim3D(Simulation):
         :return: List[QuantitySpec, ...]
         """
         #spec1 = QuantitySpec(name="cond_tn", unit="m", shape=(1, 1), times=[1], locations=['0'])
-        spec1 = QuantitySpec(name="cond_tn", unit="m", shape=(3, 1), times=[1], locations=['0'])
+        spec1 = QuantitySpec(name="cond_tn", unit="m", shape=(6, 1), times=[1], locations=['0'])
 
         return [spec1]
 
