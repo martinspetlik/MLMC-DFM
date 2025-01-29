@@ -18,7 +18,7 @@ class DFM3DDataset(Dataset):
 
     def __init__(self, zarr_path, input_transform=None, output_transform=None, init_transform=None,
                  input_channels=None, output_channels=None, fractures_sep=False, cross_section=False, plot=False,
-                 init_norm_use_all_features=False, mode="whole", train_size=None, val_size=None, test_size=None, chunk_size=128):
+                 init_norm_use_all_features=False, mode="whole", train_size=None, val_size=None, test_size=None, chunk_size=128, return_centers_bulk_avg=False):
         super(DFM3DDataset, self).__init__()
         print("zarr path ", zarr_path)
 
@@ -33,6 +33,9 @@ class DFM3DDataset(Dataset):
         self.bulk_avg = None
         if "bulk_avg" in zarr_file:
             self.bulk_avg = zarr_file['bulk_avg']
+        self.centers = None
+        if "centers" in zarr_file:
+            self.centers = zarr_file["centers"]
 
         #self._remove_zero_rows()
 
@@ -49,6 +52,8 @@ class DFM3DDataset(Dataset):
         self._fractures_sep = fractures_sep
         self._cross_section = cross_section
         self._init_transform_use_all_features = init_norm_use_all_features
+
+        self._return_centers_bulk_avg = return_centers_bulk_avg
 
         self.plot = plot
         #self.chunk_size = chunk_size
@@ -78,11 +83,11 @@ class DFM3DDataset(Dataset):
 
         self.end = np.min([self.end, total_size])
 
-        print("start: {} end: {} ".format(self.start, self.end))
+        #print("start: {} end: {} ".format(self.start, self.end))
 
     def __len__(self):
         # Return the number of samples
-        print("self.end: {}, self.start: {} ".format(self.end, self.start))
+        #print("self.end: {}, self.start: {} ".format(self.end, self.start))
         return self.end - self.start #self.inputs.shape[0]
 
     # def __iter__(self):
@@ -105,6 +110,8 @@ class DFM3DDataset(Dataset):
 
         if self.bulk_avg is not None:
             bulk_avg = self.bulk_avg[idx]
+        if self.centers is not None:
+            centers = self.centers[idx]
 
         if isinstance(idx, (slice, list)):
             raise NotImplementedError("Dataset index has to be int")
@@ -133,7 +140,6 @@ class DFM3DDataset(Dataset):
             #bulk_features_avg = np.mean(input_sample[input_sample < np.max(np.abs(input_sample)) / 1e2])
             #bulk_features_avg = np.abs(bulk_features_avg)
             bulk_features_avg = np.mean(bulk_avg)
-
             #bulk_features_avg = bulk_avg#[:, None, None, None]
             #print("bulk features avg ", bulk_features_avg)
             #
@@ -219,7 +225,7 @@ class DFM3DDataset(Dataset):
         DFM3DDataset._check_nans(input_tensor, str_err="Input features contains NaN values, {}".format(idx))
 
         if len(output_tensor) > 0:
-            print("output tensor ", output_tensor)
+            #print("output tensor ", output_tensor)
             DFM3DDataset._check_nans(output_tensor, str_err="Output features contains NaN values, idx: {}".format(idx))
 
 
@@ -241,6 +247,10 @@ class DFM3DDataset(Dataset):
 
 
         #print("output tensor ", output_tensor)
+        #print("final input tensor ", input_tensor.shape)
+
+        if self._return_centers_bulk_avg:
+            return input_tensor, output_tensor, centers, bulk_features_avg
 
         return input_tensor, output_tensor
 
