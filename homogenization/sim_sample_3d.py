@@ -1242,67 +1242,67 @@ class DFMSim3D(Simulation):
         field_vals = fr_values_[fr_map]
         return field_vals, fr_map
 
-    @staticmethod
-    def reference_solution(fr_media: FracturedMedia, dimensions, bc_gradients, mesh_step, sample_dir, work_dir):
-        dfn = fr_media.dfn
-        bulk_conductivity = fr_media.conductivity
-
-        # Input crssection and conductivity
-        print("mesh step ", mesh_step)
-        mesh_file, fr_region_map = DFMSim3D.ref_solution_mesh(sample_dir, dimensions, dfn, fr_step=mesh_step, bulk_step=mesh_step)
-        print("mesh file ", mesh_file)
-        full_mesh = Mesh.load_mesh(mesh_file, heal_tol=0.001)  # gamma
-
-        fr_cond, fr_map = DFMSim3D.fr_field(full_mesh, dfn, fr_region_map, fr_media.fr_conductivity, bulk_conductivity,
-                          rnd_cond=False, field_dim=1)
-
-        fr_cross_section, fr_map = DFMSim3D.fr_field(full_mesh, dfn, fr_region_map, fr_media.fr_cross_section, 1.0, field_dim=1)
-
-        print("fr cond ", fr_cond)
-        #print("fr el ids ", fr_el_ids)
-
-        fields = dict(
-            conductivity=fr_cond,
-            cross_section=fr_cross_section)
-
-        cond_file = full_mesh.write_fields(str(sample_dir / "input_fields.msh2"), fields)
-        print("cond_file ", cond_file)
-        cond_file = Path(cond_file)
-        cond_file = cond_file.rename(cond_file.with_suffix(".msh"))
-
-        print("final cond file ", cond_file)
-
-        flow_cfg = dotdict(
-            flow_executable=[
-                "docker",
-                "run",
-                "-v",
-                "{}:{}".format(os.getcwd(), os.getcwd()),
-                "flow123d/ci-gnu:4.0.0a01_94c428",
-                "flow123d",
-                #        - flow123d/endorse_ci:a785dd
-                #        - flow123d/ci-gnu:4.0.0a_d61969
-                # "dbg",
-                # "run",
-                "--output_dir",
-                os.getcwd()
-            ],
-            mesh_file=cond_file,
-            pressure_grad=bc_gradients,
-            # pressure_grad_0=bc_gradients[0],
-            # pressure_grad_1=bc_gradients[1],
-            # pressure_grad_2=bc_gradients[2]
-        )
-        f_template = "flow_upscale_templ.yaml"
-        shutil.copy(os.path.join(work_dir, f_template), sample_dir)
-        with workdir_mng(sample_dir):
-            flow_out = call_flow(flow_cfg, f_template, flow_cfg)
-
-        # Project to target grid
-        #print(flow_out)
-        # vel_p0 = velocity_p0(target_grid, flow_out)
-        # projection of fields
-        return flow_out
+    # @staticmethod
+    # def reference_solution(fr_media: FracturedMedia, dimensions, bc_gradients, mesh_step, sample_dir, work_dir):
+    #     dfn = fr_media.dfn
+    #     bulk_conductivity = fr_media.conductivity
+    #
+    #     # Input crssection and conductivity
+    #     print("mesh step ", mesh_step)
+    #     mesh_file, fr_region_map = DFMSim3D.ref_solution_mesh(sample_dir, dimensions, dfn, fr_step=mesh_step, bulk_step=mesh_step)
+    #     print("mesh file ", mesh_file)
+    #     full_mesh = Mesh.load_mesh(mesh_file, heal_tol=0.001)  # gamma
+    #
+    #     fr_cond, fr_map = DFMSim3D.fr_field(full_mesh, dfn, fr_region_map, fr_media.fr_conductivity, bulk_conductivity,
+    #                       rnd_cond=False, field_dim=1)
+    #
+    #     fr_cross_section, fr_map = DFMSim3D.fr_field(full_mesh, dfn, fr_region_map, fr_media.fr_cross_section, 1.0, field_dim=1)
+    #
+    #     print("fr cond ", fr_cond)
+    #     #print("fr el ids ", fr_el_ids)
+    #
+    #     fields = dict(
+    #         conductivity=fr_cond,
+    #         cross_section=fr_cross_section)
+    #
+    #     cond_file = full_mesh.write_fields(str(sample_dir / "input_fields.msh2"), fields)
+    #     print("cond_file ", cond_file)
+    #     cond_file = Path(cond_file)
+    #     cond_file = cond_file.rename(cond_file.with_suffix(".msh"))
+    #
+    #     print("final cond file ", cond_file)
+    #
+    #     flow_cfg = dotdict(
+    #         flow_executable=[
+    #             "docker",
+    #             "run",
+    #             "-v",
+    #             "{}:{}".format(os.getcwd(), os.getcwd()),
+    #             "flow123d/ci-gnu:4.0.0a01_94c428",
+    #             "flow123d",
+    #             #        - flow123d/endorse_ci:a785dd
+    #             #        - flow123d/ci-gnu:4.0.0a_d61969
+    #             # "dbg",
+    #             # "run",
+    #             "--output_dir",
+    #             os.getcwd()
+    #         ],
+    #         mesh_file=cond_file,
+    #         pressure_grad=bc_gradients,
+    #         # pressure_grad_0=bc_gradients[0],
+    #         # pressure_grad_1=bc_gradients[1],
+    #         # pressure_grad_2=bc_gradients[2]
+    #     )
+    #     f_template = "flow_upscale_templ.yaml"
+    #     shutil.copy(os.path.join(work_dir, f_template), sample_dir)
+    #     with workdir_mng(sample_dir):
+    #         flow_out = call_flow(flow_cfg, f_template, flow_cfg)
+    #
+    #     # Project to target grid
+    #     #print(flow_out)
+    #     # vel_p0 = velocity_p0(target_grid, flow_out)
+    #     # projection of fields
+    #     return flow_out
 
 
     # Define transformation matrices and index mappings for 2D and 3D refinements
@@ -2303,6 +2303,8 @@ class DFMSim3D(Simulation):
             shutil.move(sample_dir, scratch_sample_path)
             os.chdir(scratch_sample_path)
 
+        current_dir = Path(os.getcwd()).absolute()
+
 
         #print("sample dir ", sample_dir)
         #print("sample idx ", sample_idx)
@@ -2321,7 +2323,7 @@ class DFMSim3D(Simulation):
             gen_hom_samples_split = True
 
         if gen_hom_samples:
-            return DFMSim3D.calculate_hom_sample(config, sample_dir, sample_idx, sample_seed)
+            return DFMSim3D.calculate_hom_sample(config, current_dir, sample_idx, sample_seed)
 
         fine_step = config["fine"]["step"]
         coarse_step = config["coarse"]["step"]
@@ -2443,9 +2445,9 @@ class DFMSim3D(Simulation):
         if not gen_hom_samples:
             if "flow_sim" in config["sim_config"] and config["sim_config"]["flow_sim"]:
                 bc_pressure_gradient = [1, 0, 0]
-                cond_file, fr_cond = DFMSim3D._run_sample_flow(bc_pressure_gradient, fr_media, config, sample_dir, bulk_cond_values, bulk_cond_points, dimensions, mesh_step=config["fine"]["step"])
+                cond_file, fr_cond = DFMSim3D._run_sample_flow(bc_pressure_gradient, fr_media, config, current_dir, bulk_cond_values, bulk_cond_points, dimensions, mesh_step=config["fine"]["step"])
                 print("cond file ", cond_file)
-                fine_res = DFMSim3D.get_outflow(sample_dir)
+                fine_res = DFMSim3D.get_outflow(current_dir)
 
                 fine_res = [fine_res[0], fine_res[0], fine_res[0], fine_res[0], fine_res[0], fine_res[0]]
                 print("fine res ", fine_res)
@@ -2464,7 +2466,7 @@ class DFMSim3D(Simulation):
                 if os.path.exists("water_balance.txt"):
                     shutil.move("water_balance.txt", "water_balance_fine.txt")
             else:
-                fine_res, fr_cond = DFMSim3D.get_equivalent_cond_tn(fr_media, config, sample_dir, bulk_cond_values, bulk_cond_points, dimensions, mesh_step=config["fine"]["step"])
+                fine_res, fr_cond = DFMSim3D.get_equivalent_cond_tn(fr_media, config, current_dir, bulk_cond_values, bulk_cond_points, dimensions, mesh_step=config["fine"]["step"])
 
             if os.path.exists("flow123.0.log"):
                 shutil.move("flow123.0.log", "fine_flow123.0.log")
@@ -2550,8 +2552,8 @@ class DFMSim3D(Simulation):
 
             if "flow_sim" in config["sim_config"] and config["sim_config"]["flow_sim"]:
                 bc_pressure_gradient = [1, 0, 0]
-                cond_file, fr_cond = DFMSim3D._run_sample_flow(bc_pressure_gradient, fr_media, config, sample_dir, hom_bulk_cond_values, hom_bulk_cond_points, dimensions, mesh_step=config["coarse"]["step"])
-                coarse_res = DFMSim3D.get_outflow(sample_dir)
+                cond_file, fr_cond = DFMSim3D._run_sample_flow(bc_pressure_gradient, fr_media, config, current_dir, hom_bulk_cond_values, hom_bulk_cond_points, dimensions, mesh_step=config["coarse"]["step"])
+                coarse_res = DFMSim3D.get_outflow(current_dir)
 
                 coarse_res = [coarse_res[0], coarse_res[0], coarse_res[0], coarse_res[0], coarse_res[0], coarse_res[0]]
 
@@ -2570,7 +2572,7 @@ class DFMSim3D(Simulation):
                 if os.path.exists("water_balance.txt"):
                     shutil.move("water_balance.txt", "water_balance_fine.txt")
             else:
-                coarse_res, fr_cond_coarse = DFMSim3D.get_equivalent_cond_tn(fr_media, config, sample_dir, bulk_cond_values, bulk_cond_points, dimensions, mesh_step=config["coarse"]["step"])
+                coarse_res, fr_cond_coarse = DFMSim3D.get_equivalent_cond_tn(fr_media, config, current_dir, bulk_cond_values, bulk_cond_points, dimensions, mesh_step=config["coarse"]["step"])
 
             print("coarse res ", coarse_res)
 
@@ -2704,7 +2706,6 @@ class DFMSim3D(Simulation):
 
         if scratch_sample_path is not None:
             shutil.move(scratch_sample_path, sample_dir)
-
 
         return fine_res, coarse_res
 
@@ -2840,29 +2841,46 @@ class DFMSim3D(Simulation):
                                                              center=center,
                                                              )
 
-        flow_cfg = dotdict(
-            flow_executable=[
-                "docker",
-                "run",
-                "-v",
-                "{}:{}".format(os.getcwd(), os.getcwd()),
-                # "flow123d/ci-gnu:3.9.0_49fc60d4d",
-                "flow123d/ci-gnu:4.0.0a01_94c428",
-                # "flow123d/ci-gnu:4.0.3dev_71cc9c",
-                "flow123d",
-                #        - flow123d/endorse_ci:a785dd
-                #        - flow123d/ci-gnu:4.0.0a_d61969
-                # "dbg",
-                # "run",
-                "--output_dir",
-                os.getcwd()
-            ],
-            mesh_file=cond_file,
-            pressure_grad=bc_pressure_gradient,
-            # pressure_grad_0=bc_gradients[0],
-            # pressure_grad_1=bc_gradients[1],
-            # pressure_grad_2=bc_gradients[2]
-        )
+        if "run_local" in config["sim_config"] and config["sim_config"]["run_local"]:
+            flow_cfg = dotdict(
+                flow_executable=[
+                    "docker",
+                    "run",
+                    "-v",
+                    "{}:{}".format(os.getcwd(), os.getcwd()),
+                    # "flow123d/ci-gnu:3.9.0_49fc60d4d",
+                    "flow123d/ci-gnu:4.0.0a01_94c428",
+                    # "flow123d/ci-gnu:4.0.3dev_71cc9c",
+                    "flow123d",
+                    #        - flow123d/endorse_ci:a785dd
+                    #        - flow123d/ci-gnu:4.0.0a_d61969
+                    # "dbg",
+                    # "run",
+                    "--output_dir",
+                    os.getcwd()
+                ],
+                mesh_file=cond_file,
+                pressure_grad=bc_pressure_gradient,
+            )
+        else:
+            flow_cfg = dotdict(
+                flow_executable=[
+                    "singularity",
+                    "exec",
+                    # "-v",
+                    # "{}:{}".format(os.getcwd(), os.getcwd()),
+                    "/storage/liberec3-tul/home/martin_spetlik/flow_4_0_0.sif",
+                    "flow123d",
+                    #        - flow123d/endorse_ci:a785dd
+                    #        - flow123d/ci-gnu:4.0.0a_d61969
+                    # "dbg",
+                    # "run",
+                    "--output_dir",
+                    os.getcwd()
+                ],
+                mesh_file=cond_file,
+                pressure_grad=bc_pressure_gradient,
+            )
         f_template = "01_conductivity_3D.yaml"
         shutil.copy(os.path.join(config["sim_config"]["work_dir"], f_template), sample_dir)
         with workdir_mng(sample_dir):
@@ -2882,32 +2900,49 @@ class DFMSim3D(Simulation):
             cond_file, fr_cond = DFMSim3D.create_mesh_fields(fr_media, bulk_cond_values, bulk_cond_points, dimensions,
                                     mesh_step=mesh_step,
                                     sample_dir=sample_dir,
-                                    work_dir=config["sim_config"]["work_dir"],
-                                                             center=center)
+                                    work_dir=config["sim_config"]["work_dir"], center=center)
 
-        flow_cfg = dotdict(
-            flow_executable=[
-                "docker",
-                "run",
-                "-v",
-                "{}:{}".format(os.getcwd(), os.getcwd()),
-                #"flow123d/ci-gnu:3.9.0_49fc60d4d",
-                "flow123d/ci-gnu:4.0.0a01_94c428",
-                #"flow123d/ci-gnu:4.0.3dev_71cc9c",
-                "flow123d",
-                #        - flow123d/endorse_ci:a785dd
-                #        - flow123d/ci-gnu:4.0.0a_d61969
-                # "dbg",
-                # "run",
-                "--output_dir",
-                os.getcwd()
-            ],
-            mesh_file=cond_file,
-            pressure_grad=bc_pressure_gradient,
-            # pressure_grad_0=bc_gradients[0],
-            # pressure_grad_1=bc_gradients[1],
-            # pressure_grad_2=bc_gradients[2]
-        )
+        if "run_local" in config["sim_config"] and config["sim_config"]["run_local"]:
+            flow_cfg = dotdict(
+                flow_executable=[
+                    "docker",
+                    "run",
+                    "-v",
+                    "{}:{}".format(os.getcwd(), os.getcwd()),
+                    # "flow123d/ci-gnu:3.9.0_49fc60d4d",
+                    "flow123d/ci-gnu:4.0.0a01_94c428",
+                    # "flow123d/ci-gnu:4.0.3dev_71cc9c",
+                    "flow123d",
+                    #        - flow123d/endorse_ci:a785dd
+                    #        - flow123d/ci-gnu:4.0.0a_d61969
+                    # "dbg",
+                    # "run",
+                    "--output_dir",
+                    os.getcwd()
+                ],
+                mesh_file=cond_file,
+                pressure_grad=bc_pressure_gradient,
+            )
+        else:
+            flow_cfg = dotdict(
+                flow_executable=[
+                    "singularity",
+                    "exec",
+                    # "-v",
+                    # "{}:{}".format(os.getcwd(), os.getcwd()),
+                    "/storage/liberec3-tul/home/martin_spetlik/flow_4_0_0.sif",
+                    "flow123d",
+                    #        - flow123d/endorse_ci:a785dd
+                    #        - flow123d/ci-gnu:4.0.0a_d61969
+                    # "dbg",
+                    # "run",
+                    "--output_dir",
+                    os.getcwd()
+                ],
+                mesh_file=cond_file,
+                pressure_grad=bc_pressure_gradient,
+            )
+
         f_template = "flow_upscale_templ.yaml"
         shutil.copy(os.path.join(config["sim_config"]["work_dir"], f_template), sample_dir)
         with workdir_mng(sample_dir):
