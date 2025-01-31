@@ -985,15 +985,18 @@ class DFMSim3D(Simulation):
                     cond_tensors[(center_x, center_y, center_z)] = equivalent_cond_tn
 
 
-                    try:
-                        fem_grid_rast = fem.fem_grid(15, config["sim_config"]["geometry"]["n_voxels"], fem.Fe.Q(dim=3), origin=[center_x-subdomain_box[0]/2, center_y-subdomain_box[0]/2, center_z-subdomain_box[0]/2])
-
-                        equivalent_cond_tn_predictions = DFMSim3D.predict_on_hom_sample(config, bulk_cond_values, bulk_cond_points, dfn, fr_cond,
-                                                       fem_grid_rast, (center_x, center_y, center_z))
-
-                        pred_cond_tensors[(center_x, center_y, center_z)] = equivalent_cond_tn_predictions
-                    except:
-                        continue
+                    # try:
+                    #     fem_grid_rast = fem.fem_grid(15, config["sim_config"]["geometry"]["n_voxels"], fem.Fe.Q(dim=3), origin=[center_x-subdomain_box[0]/2, center_y-subdomain_box[0]/2, center_z-subdomain_box[0]/2])
+                    #
+                    #     equivalent_cond_tn_predictions = DFMSim3D.predict_on_hom_sample(config, bulk_cond_values, bulk_cond_points, dfn, fr_cond,
+                    #                                    fem_grid_rast, (center_x, center_y, center_z))
+                    #
+                    #     pred_cond_tensors[(center_x, center_y, center_z)] = equivalent_cond_tn_predictions
+                    # except:
+                    #     DFMSim3D._remove_files()
+                    #
+                    #     os.chdir(h_dir)
+                    #     continue
 
 
                     # print("equivalent_cond_tn ", tn_to_voigt(equivalent_cond_tn))
@@ -1027,6 +1030,8 @@ class DFMSim3D(Simulation):
                     #
                     #     zarr_file["inputs"][k, ...] = rasterized_input_voigt
                     #     zarr_file["outputs"][k, :] = fine_res
+
+                    DFMSim3D._remove_files()
 
                     os.chdir(h_dir)
 
@@ -2232,16 +2237,16 @@ class DFMSim3D(Simulation):
                 # print("centers.numpy.shape ", centers.numpy().shape)
                 #
                 #
-                print("inv_predictions.numpy() ", inv_predictions.numpy().shape)
+                #print("inv_predictions.numpy() ", inv_predictions.numpy().shape)
                 # print("len(inv_predictions.numpy().shape) ", len(inv_predictions.numpy().shape))
 
                 inv_predictions_numpy = inv_predictions.numpy()
 
-                print("len(inv_predictions_numpy.shape) ", len(inv_predictions_numpy.shape))
+                #print("len(inv_predictions_numpy.shape) ", len(inv_predictions_numpy.shape))
                 if len(inv_predictions_numpy.shape) == 1:
                     inv_predictions_numpy = np.expand_dims(inv_predictions_numpy, axis=0)
 
-                print("voigt_to_tn(inv_predictions_numpy) ", voigt_to_tn(inv_predictions_numpy))
+                #print("voigt_to_tn(inv_predictions_numpy) ", voigt_to_tn(inv_predictions_numpy))
 
                 if len(inv_predictions.numpy().shape) == 1:
                     dict_cond_tn_values.extend([list(voigt_to_tn(inv_predictions_numpy))])
@@ -2265,9 +2270,8 @@ class DFMSim3D(Simulation):
         #
         # print("result dicts ", result_dict)
 
-        print("dict centers ", dict_centers)
-        print("dict_cond_tn_values ", dict_cond_tn_values)
-
+        # print("dict centers ", dict_centers)
+        # print("dict_cond_tn_values ", dict_cond_tn_values)
         #exit()
 
         pred_cond_tensors = dict(zip(dict_centers, dict_cond_tn_values))
@@ -2403,7 +2407,6 @@ class DFMSim3D(Simulation):
 
         print("n steps cond grid ", n_steps_cond_grid)
 
-
         #fem_grid_cond = fem.fem_grid(fem_grid_cond_domain_size, n_steps_cond_grid, fem.Fe.Q(dim=3),
         #                             origin=-fem_grid_cond_domain_size / 2)  # 27 cells
 
@@ -2421,7 +2424,7 @@ class DFMSim3D(Simulation):
         total_area = 0
         total_excluded_volume = 0
         for fr in dfn:
-            print("fr.r ", fr.r)
+            #print("fr.r ", fr.r)
             total_area += 4 * fr.r**2
             total_excluded_volume += np.pi * fr.r**3
             fr_rad_values.append(fr.radius[0] * (fr.radius[1] ** 2) + (fr.radius[0] ** 2) * fr.radius[1])
@@ -2466,7 +2469,8 @@ class DFMSim3D(Simulation):
                 if os.path.exists("water_balance.txt"):
                     shutil.move("water_balance.txt", "water_balance_fine.txt")
             else:
-                fine_res, fr_cond = DFMSim3D.get_equivalent_cond_tn(fr_media, config, current_dir, bulk_cond_values, bulk_cond_points, dimensions, mesh_step=config["fine"]["step"])
+                #fine_res, fr_cond = DFMSim3D.get_equivalent_cond_tn(fr_media, config, current_dir, bulk_cond_values, bulk_cond_points, dimensions, mesh_step=config["fine"]["step"])
+                pass
 
             if os.path.exists("flow123.0.log"):
                 shutil.move("flow123.0.log", "fine_flow123.0.log")
@@ -2539,7 +2543,6 @@ class DFMSim3D(Simulation):
                 # print("cond tensors rast ", cond_tensors)
                 # print("cond tensors homo ", cond_tensors_homo)
                 # print("pred cond tensors homo ", pred_cond_tensors_homo)
-
 
             hom_bulk_cond_values, hom_bulk_cond_points = np.squeeze(np.array(list(cond_tensors.values()))), np.array(list(cond_tensors.keys()))
 
