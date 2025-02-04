@@ -41,6 +41,24 @@ from bgem.upscale import *
 import scipy.interpolate as sc_interpolate
 
 
+
+def check_conv_reasons(log_fname):
+    with open(log_fname, "r") as f:
+        for line in f:
+            tokens = line.split(" ")
+            try:
+                i = tokens.index('convergence')
+                if tokens[i + 1] == 'reason':
+                    value = tokens[i + 2].rstrip(",")
+                    conv_reason = int(value)
+                    if conv_reason < 0:
+                        print("Failed to converge: ", conv_reason)
+                        return False
+            except ValueError:
+                continue
+    return True
+
+
 def substitute_placeholders(file_in, file_out, params):
     """
     Substitute for placeholders of format '<name>' from the dict 'params'.
@@ -1598,7 +1616,6 @@ class DFMSim3D(Simulation):
 
         # Get flow123d computing time
         # run_time = FlowSim.get_run_time(sample_dir)
-
         print("found ", found)
 
         if not found:
@@ -2514,13 +2531,17 @@ class DFMSim3D(Simulation):
             if "flow_sim" in config["sim_config"] and config["sim_config"]["flow_sim"]:
                 bc_pressure_gradient = [1, 0, 0]
                 cond_file, fr_cond = DFMSim3D._run_sample_flow(bc_pressure_gradient, fr_media, config, current_dir, bulk_cond_values, bulk_cond_points, dimensions, mesh_step=config["fine"]["step"])
+
+                conv_check = check_conv_reasons(os.path.join(sample_dir, "flow123.0.log"))
+                if not conv_check:
+                    raise Exception("fine sample not converged")
+
                 print("cond file ", cond_file)
                 fine_res = DFMSim3D.get_outflow(current_dir)
 
                 fine_res = [fine_res[0], fine_res[0], fine_res[0], fine_res[0], fine_res[0], fine_res[0]]
                 print("fine res ", fine_res)
-                # if not conv_check:
-                #     raise Exception("fine sample not converged")
+
                 #
                 # fine_res = [fine_res[0], fine_res[0], fine_res[0]]
                 if os.path.exists("flow_fields.pvd"):
@@ -2535,7 +2556,11 @@ class DFMSim3D(Simulation):
                     shutil.move("water_balance.txt", "water_balance_fine.txt")
             else:
                 #fine_res, fr_cond = DFMSim3D.get_equivalent_cond_tn(fr_media, config, current_dir, bulk_cond_values, bulk_cond_points, dimensions, mesh_step=config["fine"]["step"])
+                # conv_check = check_conv_reasons(os.path.join(sample_dir, "flow123.0.log"))
+                # if not conv_check:
+                #     raise Exception("fine sample not converged")
                 pass
+
 
             if os.path.exists("flow123.0.log"):
                 shutil.move("flow123.0.log", "fine_flow123.0.log")
@@ -2630,9 +2655,10 @@ class DFMSim3D(Simulation):
 
                 coarse_res = [coarse_res[0], coarse_res[0], coarse_res[0], coarse_res[0], coarse_res[0], coarse_res[0]]
 
-                # if not conv_check:
-                #     raise Exception("fine sample not converged")
-                #
+                conv_check = check_conv_reasons(os.path.join(sample_dir, "flow123.0.log"))
+                if not conv_check:
+                    raise Exception("coarse sample not converged")
+
                 # fine_res = [fine_res[0], fine_res[0], fine_res[0]]
                 if os.path.exists("flow_fields.pvd"):
                     shutil.move("flow_fields.pvd", "flow_field_fine.pvd")
@@ -2646,6 +2672,9 @@ class DFMSim3D(Simulation):
                     shutil.move("water_balance.txt", "water_balance_fine.txt")
             else:
                 coarse_res, fr_cond_coarse = DFMSim3D.get_equivalent_cond_tn(fr_media, config, current_dir, bulk_cond_values, bulk_cond_points, dimensions, mesh_step=config["coarse"]["step"])
+                conv_check = check_conv_reasons(os.path.join(sample_dir, "flow123.0.log"))
+                if not conv_check:
+                    raise Exception("coarse sample not converged")
 
             print("coarse res ", coarse_res)
 
@@ -2961,7 +2990,6 @@ class DFMSim3D(Simulation):
 
         # Project to target grid
         print(flow_out)
-
 
         return cond_file, fr_cond
 
