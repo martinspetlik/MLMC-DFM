@@ -778,22 +778,6 @@ class DFMSim3D(Simulation):
         subdomain_dfn = stochastic.FractureSet.from_list(subdomain_dfn_list)
         return subdomain_dfn
 
-
-
-
-
-
-
-        # for fr in dfn:
-        #     print("fr.center ", fr.center)
-        #     exit()
-        #     if fr.r <= config["coarse"]["step"]:
-        #         #print("fr.radius ", fr.radius)
-        #         #fr_rad_values.append(fr.radius[0]* fr.radius[1]**2 + fr.radius[0]**2*fr.radius[1])
-        #         dfn_to_homogenization.append(fr)
-
-
-
     @staticmethod
     def homogenization(config, dfn_to_homogenize, dfn_to_homogenize_list, bulk_cond_values, bulk_cond_points, seed=None, hom_dir_name="homogenization"):
         sample_dir = os.getcwd()
@@ -971,7 +955,11 @@ class DFMSim3D(Simulation):
                     # print("subdomain box run samples ", subdomain_box_run_samples)
                     # print("np.array(subdomain_box_run_samples)*1.1 ", np.array(subdomain_box_run_samples)*1.1)
                     subdomain_bulk_cond_values, subdomain_bulk_cond_points = DFMSim3D.extract_subdomain(bulk_cond_values, bulk_cond_points, (center_x, center_y, center_z), np.array(subdomain_box_run_samples)*1.1)
-                    subdomain_dfn_to_homogenize = DFMSim3D.extract_dfn(dfn_to_homogenize, dfn_to_homogenize_list, (center_x, center_y, center_z), np.array(subdomain_box_run_samples) * 1.5)
+
+                    try:
+                        subdomain_dfn_to_homogenize = DFMSim3D.extract_dfn(dfn_to_homogenize, dfn_to_homogenize_list, (center_x, center_y, center_z), np.array(subdomain_box_run_samples) * 1.5)
+                    except:
+                        subdomain_dfn_to_homogenize = dfn_to_homogenize
                     subdomain_fr_media = FracturedMedia.fracture_cond_params(subdomain_dfn_to_homogenize, 1e-4, 0.00001)
 
                     # subdomain_bulk_cond_values, subdomain_bulk_cond_points = bulk_cond_values, bulk_cond_points
@@ -1041,9 +1029,9 @@ class DFMSim3D(Simulation):
                             #         os.remove(file_path)
                             #         print(f"Deleted: {file_path}")
 
-                        if num_iterations > 10:
-                            print("num iterations 10")
-                            continue
+                    if num_iterations > 10:
+                        print("num iterations 10")
+                        continue
 
                     equivalent_cond_tn_voigt = equivalent_posdef_tensor(np.array(bc_pressure_gradients),
                                                                         flux_responses)
@@ -1059,18 +1047,18 @@ class DFMSim3D(Simulation):
                     cond_tensors[(center_x, center_y, center_z)] = equivalent_cond_tn
 
 
-                    try:
-                        fem_grid_rast = fem.fem_grid(15, config["sim_config"]["geometry"]["n_voxels"], fem.Fe.Q(dim=3), origin=[center_x-subdomain_box[0]/2, center_y-subdomain_box[0]/2, center_z-subdomain_box[0]/2])
-
-                        equivalent_cond_tn_predictions = DFMSim3D.predict_on_hom_sample(config, subdomain_bulk_cond_values, subdomain_bulk_cond_points, subdomain_dfn_to_homogenize, fr_cond,
-                                                       fem_grid_rast, (center_x, center_y, center_z))
-
-                        pred_cond_tensors[(center_x, center_y, center_z)] = equivalent_cond_tn_predictions
-                    except:
-                        DFMSim3D._remove_files()
-
-                        os.chdir(h_dir)
-                        continue
+                    # try:
+                    #     fem_grid_rast = fem.fem_grid(15, config["sim_config"]["geometry"]["n_voxels"], fem.Fe.Q(dim=3), origin=[center_x-subdomain_box[0]/2, center_y-subdomain_box[0]/2, center_z-subdomain_box[0]/2])
+                    #
+                    #     equivalent_cond_tn_predictions = DFMSim3D.predict_on_hom_sample(config, subdomain_bulk_cond_values, subdomain_bulk_cond_points, subdomain_dfn_to_homogenize, fr_cond,
+                    #                                    fem_grid_rast, (center_x, center_y, center_z))
+                    #
+                    #     pred_cond_tensors[(center_x, center_y, center_z)] = equivalent_cond_tn_predictions
+                    # except:
+                    #     DFMSim3D._remove_files()
+                    #
+                    #     os.chdir(h_dir)
+                    #     continue
 
 
                     # print("equivalent_cond_tn ", tn_to_voigt(equivalent_cond_tn))
