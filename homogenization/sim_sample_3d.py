@@ -2532,7 +2532,7 @@ class DFMSim3D(Simulation):
                 bc_pressure_gradient = [1, 0, 0]
                 cond_file, fr_cond = DFMSim3D._run_sample_flow(bc_pressure_gradient, fr_media, config, current_dir, bulk_cond_values, bulk_cond_points, dimensions, mesh_step=config["fine"]["step"])
 
-                conv_check = check_conv_reasons(os.path.join(sample_dir, "flow123.0.log"))
+                conv_check = check_conv_reasons(os.path.join(current_dir, "flow123.0.log"))
                 if not conv_check:
                     raise Exception("fine sample not converged")
 
@@ -2556,7 +2556,7 @@ class DFMSim3D(Simulation):
                     shutil.move("water_balance.txt", "water_balance_fine.txt")
             else:
                 #fine_res, fr_cond = DFMSim3D.get_equivalent_cond_tn(fr_media, config, current_dir, bulk_cond_values, bulk_cond_points, dimensions, mesh_step=config["fine"]["step"])
-                # conv_check = check_conv_reasons(os.path.join(sample_dir, "flow123.0.log"))
+                # conv_check = check_conv_reasons(os.path.join(current_dir, "flow123.0.log"))
                 # if not conv_check:
                 #     raise Exception("fine sample not converged")
                 pass
@@ -2655,7 +2655,7 @@ class DFMSim3D(Simulation):
 
                 coarse_res = [coarse_res[0], coarse_res[0], coarse_res[0], coarse_res[0], coarse_res[0], coarse_res[0]]
 
-                conv_check = check_conv_reasons(os.path.join(sample_dir, "flow123.0.log"))
+                conv_check = check_conv_reasons(os.path.join(current_dir, "flow123.0.log"))
                 if not conv_check:
                     raise Exception("coarse sample not converged")
 
@@ -2672,7 +2672,7 @@ class DFMSim3D(Simulation):
                     shutil.move("water_balance.txt", "water_balance_fine.txt")
             else:
                 coarse_res, fr_cond_coarse = DFMSim3D.get_equivalent_cond_tn(fr_media, config, current_dir, bulk_cond_values, bulk_cond_points, dimensions, mesh_step=config["coarse"]["step"])
-                conv_check = check_conv_reasons(os.path.join(sample_dir, "flow123.0.log"))
+                conv_check = check_conv_reasons(os.path.join(current_dir, "flow123.0.log"))
                 if not conv_check:
                     raise Exception("coarse sample not converged")
 
