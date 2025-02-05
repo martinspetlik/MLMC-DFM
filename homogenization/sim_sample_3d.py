@@ -1706,7 +1706,7 @@ class DFMSim3D(Simulation):
         # isec_probe = probe_fr_intersection(fr_set, target_grid)
         #cross_section, fr_cond = fr_conductivity(dfn)
         rasterized = isec_corners.interpolate(bulk_cond, fr_cond, source_grid=fem_grid.grid)
-        DFMSim3D.plot_isec_fields2(isec_corners, bulk_cond, rasterized, "raster_field.vtk")
+        #DFMSim3D.plot_isec_fields2(isec_corners, bulk_cond, rasterized, "raster_field.vtk")
 
         for i_ax in range(3):
             assert np.all(bulk_cond[:, i_ax, i_ax] <= rasterized[:, i_ax, i_ax])
