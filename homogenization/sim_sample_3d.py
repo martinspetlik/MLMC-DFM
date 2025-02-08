@@ -1226,7 +1226,6 @@ class DFMSim3D(Simulation):
                 .translate(fr.center + shift) \
                 .set_region(region_name)
 
-
             region_map[region_name] = i
             shapes.append(shape)
 
@@ -2318,9 +2317,7 @@ class DFMSim3D(Simulation):
                 # print("centers ", centers)
                 # print("centers.numpy ", centers.numpy())
                 # print("centers.numpy.shape ", centers.numpy().shape)
-                #
-                #
-                #print("inv_predictions.numpy() ", inv_predictions.numpy().shape)
+                # print("inv_predictions.numpy() ", inv_predictions.numpy().shape)
                 # print("len(inv_predictions.numpy().shape) ", len(inv_predictions.numpy().shape))
 
                 inv_predictions_numpy = inv_predictions.numpy()
@@ -2330,6 +2327,9 @@ class DFMSim3D(Simulation):
                     inv_predictions_numpy = np.expand_dims(inv_predictions_numpy, axis=0)
 
                 #print("voigt_to_tn(inv_predictions_numpy) ", voigt_to_tn(inv_predictions_numpy))
+
+                # print("voigt_to_tn(inv_predictions_numpy)", voigt_to_tn(inv_predictions_numpy).shape)
+                # exit()
 
                 if len(inv_predictions.numpy().shape) == 1:
                     dict_cond_tn_values.extend([list(voigt_to_tn(inv_predictions_numpy))])
@@ -2639,6 +2639,8 @@ class DFMSim3D(Simulation):
                 #
                 # exit()
 
+            DFMSim3D._save_tensors(cond_tensors, file=os.path.join(current_dir, DFMSim3D.COND_TN_FILE))
+
             hom_bulk_cond_values, hom_bulk_cond_points = np.squeeze(np.array(list(cond_tensors.values()))), np.array(list(cond_tensors.keys()))
 
             #print("homogenized cond tensors ", cond_tensors)
@@ -2851,8 +2853,6 @@ class DFMSim3D(Simulation):
 
     @staticmethod
     def _save_tensors(cond_tensors, file):
-        print("save tensors cond tensors ", cond_tensors)
-        print("file to save ", file)
         with open(file, "w") as f:
             yaml.dump(cond_tensors, f)
 
@@ -3046,11 +3046,13 @@ class DFMSim3D(Simulation):
 
         f_template = "flow_upscale_templ.yaml"
         shutil.copy(os.path.join(config["sim_config"]["work_dir"], f_template), sample_dir)
+
+        #print("flow_cfg ", flow_cfg)
         with workdir_mng(sample_dir):
             flow_out = call_flow(flow_cfg, f_template, flow_cfg)
 
         # Project to target grid
-        print(flow_out)
+        #print(flow_out)
 
         return cond_file, fr_cond
 
