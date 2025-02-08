@@ -2063,11 +2063,12 @@ class DFMSim3D(Simulation):
 
     @staticmethod
     def _calculate_subdomains(coarse_step, geometry):
+        #print("geometry ", geometry)
         if coarse_step > 0:
             hom_box_size = coarse_step * 1.5
             domain_box_size = geometry["orig_domain_box"][0]
             n_centers = np.round(domain_box_size / hom_box_size)
-            n_total_centers = np.round(n_centers * 2 + 1)
+            n_total_centers = np.round(n_centers * geometry["pixel_stride_div"] + 1)
             hom_box_size = domain_box_size / n_centers
         else:
             return geometry["subdomain_box"], 4, 4
@@ -2143,7 +2144,7 @@ class DFMSim3D(Simulation):
         domain_box = config["sim_config"]["geometry"]["orig_domain_box"]
         subdomain_box = config["sim_config"]["geometry"]["subdomain_box"]
         subdomain_pixel_size = 64
-        pixel_stride = subdomain_pixel_size // 2
+        pixel_stride = subdomain_pixel_size // config["sim_config"]["geometry"]["pixel_stride_div"]
 
         lx, ly, lz = domain_box
         lx += subdomain_box[0]
@@ -2163,14 +2164,16 @@ class DFMSim3D(Simulation):
         dict_centers = []
         dict_cond_tn_values = []
 
+        stride = config["sim_config"]["geometry"]["pixel_stride_div"]
+
         zarr_file = zarr.open(zarr_file_path, mode='r+')
         for i in range(num_subdomains_x):
-            center_x = subdomain_box[0] / 2 + (lx - subdomain_box[0]) / (n_subdomains_per_axes - 1) * i - lx / 2
+            center_x = subdomain_box[0] / stride + (lx - subdomain_box[0]) / (n_subdomains_per_axes - 1) * i - lx / stride
 
             for j in range(num_subdomains_y):
                 #start_time = time.time()
 
-                center_y = subdomain_box[1] / 2 + (ly - subdomain_box[1]) / (n_subdomains_per_axes - 1) * j - ly / 2
+                center_y = subdomain_box[1] / stride + (ly - subdomain_box[1]) / (n_subdomains_per_axes - 1) * j - ly / stride
 
                 for l in range(num_subdomains_z):
 
@@ -2180,7 +2183,7 @@ class DFMSim3D(Simulation):
 
                     #hom_sample_dir = Path(os.getcwd()).absolute()
 
-                    center_z = subdomain_box[1] / 2 + (lz - subdomain_box[1]) / (n_subdomains_per_axes - 1) * l - lz / 2
+                    center_z = subdomain_box[1] / stride + (lz - subdomain_box[1]) / (n_subdomains_per_axes - 1) * l - lz / stride
 
                     # center_z_2 = subdomain_box[1] / 2 + (lz - subdomain_box[1]) / (
                     #             n_subdomains_per_axes - 1) * (l+1) - lz / 2
@@ -2392,7 +2395,6 @@ class DFMSim3D(Simulation):
 
         current_dir = Path(os.getcwd()).absolute()
 
-
         #print("sample dir ", sample_dir)
         #print("sample idx ", sample_idx)
         print("os.getcwd()", os.getcwd())
@@ -2416,7 +2418,7 @@ class DFMSim3D(Simulation):
         coarse_step = config["coarse"]["step"]
 
         domain_size = config["sim_config"]["geometry"]["domain_box"][0]  # 15  # 100
-        fem_grid_cond_domain_size = config["sim_config"]["geometry"]["domain_box"][0] + fine_step
+        fem_grid_cond_domain_size = config["sim_config"]["geometry"]["domain_box"][0] + 3 #+ int(config["sim_config"]["geometry"]["domain_box"][0] * 0.1)
         fr_domain_size = config["sim_config"]["geometry"]["fractures_box"][0]
         fr_range = config["sim_config"]["geometry"]["pow_law_sample_range"]  # (5, fr_domain_size)
 
