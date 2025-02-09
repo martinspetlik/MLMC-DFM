@@ -1741,6 +1741,22 @@ class DFMSim3D(Simulation):
         fr_cond_tn, fr_map = DFMSim3D.fr_field(full_mesh, dfn, fr_region_map, fr_cond,
                                                    bulk_conductivity, rnd_cond=False, field_dim=3)
 
+        print("fr cond tn ", fr_cond_tn.shape)
+
+        n = 0
+        for i in range(fr_cond_tn.shape[0]):
+            evals, evecs = np.linalg.eigh(fr_cond_tn[i])
+
+            if np.all(evals) > 0:
+                pass
+            else:
+                n += 1
+                print("evals equivalent cond tn ", evals)
+                print("cond_tensors[i].shape", fr_cond_tn[i])
+
+        print("NUM fr cond non positive evals ", n)
+
+
         cross_sections, fr_map_cs = DFMSim3D.fr_field(full_mesh, dfn, fr_region_map, fr_cross_section, 1.0, field_dim=1)
         cross_sections = np.array(cross_sections)
 
@@ -2597,10 +2613,16 @@ class DFMSim3D(Simulation):
         # rasterize bulk for homogenization
         if coarse_step > 0:
             dfn_to_homogenization_list = []
+            dfn_to_coarse_list = []
             for fr in dfn:
                 if fr.r <= coarse_step:
                     dfn_to_homogenization_list.append(fr)
+                else:
+                    dfn_to_coarse_list.append(fr)
             dfn_to_homogenization = stochastic.FractureSet.from_list(dfn_to_homogenization_list)
+
+            dfn_to_coarse = stochastic.FractureSet.from_list(dfn_to_coarse_list)
+            coarse_fr_media = FracturedMedia.fracture_cond_params(dfn_to_coarse, 1e-4, 0.00001)
 
             if "nn_path" in config["sim_config"]:
                 domain_size = config["sim_config"]["geometry"]["domain_box"]
@@ -2654,7 +2676,7 @@ class DFMSim3D(Simulation):
 
             if "flow_sim" in config["sim_config"] and config["sim_config"]["flow_sim"]:
                 bc_pressure_gradient = [1, 0, 0]
-                cond_file, fr_cond = DFMSim3D._run_sample_flow(bc_pressure_gradient, fr_media, config, current_dir, hom_bulk_cond_values, hom_bulk_cond_points, dimensions, mesh_step=config["coarse"]["step"])
+                cond_file, fr_cond = DFMSim3D._run_sample_flow(bc_pressure_gradient, coarse_fr_media, config, current_dir, hom_bulk_cond_values, hom_bulk_cond_points, dimensions, mesh_step=config["coarse"]["step"])
                 coarse_res = DFMSim3D.get_outflow(current_dir)
 
                 coarse_res = [coarse_res[0], coarse_res[0], coarse_res[0], coarse_res[0], coarse_res[0], coarse_res[0]]
@@ -2675,7 +2697,7 @@ class DFMSim3D(Simulation):
                 if os.path.exists("water_balance.txt"):
                     shutil.move("water_balance.txt", "water_balance_fine.txt")
             else:
-                coarse_res, fr_cond_coarse = DFMSim3D.get_equivalent_cond_tn(fr_media, config, current_dir, bulk_cond_values, bulk_cond_points, dimensions, mesh_step=config["coarse"]["step"])
+                coarse_res, fr_cond_coarse = DFMSim3D.get_equivalent_cond_tn(coarse_fr_media, config, current_dir, bulk_cond_values, bulk_cond_points, dimensions, mesh_step=config["coarse"]["step"])
                 conv_check = check_conv_reasons(os.path.join(current_dir, "flow123.0.log"))
                 if not conv_check:
                     raise Exception("coarse sample not converged")
