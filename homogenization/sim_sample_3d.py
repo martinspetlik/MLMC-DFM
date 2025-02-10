@@ -1715,6 +1715,17 @@ class DFMSim3D(Simulation):
         return rasterized
 
     @staticmethod
+    def make_fr_cond_pd(fr_cond):
+        for i in range(fr_cond.shape[0]):
+            evals, evecs = np.linalg.eigh(fr_cond[i])
+            if np.any(evals <= 0):
+                epsilon = 1e-10  # Small regularization term
+                fr_cond[i] = fr_cond[i] + epsilon * np.eye(3)
+
+        return fr_cond
+
+
+    @staticmethod
     def create_mesh_fields(fr_media, bulk_cond_values, bulk_cond_points, dimensions, mesh_step, sample_dir, work_dir, center=[0, 0, 0]):
         dfn = fr_media.dfn
         bulk_conductivity = fr_media.conductivity
@@ -1730,7 +1741,16 @@ class DFMSim3D(Simulation):
         if len(dfn) > 0:
             fr_cross_section, fr_cond = fr_conductivity(dfn, cross_section_factor=1e-4)
 
-        print("bulk cond points.shape ", bulk_cond_points.shape)
+        fr_cond = DFMSim3D.make_fr_cond_pd(fr_cond)
+
+        n = 0
+        for i in range(fr_cond.shape[0]):
+            evals, evecs = np.linalg.eigh(fr_cond[i])
+            if np.any(evals <= 0):
+                print("evals equivalent cond tn ", evals)
+                print("cond_tensors[i].shape", fr_cond[i])
+                n += 1
+        print("NUM fr cond non positive evals ", n)
 
         mesh_file, fr_region_map = DFMSim3D.ref_solution_mesh(sample_dir, dimensions, dfn, fr_step=mesh_step,
                                                               bulk_step=mesh_step, center=center)
@@ -1740,22 +1760,6 @@ class DFMSim3D(Simulation):
         #if len(dfn) > 0:
         fr_cond_tn, fr_map = DFMSim3D.fr_field(full_mesh, dfn, fr_region_map, fr_cond,
                                                    bulk_conductivity, rnd_cond=False, field_dim=3)
-
-        print("fr cond tn ", fr_cond_tn.shape)
-
-        n = 0
-        for i in range(fr_cond_tn.shape[0]):
-            evals, evecs = np.linalg.eigh(fr_cond_tn[i])
-
-            if np.all(evals) > 0:
-                pass
-            else:
-                n += 1
-                print("evals equivalent cond tn ", evals)
-                print("cond_tensors[i].shape", fr_cond_tn[i])
-
-        print("NUM fr cond non positive evals ", n)
-
 
         cross_sections, fr_map_cs = DFMSim3D.fr_field(full_mesh, dfn, fr_region_map, fr_cross_section, 1.0, field_dim=1)
         cross_sections = np.array(cross_sections)
