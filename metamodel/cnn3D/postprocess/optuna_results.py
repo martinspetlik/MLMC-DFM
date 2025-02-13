@@ -18,7 +18,7 @@ from datetime import datetime
 from metamodel.cnn.visualization.visualize_tensor import plot_tensors
 from metamodel.cnn.visualization.visualize_data import plot_target_prediction, plot_train_valid_loss
 from metamodel.cnn.models.auxiliary_functions import exp_data, get_eigendecomp, get_mse_nrmse_r2, get_mean_std, log_data, exp_data,\
-    quantile_transform_fit, QuantileTRF, NormalizeData, log_all_data, init_norm, get_mse_nrmse_r2_eigh, log10_data, log10_all_data, power_10_all_data, power_10_data
+    quantile_transform_fit, QuantileTRF, NormalizeData, log_all_data, init_norm, get_mse_nrmse_r2_eigh_3D, log10_data, log10_all_data, power_10_all_data, power_10_data, CorrelatedOutputLoss
 from metamodel.cnn.models.train_pure_cnn_optuna import prepare_dataset
 #from sklearn.isotonic import IsotonicRegression
 #from statsmodels.regression.quantile_regression import QuantReg
@@ -26,14 +26,14 @@ from metamodel.cnn.models.train_pure_cnn_optuna import prepare_dataset
 #from sklearn.calibration import CalibratedClassifierCV
 from sklearn.preprocessing import QuantileTransformer, RobustScaler
 
-os.environ["CUDA_VISIBLE_DEVICES"]=""
+#os.environ["CUDA_VISIBLE_DEVICES"]=""
 
 
 def preprocess_dataset(config, user_attrs, data_dir, results_dir=None):
     print("user attrs ", user_attrs)
-    output_file_name = "output_tensor.npy"
-    if "vel_avg" in config and config["vel_avg"]:
-        output_file_name = "output_vel_avg.npy"
+    # output_file_name = "output_tensor.npy"
+    # if "vel_avg" in config and config["vel_avg"]:
+    #     output_file_name = "output_vel_avg.npy"
 
     # ===================================
     # Get mean and std for each channel
@@ -41,9 +41,9 @@ def preprocess_dataset(config, user_attrs, data_dir, results_dir=None):
     input_mean, output_mean, input_std, output_std = 0, 0, 1, 1
     data_normalizer = NormalizeData()
 
-    n_train_samples = None
-    if "n_train_samples" in config and config["n_train_samples"] is not None:
-        n_train_samples = config["n_train_samples"]
+    # n_train_samples = None
+    # if "n_train_samples" in config and config["n_train_samples"] is not None:
+    #     n_train_samples = config["n_train_samples"]
 
     input_transformations = []
     output_transformations = []
@@ -82,6 +82,9 @@ def preprocess_dataset(config, user_attrs, data_dir, results_dir=None):
     if config["normalize_output"]:
         if "normalize_output_indices" in config:
             data_normalizer.input_indices = config["normalize_output_indices"]
+
+        print("output mean ", user_attrs["output_mean"])
+        print("output std ",  user_attrs["output_std"])
         data_normalizer.output_mean = user_attrs["output_mean"]
         data_normalizer.output_std = user_attrs["output_std"]
         output_transformations.append(data_normalizer.normalize_output)
@@ -110,6 +113,8 @@ def preprocess_dataset(config, user_attrs, data_dir, results_dir=None):
     print("preprocess data output transform ", data_output_transform)
 
 
+
+
     # ============================
     # Datasets and data loaders
     # ============================
@@ -123,7 +128,7 @@ def preprocess_dataset(config, user_attrs, data_dir, results_dir=None):
                             cross_section=config["cross_section"] if "cross_section" in config else False,
                             init_norm_use_all_features=config[
                                 "init_norm_use_all_features"] if "init_norm_use_all_features" in config else False,
-                            mode="train", train_size=0, val_size=0, test_size=10000)
+                            mode="train", train_size=0, val_size=0, test_size=config["n_test_samples"])
 
     validation_set = DFM3DDataset(zarr_path=data_dir,
                              init_transform=data_init_transform,
@@ -135,7 +140,7 @@ def preprocess_dataset(config, user_attrs, data_dir, results_dir=None):
                              cross_section=config["cross_section"] if "cross_section" in config else False,
                              init_norm_use_all_features=config[
                                  "init_norm_use_all_features"] if "init_norm_use_all_features" in config else False,
-                             mode="val", train_size=0, val_size=0, test_size=10000)
+                             mode="val", train_size=0, val_size=0, test_size=config["n_test_samples"])
 
     test_set = DFM3DDataset(zarr_path=data_dir,
                          init_transform=data_init_transform,
@@ -146,7 +151,7 @@ def preprocess_dataset(config, user_attrs, data_dir, results_dir=None):
                          fractures_sep=config["fractures_sep"] if "fractures_sep" in config else False,
                          cross_section=config["cross_section"] if "cross_section" in config else False,
                          init_norm_use_all_features=config["init_norm_use_all_features"] if "init_norm_use_all_features" in config else False,
-                         mode="test", train_size=0, val_size=0, test_size=10000)
+                         mode="test", train_size=0, val_size=0, test_size=config["n_test_samples"])
 
     #dataset.shuffle(config["seed"])
     #print("len dataset ", len(dataset))
@@ -210,13 +215,40 @@ def load_dataset(results_dir, study):
     #
     # return train_set, val_set, test_set
 
-    data_dir = "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/homogenization_samples/cond_frac_1_3/test_data/MLMC-DFM_3D_n_voxels_64/samples_data.zarr"
+    #data_dir = "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/homogenization_samples/cond_frac_1_3/test_data/MLMC-DFM_3D_n_voxels_64/samples_data.zarr"
+    data_dir = "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/homogenization_samples/cond_frac_1_3/train_data/dataset_2/sub_dataset_2_1000.zarr"
+    data_dir = "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/homogenization_samples/cond_frac_1_3/cond_nearest_interp/dataset_2/train_data/sub_dataset_2_1000.zarr"
+
+    #data_dir = "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/homogenization_samples/cond_frac_1_3/cond_nearest_interp/test_data/samples_data.zarr"
+
+    data_dir = "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/homogenization_samples/cond_frac_1_3/cond_nearest_interp/test_data/samples_data.zarr"
+
+    data_dir = "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/homogenization_samples/cond_frac_1_3/cond_nearest_interp/test_data/MLMC-DFM_3D_n_voxels_64_n/samples_data.zarr"
+
+    data_dir = "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/homogenization_samples/cond_frac_1_5/cond_nearest_interp/test_data/MLMC-DFM_3D_n_voxels_64_500_frac/samples_data.zarr"
+
+    #data_dir = "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/homogenization_samples/cond_frac_1_5/cond_nearest_interp/test_data/samples_data.zarr"
+
+    #data_dir = "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/homogenization_samples/cond_frac_1_5/cond_nearest_interp/test_data/MLMC-DFM_3D_n_voxels_64_save_bulk_avg/samples_data.zarr"
+
+    data_dir = "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/homogenization_samples/cond_frac_1_5/cond_nearest_interp/test_data/MLMC-DFM_3D_n_voxels_64_save_bulk_avg_n_frac_2500/samples_data.zarr"
+
+    data_dir = "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/homogenization_samples/cond_frac_1_3/cond_nearest_interp/dataset_2_other_method/sub_dataset_2_2500.zarr"
+
+    data_dir = "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/homogenization_samples/cond_frac_1_3/cond_nearest_interp/test_data/MLMC-DFM_3D_n_voxels_64_save_bulk_avg/samples_data.zarr"
+
+    data_dir = "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/homogenization_samples/cond_frac_1_5/cond_nearest_interp/test_data/fractures_diag_cond/MLMC-DFM_3D_n_voxels_64_save_bulk_avg/samples_data.zarr"
+
+    #data_dir = "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/homogenization_samples/cond_frac_1_3/cond_nearest_interp/train_data/dataset_2_save_bulk_avg_n_frac_2500_cl_0_10_25_seed_merge/validation_samples.zarr"
+
+    #data_dir = "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/homogenization_samples/cond_frac_1_5/cond_nearest_interp/test_data/MLMC-DFM_3D_n_voxels_64_save_bulk_avg_disp_0/samples_data.zarr"
+    #data_dir = "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/homogenization_samples/cond_frac_1_5/cond_nearest_interp/test_data/MLMC-DFM_3D_n_voxels_64_hom_samples/merged.zarr"
 
     config = {#"num_epochs": trials_config["num_epochs"],
               "batch_size_train": 32,
               # "batch_size_test": 250,
               "n_train_samples": 5,#study.user_attrs["n_train_samples"],
-              "n_test_samples": 10000, #study.user_attrs["n_test_samples"],
+              "n_test_samples": 3500, #2500, #study.user_attrs["n_test_samples"],
               "train_samples_ratio": 0.1,
               "val_samples_ratio":  0.2,
               "print_batches": 10,
@@ -229,8 +261,17 @@ def load_dataset(results_dir, study):
               "normalize_output": study.user_attrs["normalize_output"],
               "init_norm_use_all_features":  study.user_attrs["init_norm_use_all_features"] if "init_norm_use_all_features" in study.user_attrs else False,
               #"output_transform": study.user_attrs["output_transform"],
-              "cross_section": True,
+              "cross_section": False,
               "seed": 12345}
+
+    #@TODO: rm ASAP
+    #config["output_channels"] = [0,1,2]
+
+    if "output_channels" in study.user_attrs:
+        config["output_channels"] = study.user_attrs["output_channels"]
+
+    if "input_channels" in study.user_attrs:
+        config["input_channels"] = study.user_attrs["input_channels"]
 
     if "output_transform" in study.user_attrs:
         config["output_transform"] = study.user_attrs["output_transform"]
@@ -340,6 +381,14 @@ def get_inverse_transform_input(study):
 
         ones_std = np.ones(len(zeros_mean))
         mean = -study.user_attrs["input_mean"]
+
+        # print("mean shape ", mean.shape)
+        # print("std shape ", std.shape)
+        # print("zeros mean shape ", zeros_mean.shape)
+        # print("ones std shape ", ones_std.shape)
+
+        zeros_mean = zeros_mean.reshape(mean.shape)
+        ones_std = ones_std.reshape(std.shape)
 
         transforms_list = [transforms.Normalize(mean=zeros_mean, std=std),
                            transforms.Normalize(mean=mean, std=ones_std)]
@@ -558,33 +607,33 @@ def plot_target_data(train_loader, validation_loader, test_loader):
     test_targets = []
     test_targets = []
 
-    k_xx_list_input = []
-    k_xy_list_input = []
-    k_yy_list_input = []
-    for i, test_sample in enumerate(train_loader):
-        inputs, targets = test_sample
-        inputs = np.squeeze(inputs.numpy())
-        print("inputs ", inputs)
-        if i > 50:
-            break
-        print("inputs[0].ravel() ", inputs[0].ravel())
-        k_xx_list_input.extend(inputs[0].ravel())
-        k_xy_list_input.extend(inputs[1].ravel())
-        k_yy_list_input.extend(inputs[2].ravel())
-
-    print("kxx shape ", np.array(k_xx_list_input).shape)
-    plt.hist(k_xx_list_input, bins=25, color="red", label="input k_xx", density=True)
-    #plt.xlim([-0.001, 1])
-    plt.legend()
-    plt.show()
-
-    plt.hist(k_xy_list_input, bins=60, color="red", label="input k_xy", density=True)
-    plt.legend()
-    plt.show()
-
-    plt.hist(k_yy_list_input, bins=60, color="red", label="input k_yy", density=True)
-    plt.legend()
-    plt.show()
+    # k_xx_list_input = []
+    # k_xy_list_input = []
+    # k_yy_list_input = []
+    # for i, test_sample in enumerate(test_loader):
+    #     inputs, targets = test_sample
+    #     inputs = np.squeeze(inputs.numpy())
+    #     print("inputs ", inputs)
+    #     if i > 50:
+    #         break
+    #     print("inputs[0].ravel() ", inputs[0].ravel())
+    #     k_xx_list_input.extend(inputs[0].ravel())
+    #     k_xy_list_input.extend(inputs[1].ravel())
+    #     k_yy_list_input.extend(inputs[2].ravel())
+    #
+    # print("kxx shape ", np.array(k_xx_list_input).shape)
+    # plt.hist(k_xx_list_input, bins=25, color="red", label="input k_xx", density=True)
+    # #plt.xlim([-0.001, 1])
+    # plt.legend()
+    # plt.show()
+    #
+    # plt.hist(k_xy_list_input, bins=60, color="red", label="input k_xy", density=True)
+    # plt.legend()
+    # plt.show()
+    #
+    # plt.hist(k_yy_list_input, bins=60, color="red", label="input k_yy", density=True)
+    # plt.legend()
+    # plt.show()
 
     for i, test_sample in enumerate(test_loader): #@TODO: use train_loader again
         inputs, targets = test_sample
@@ -633,7 +682,7 @@ def plot_target_data(train_loader, validation_loader, test_loader):
     # plt.legend()
     # plt.show()
 
-    n_channels = 3
+    n_channels = 6
     for i in range(n_channels):
         print("train targets shape ", train_targets.shape)
         k_train_targets = train_targets[:, i]
@@ -680,13 +729,97 @@ def plot_target_data(train_loader, validation_loader, test_loader):
         # exit()
 
 
+# Function to visualize feature maps
+# Function to register a hook to capture feature maps
+def get_feature_maps(model, layer):
+    feature_maps = []
+
+    def hook(module, input, output):
+        feature_maps.append(output)
+
+    print("dict([*model.named_modules()]) ", dict([*model.named_modules()]))
+    #dict([*model.named_modules()])[layer_name]  # Access the layer by name
+    layer.register_forward_hook(hook)
+
+    return feature_maps
+
+def visualize_feature_maps(model, data_loader, num_images=5):
+    import matplotlib.pyplot as plt
+
+    layer = model._convs[3]
+
+    # Get feature maps
+    feature_maps = get_feature_maps(model, layer)
+
+    feature_index = 1
+
+    # Pass some sample inputs through the model
+    model.eval()  # Set model to evaluation mode
+    with torch.no_grad():
+        for i, (inputs, labels) in enumerate(data_loader):
+            if i >= num_images:
+                break
+            _ = model(inputs)
+
+            # Get the last captured feature maps
+            fmap = feature_maps[-1][0]  # First image in the batch
+
+            print("fmap shape ", fmap.shape)
+
+            # Select the specific feature map
+            feature_map = fmap[feature_index].cpu().numpy()
+
+            # Prepare coordinates for 3D plotting
+            depth, height, width = feature_map.shape
+            x = np.arange(depth)
+            y = np.arange(height)
+            z = np.arange(width)
+            x, y, z = np.meshgrid(x, y, z, indexing='ij')
+
+            # Create a 3D plot
+            fig = plt.figure(figsize=(12, 8))
+            ax = fig.add_subplot(111, projection='3d')
+            ax.scatter(x.flatten(), y.flatten(), z.flatten(), c=feature_map.flatten(), cmap='coolwarm', alpha=0.75)
+            ax.set_xlabel('Depth')
+            ax.set_ylabel('Height')
+            ax.set_zlabel('Width')
+            ax.set_title(f'3D Feature Map Visualization from Layer: {layer}, Feature: {feature_index}')
+            plt.show()
+
+            from mayavi import mlab
+            # Create a Mayavi figure
+            mlab.figure(size=(800, 800), bgcolor=(1, 1, 1))
+
+            # Create a 3D volume visualization
+            src = mlab.pipeline.scalar_field(feature_map)
+            mlab.pipeline.volume(src, vmin=feature_map.min(), vmax=feature_map.max())
+            mlab.title(f'3D Feature Map from Layer: {layer}, Feature: {feature_index}')
+            mlab.show()
+
+            # # Plot feature maps
+            # num_features = fmap.shape[0]  # Number of feature maps
+            # num_cols = 8  # Number of columns for visualization
+            # num_rows = (num_features + num_cols - 1) // num_cols  # Rows needed
+            #
+            # plt.figure(figsize=(15, 15))
+            # for j in range(num_features):
+            #     plt.subplot(num_rows, num_cols, j + 1)
+            #     plt.imshow(fmap[j].cpu().numpy(), cmap='viridis')
+            #     plt.axis('off')
+            # plt.suptitle(f'Feature Maps from Layer: {layer}', fontsize=16)
+            # plt.show()
+
+
 def load_models(args, study):
     calibrate = False
     rotate = False
     results_dir = args.results_dir
     model_path = get_saved_model_path(results_dir, study.best_trial)
     #model_path = "/home/martin/Documents/MLMC-DFM/optuna_runs/karolina/MLMC-DFM_general_dataset_2/pooling/mase_loss/fr_div_0_1_exp_rho_2_5_3/seed_36974/trial_0_losses_model_cnn_net"
+    #model_path = "/home/martin/Documents/MLMC-DFM/optuna_runs/3D_cnn/lumi/cond_frac_1_3/cond_nearest_interp/dataset_2_save_bulk_avg_n_frac_2500_cl_0_10_25_seed_merge_new/init_norm/exp_12_14/seed_12345/trial_0_losses_model_cnn_net_best_59"
     print("model path ", model_path)
+    print("model kwargs ", study.best_trial.user_attrs["model_kwargs"])
+
     train_set, validation_set, test_set = load_dataset(results_dir, study)
 
     #@TODO: RM ASAP
@@ -739,10 +872,10 @@ def load_models(args, study):
     # train_set.output_transform = None
     # validation_set.output_transform = None
     # test_set.output_transform = None
-    print("train_set.init_transform ", train_set.init_transform)
-    print("train_set.input_transform ", train_set.input_transform)
-    print("train_set.output_transform ", train_set.output_transform)
-    #exit()
+    # print("train_set.init_transform ", train_set.init_transform)
+    # print("train_set.input_transform ", train_set.input_transform)
+    # print("train_set.output_transform ", train_set.output_transform)
+    # #exit()
     #plot_target_data(train_loader, validation_loader, test_loader)
     #exit()
 
@@ -767,7 +900,6 @@ def load_models(args, study):
         # model_kwargs = {'n_conv_layers': 1, 'max_channel': 72, 'pool': 'None', 'pool_size': 0, 'kernel_size': 3,
         #                 'stride': 1, 'pool_stride': 0, 'use_batch_norm': True, 'n_hidden_layers': 1,
         #                 'max_hidden_neurons': 48, 'input_size': 3}
-
         # if "min_channel" in model_kwargs:
         #     model_kwargs["input_channel"] = 1 #model_kwargs["min_channel"]
         #     model_kwargs["n_output_neurons"] = 1
@@ -799,10 +931,12 @@ def load_models(args, study):
         print("best val loss: {}".format(np.min(valid_loss)))
         print("best epoch: {}".format(np.argmin(valid_loss)))
         #exit()
-        plot_train_valid_loss(train_loss, valid_loss)
+        #plot_train_valid_loss(train_loss, valid_loss)
+
+        #visualize_feature_maps(model, test_loader)
 
         print("checkpoint ", list(checkpoint['best_model_state_dict'].keys()))
-        print("_output_layer.bias ", checkpoint['best_model_state_dict']['_output_layer.bias'])
+        #print("_output_layer.bias ", checkpoint['best_model_state_dict']['_output_layer.bias'])
 
         #del checkpoint["best_model_state_dict"]["_output_layer.bias"]
         # del checkpoint["best_model_state_dict"]["_batch_norms_after.0.weight"]
@@ -843,23 +977,39 @@ def load_models(args, study):
         #     test_set.init_transform = None
         #     test_set.input_transform = None
 
+
+        covariance_matrix = CorrelatedOutputLoss.calculate_cov(test_loader)
+        print("covariance matrix ", covariance_matrix)
+
+        inv_covariance_matrix = np.linalg.inv(covariance_matrix.cpu())
+        print("inv_covariance_matrix ", inv_covariance_matrix)
+
+        np.save("covariance_matrix ", covariance_matrix.cpu())
+
         n_wrong = 0
         wrong_targets = []
         wrong_predictions = []
         for i, test_sample in enumerate(test_loader): #@TODO: SET TEST LOADER (test_loader)
             inputs, targets = test_sample
             #print("targets ", targets)
-            #print("intputs ", inputs)
+            #print("intputs ", inputs.shape)
 
             inputs = inputs.float()
+
+            #print("input inverse transform ", input_inverse_transform)
 
             if args.cuda and torch.cuda.is_available():
                 inputs = inputs.cuda()
             predictions = model(inputs)
 
+
+
+            #print("predictions ", predictions.shape)
+
             if test_set.init_transform is not None and input_inverse_transform is not None:
                 #print("inputs ", inputs)
                 #print("test_set._bulk_features_avg ", test_set._bulk_features_avg)
+                #print("inputs to inverse transform shape ", inputs.shape)
                 inv_transformed_inputs = input_inverse_transform(inputs)
                 #print("inv tra inputs ", inv_transformed_inputs)
 
@@ -887,7 +1037,6 @@ def load_models(args, study):
             #print("targets ", targets)
             #print("predictions ", predictions)
             #print("targets_np.shape ", targets_np.shape)
-
 
             # else:
             if len(predictions.size()) > 1 and np.sum(predictions.size())/len(predictions.size()) != 1:
@@ -923,15 +1072,20 @@ def load_models(args, study):
             #print("predictions.shape ", predictions.shape)
             #print("targets.shape ", targets.shape)
 
-            loss = loss_fn(predictions, targets)
-            running_loss += loss
+            #loss = loss_fn(predictions, targets)
+            #running_loss += loss
 
             inv_targets = targets
             inv_predictions = predictions
             if inverse_transform is not None:
                 #print("tragets shape ", targets.shape)
-                inv_targets = inverse_transform(torch.reshape(targets, (*targets.shape, 1, 1)))
-                inv_predictions = inverse_transform(torch.reshape(predictions, (*predictions.shape, 1, 1)))
+
+                try:
+                    inv_targets = inverse_transform(torch.reshape(targets, (*targets.shape, 1, 1)))
+                    inv_predictions = inverse_transform(torch.reshape(predictions, (*predictions.shape, 1, 1)))
+                except:
+                    print("continue")
+                    continue
 
                 # print("inv targets ", inv_targets)
                 # print("inv predictions", inv_predictions)
@@ -943,8 +1097,8 @@ def load_models(args, study):
                     inv_predictions *= inv_input_avg
                     inv_targets *= inv_input_avg
 
-                    # print("mult inv targets ", inv_targets)
-                    # print("mult inv prediction ", inv_predictions)
+                    #print("mult inv targets ", inv_targets)
+                    #print("mult inv prediction ", inv_predictions)
                     # #
                     #
                     # print("inv predictins mult ", inv_predictions)
@@ -980,7 +1134,7 @@ def load_models(args, study):
                 # if len(inv_predictions.size()) > 1 and np.sum(inv_predictions.size())/len(inv_predictions.size()) != 1:
                 #     inv_predictions = torch.squeeze(inv_predictions)
 
-            inv_running_loss += loss_fn(inv_predictions, inv_targets)
+            #inv_running_loss += loss_fn(inv_predictions, inv_targets)
 
             inv_targets_list.append(inv_targets.numpy())
             inv_predictions_list.append(inv_predictions.numpy())
@@ -1018,6 +1172,13 @@ def load_models(args, study):
 
         #inv_targets_arr, inv_predictions_arr = _remove_outliers_iqr(inv_targets_arr, inv_predictions_arr)
 
+        np.savez("inv_targets_arr", data=inv_targets_arr)
+        np.savez("inv_predictions_arr", data=inv_predictions_arr)
+
+        np.savez("targets_list", data=targets_list)
+        np.savez("predictions_list", data=predictions_list)
+        exit()
+
         mse, rmse, nrmse, r2 = get_mse_nrmse_r2(targets_list, predictions_list)
         inv_mse, inv_rmse, inv_nrmse, inv_r2 = get_mse_nrmse_r2(inv_targets_arr, inv_predictions_arr)
 
@@ -1029,21 +1190,26 @@ def load_models(args, study):
                                                                                                     train_loss,
                                                                                                     valid_loss,
                                                                                                     test_loss,
-                                                                                                    inv_test_loss))
+                                                                                                inv_test_loss))
+
+        titles = ['k_xx', 'k_yy', 'k_zz', 'k_yz', 'k_xz', 'k_xy']
+        x_labels = [r'$log(k_{xx})$', r'$log(k_{yy})$', r'$log(k_{zz})$', r'$k_{yz}$', r'$k_{xz}$', r'$k_{xy}$']
+
+
         mse_str, inv_mse_str = "MSE", "Original data MSE"
         r2_str, inv_r2_str = "R2", "Original data R2"
         rmse_str, inv_rmse_str = "RMSE", "Original data RMSE"
         nrmse_str, inv_nrmse_str = "NRMSE", "Original data NRMSE"
         for i in range(len(mse)):
-            mse_str += " k_{}: {}".format(i, mse[i])
-            r2_str += " k_{}: {}".format(i, r2[i])
-            rmse_str += " k_{}: {}".format(i, rmse[i])
-            nrmse_str += " k_{}: {}".format(i, nrmse[i])
+            mse_str += " {}: {}".format(titles[i], mse[i])
+            r2_str += " {}: {}".format(titles[i], r2[i])
+            rmse_str += " {}: {}".format(titles[i], rmse[i])
+            nrmse_str += " {}: {}".format(titles[i], nrmse[i])
 
-            inv_mse_str += " k_{}: {}".format(i, inv_mse[i])
-            inv_r2_str += " k_{}: {}".format(i, inv_r2[i])
-            inv_rmse_str += " k_{}: {}".format(i, inv_rmse[i])
-            inv_nrmse_str += " k_{}: {}".format(i, inv_nrmse[i])
+            inv_mse_str += " {}: {}".format(titles[i], inv_mse[i])
+            inv_r2_str += " {}: {}".format(titles[i], inv_r2[i])
+            inv_rmse_str += " {}: {}".format(titles[i], inv_rmse[i])
+            inv_nrmse_str += " {}: {}".format(titles[i], inv_nrmse[i])
 
             # print("MSE k_xx: {}, k_xy: {}, k_yy: {}".format(mse[0], mse[1], mse[2]))
             # print("R2 k_xx: {}, k_xy: {}, k_yy: {}".format(r2[0], r2[1], r2[2]))
@@ -1054,6 +1220,7 @@ def load_models(args, study):
             # print("Original data R2 k_xx: {}, k_xy: {}, k_yy: {}".format(inv_r2[0], inv_r2[1], inv_r2[2]))
             # print("Original data RMSE k_xx: {}, k_xy: {}, k_yy: {}".format(inv_rmse[0], inv_rmse[1], inv_rmse[2]))
             # print("Original data NRMSE  k_xx: {}, k_xy: {}, k_yy: {}".format(inv_nrmse[0], inv_nrmse[1], inv_nrmse[2]))
+
 
         print(mse_str)
         print(r2_str)
@@ -1067,26 +1234,57 @@ def load_models(args, study):
         print(inv_rmse_str)
         print(inv_nrmse_str)
 
-        print("mean R2: {}, NRMSE: {}".format(np.mean(inv_r2), np.mean(inv_nrmse)))
+        print("Original data mean R2: {}, NRMSE: {}".format(np.mean(inv_r2), np.mean(inv_nrmse)))
 
-        get_mse_nrmse_r2_eigh(targets_list, predictions_list)
+        import copy
+        log_inv_targets_arr = copy.deepcopy(inv_targets_arr)
+        log_inv_predictions_arr = copy.deepcopy(inv_predictions_arr)
+
+        log_inv_targets_arr[:, 0] = np.log10(log_inv_targets_arr[:, 0])
+        log_inv_targets_arr[:, 2] = np.log10(log_inv_targets_arr[:, 2])
+
+        log_inv_predictions_arr[:, 0] = np.log10(log_inv_predictions_arr[:, 0])
+        log_inv_predictions_arr[:, 2] = np.log10(log_inv_predictions_arr[:, 2])
+
+        log_inv_mse, log_inv_rmse, log_inv_nrmse, log_inv_r2 = get_mse_nrmse_r2(log_inv_targets_arr, log_inv_predictions_arr)
+
+        mse_str, inv_mse_str = "MSE", "LOG Original data MSE"
+        r2_str, inv_r2_str = "R2", "LOG Original data R2"
+        rmse_str, inv_rmse_str = "RMSE", "LOG Original data RMSE"
+        nrmse_str, inv_nrmse_str = "NRMSE", "LOG Original data NRMSE"
+        for i in range(len(mse)):
+            inv_mse_str += " {}: {}".format(titles[i], log_inv_mse[i])
+            inv_r2_str += " {}: {}".format(titles[i], log_inv_r2[i])
+            inv_rmse_str += " {}: {}".format(titles[i], log_inv_rmse[i])
+            inv_nrmse_str += " {}: {}".format(titles[i], log_inv_nrmse[i])
+
+        print(inv_mse_str)
+        print(inv_r2_str)
+        print(inv_rmse_str)
+        print(inv_nrmse_str)
+
+        get_mse_nrmse_r2_eigh_3D(targets_list, predictions_list)
         print("ORIGINAL DATA")
-        get_mse_nrmse_r2_eigh(inv_targets_arr, inv_predictions_arr)
+        get_mse_nrmse_r2_eigh_3D(inv_targets_arr, inv_predictions_arr)
 
-        titles = ['k_xx', 'k_yy', 'k_zz', 'k_yz', 'k_xz', 'k_xy']
-        x_labels = [r'$log(k_{xx})$', r'$log(k_{yy})$',  r'$log(k_{zz})$', r'$k_{yz}$', r'$k_{xz}$', r'$k_{xy}$']
+        print("log_inv_r2 ", log_inv_r2)
+        print("log_inv_nrmse ", log_inv_nrmse)
+
+        print("mean log_inv_r2 ", np.mean(log_inv_r2))
+        print("mean log_inv_nrmse ", np.mean(log_inv_nrmse))
+
 
         plot_target_prediction(np.array(targets_list), np.array(predictions_list), "preprocessed_", x_labels=x_labels, titles=titles)
         plot_target_prediction(inv_targets_arr, inv_predictions_arr, x_labels=x_labels, titles=titles)
 
-        np.save("inv_tragets_arr_fr_div_10", inv_targets_arr)
-        np.save("inv_predictions_arr_fr_div_10", inv_predictions_arr)
+        #np.save("inv_tragets_arr_fr_div_10", inv_targets_arr)
+        #np.save("inv_predictions_arr_fr_div_10", inv_predictions_arr)
 
-        inv_targets_arr[:, 0] = np.log10(inv_targets_arr[:, 0])
-        inv_targets_arr[:, 2] = np.log10(inv_targets_arr[:, 2])
-
-        inv_predictions_arr[:, 0] = np.log10(inv_predictions_arr[:, 0])
-        inv_predictions_arr[:, 2] = np.log10(inv_predictions_arr[:, 2])
+        # inv_targets_arr[:, 0] = np.log10(inv_targets_arr[:, 0])
+        # inv_targets_arr[:, 2] = np.log10(inv_targets_arr[:, 2])
+        #
+        # inv_predictions_arr[:, 0] = np.log10(inv_predictions_arr[:, 0])
+        # inv_predictions_arr[:, 2] = np.log10(inv_predictions_arr[:, 2])
 
         # wrong_targets = np.array(wrong_targets)
         # wrong_predictions = np.array(wrong_predictions)
@@ -1096,15 +1294,11 @@ def load_models(args, study):
         # wrong_predictions[:, 0] = np.log10(wrong_predictions[:, 0])
         # wrong_predictions[:, 2] = np.log10(wrong_predictions[:, 2])
 
-        log_inv_mse, log_inv_rmse, log_inv_nrmse, log_inv_r2 = get_mse_nrmse_r2(inv_targets_arr, inv_predictions_arr)
 
-        print("log_inv_r2 ", log_inv_r2)
-        print("log_inv_nrmse ", log_inv_nrmse)
 
-        print("mean log_inv_r2 ", np.mean(log_inv_r2))
-        print("mean log_inv_nrmse ", np.mean(log_inv_nrmse))
 
-        plot_target_prediction(inv_targets_arr, inv_predictions_arr, title_prefix="log_orig_", r2=log_inv_r2, nrmse=log_inv_nrmse,
+
+        plot_target_prediction(log_inv_targets_arr, log_inv_predictions_arr, title_prefix="log_orig_", r2=log_inv_r2, nrmse=log_inv_nrmse,
                                x_labels=x_labels, titles=titles)
 
         # plot_target_prediction(wrong_targets, wrong_predictions, title_prefix="wrong_log_orig_", r2=log_inv_r2,
@@ -1121,7 +1315,7 @@ def load_models(args, study):
         # log_inv_mse, log_inv_rmse, log_inv_nrmse, log_inv_r2 = get_mse_nrmse_r2(inv_targets_arr[inv_targets_arr[:, 0] > -3.8],
         #                                                                         inv_predictions_arr[inv_targets_arr[:, 0] > -3.8])
 
-        log_inv_mse, log_inv_rmse, log_inv_nrmse, log_inv_r2 = get_mse_nrmse_r2(inv_targets_arr, inv_predictions_arr)
+        log_inv_mse, log_inv_rmse, log_inv_nrmse, log_inv_r2 = get_mse_nrmse_r2(log_inv_targets_arr, log_inv_predictions_arr)
 
         print("log_inv_r2 main peak", log_inv_r2)
         print("log_inv_nrmse main peak", log_inv_nrmse)
