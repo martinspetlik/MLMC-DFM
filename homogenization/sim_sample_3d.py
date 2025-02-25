@@ -6,6 +6,7 @@ import shutil
 import time
 import copy
 import torch
+import itertools
 import joblib
 #import ruamel.yaml as yaml
 import yaml
@@ -36,10 +37,10 @@ from bgem.upscale.homogenization import equivalent_posdef_tensor
 import decovalex_dfnmap as dmap
 from typing import *
 import zarr
+from bgem.stochastic import FractureSet, EllipseShape, PolygonShape
 from bgem.upscale.voxelize import fr_conductivity
 from bgem.upscale import *
 import scipy.interpolate as sc_interpolate
-
 
 
 def check_conv_reasons(log_fname):
@@ -830,7 +831,7 @@ class DFMSim3D(Simulation):
         #
         # #print("mean fr rad values ", np.mean(fr_rad_values))
 
-        fr_media = FracturedMedia.fracture_cond_params(dfn_to_homogenize, 1e-4, 0.00001)
+        #fr_media = FracturedMedia.fracture_cond_params(dfn_to_homogenize, 1e-4, 0.00001)
 
         # for fr in dfn:
         #     print("hom fr.r ", fr.r)
@@ -1388,6 +1389,11 @@ class DFMSim3D(Simulation):
     #     # projection of fields
     #     return flow_out
 
+    _rel_corner = np.array([[0, 0, 0], [1, 0, 0],
+                             [1, 1, 0], [0, 1, 0],
+                             [0, 0, 1], [1, 0, 1],
+                             [1, 1, 1], [0, 1, 1]])
+
 
     # Define transformation matrices and index mappings for 2D and 3D refinements
     _transformation_matrices = {
@@ -1696,15 +1702,116 @@ class DFMSim3D(Simulation):
         # plotter = fem_plot.create_plotter()  # off_screen=True, window_size=(1024, 768))
         # plotter.add_mesh(pv_grid, scalars='cell_field')
         # plotter.show()
+    @staticmethod
+    def is_point_inside(x, y, shape):
+        return np.square(x) + np.square(y) <= shape._scale_sqr
+
+    @staticmethod
+    def intersect_cells_batch(loc_corners: np.array, shape) -> np.ndarray:
+        """
+        loc_corners - shape (n_cells, 3, 8) where n_cells is the number of cells
+        Returns: np.ndarray with shape (n_cells,), True where the cell intersects the fracture
+        """
+        # Compute centers for all cells at once (shape: n_cells x 3)
+        centers = loc_corners.mean(axis=2)  # Resulting shape: (n_cells, 3)
+
+        # centers = np.add.reduce(loc_corners, axis=2) / loc_corners.shape[2]
+
+        # Check if centers are inside the fracture shape (only for x and y)
+        # point_inside = np.array([shape.is_point_inside(*center[:2]) for center in centers])
+
+        # print("np.sum(point_inside) ", np.sum(point_inside))
+        #
+        point_inside = np.array(DFMSim3D.is_point_inside(centers[:, 0], centers[:, 1], shape))
+        # print("new np.sum(point_inside) ", np.sum(point_inside))
+
+        # Check the Z-coordinate condition: any value >= 0 and any value < 0 for each cell
+        z_conditions = (np.min(loc_corners[:, 2, :], axis=1) >= 0.) | (np.max(loc_corners[:, 2, :], axis=1) < 0.)
+
+        # The final condition: Both center inside check and valid Z-condition
+        return point_inside & ~z_conditions
+
+    @staticmethod
+    def intersection_cell_corners_vec(dfn: FractureSet, grid: Grid) -> 'Intersection':
+        domain = FracturedDomain(dfn, np.ones(len(dfn)), grid)
+
+        i_cell = []
+        i_fr = []
+
+        grid_cumul_prod = np.array([1, grid.shape[0], grid.shape[0] * grid.shape[1]])
+        for i in range(len(dfn)):
+            i_box_min, i_box_max = grid.coord_aabb(dfn.AABB[i])
+            # print("i box min: {}, i box max: {}".format(i_box_min, i_box_max))
+            axis_ranges = [range(max(0, a), min(b, n)) for a, b, n in zip(i_box_min, i_box_max, grid.shape)]
+
+            ###################
+            #### Speed up ####
+            ##################
+            all_kji = np.array(list(itertools.product(*reversed(axis_ranges))))  # Convert to array at once
+            if all_kji.shape[0] > 0:
+                all_ijk = np.flip(all_kji, axis=1)
+                corners = grid.origin + (all_ijk[:, None, :] + DFMSim3D._rel_corner) * grid.step  # Shape: (N_cells, 8, 3)
+                loc_corners = np.einsum('ij,jkl->ikl', dfn.inv_transform_mat[i], (corners - dfn.center[i]).T).transpose(
+                    2, 0, 1)
+
+                # print("loc corners shape ", loc_corners.shape)
+                intersections = DFMSim3D.intersect_cells_batch(loc_corners, dfn.base_shape)
+
+                # print("np.sum intersections ", np.sum(intersections))
+                #
+                # print("all ijk shape ", all_ijk.shape)
+                # print("intersections shape ", intersections.shape)
+
+                # Compute cell indices for valid intersections
+                valid_cells = np.where(intersections)[0]  # Get the indices where intersection is True
+
+                valid_ijk = all_ijk[np.where(intersections)[0]]
+
+                # print("valid cells shape ", valid_cells.shape)
+                # print("grid cumul prod ", grid_cumul_prod.shape)
+                # print("valid ijk shape ", valid_ijk.shape)
+
+                # Vectorized cell index computation
+                # cell_indices = grid_cumul_prod.dot(loc_corners[valid_cells, 0, :].T).T  # Adjust based on shape and dimension
+
+                cell_indices = valid_ijk.dot(grid_cumul_prod)
+
+                # Store results for valid intersections
+                i_cell.extend(cell_indices)
+                i_fr.extend([i] * valid_cells.shape[0])
+                # print("vec i_cell ", i_cell)
+                # print("vec i_fr ", i_fr)
+                # exit()
+
+        return Intersection.const_isec(domain, i_cell, i_fr, 1.0)
 
     @staticmethod
     def rasterize(fem_grid, dfn, bulk_cond, fr_cond):
         #steps = 3 * [41]
         target_grid = fem_grid.grid #Grid(3 * [15], steps, origin=3 * [-7.5])  # test grid with center in (0,0,0)
-        isec_corners = intersection_cell_corners(dfn, target_grid)
+
+        # import cProfile
+        # import pstats
+        # pr = cProfile.Profile()
+        # pr.enable()
+
+        #isec_corners = intersection_cell_corners(dfn, target_grid)
+        isec_corners = DFMSim3D.intersection_cell_corners_vec(dfn, target_grid)
+
+        #print("isec_corners.count_fr_cells ", isec_corners.count_fr_cells())
+        #print("isec_corners_vec.fr_cells ", isec_corners_vec.count_fr_cells())
+
+        # pr.disable()
+        # ps = pstats.Stats(pr).sort_stats('cumtime')
+        # ps.print_stats(15)
+
+        #print("isec corners ", isec_corners)
+        #print("isec corners vec ", isec_corners_vec)
+
         # isec_probe = probe_fr_intersection(fr_set, target_grid)
         #cross_section, fr_cond = fr_conductivity(dfn)
         rasterized = isec_corners.interpolate(bulk_cond, fr_cond, source_grid=fem_grid.grid)
+
         #DFMSim3D.plot_isec_fields2(isec_corners, bulk_cond, rasterized, "raster_field.vtk")
 
         for i_ax in range(3):
@@ -1724,6 +1831,27 @@ class DFMSim3D(Simulation):
 
         return fr_cond
 
+    @staticmethod
+    def fr_conductivity(dfn, cross_section_factor=1e-4, perm_factor=1.0):
+        """
+        :param dfn:
+        :param cross_section_factor: scalar = cross_section / fracture mean radius
+        :return:
+        """
+        rho = 1000
+        g = 9.81
+        viscosity = 8.9e-4
+        perm_to_cond = rho * g / viscosity
+        cross_section = cross_section_factor * np.sqrt(np.prod(dfn.radius, axis=1))
+        perm = perm_factor * cross_section * cross_section / 12
+
+        conductivity = perm_to_cond * perm
+        cond_tn = conductivity[:, None, None] * (np.eye(3))  # - dfn.normal[:, :, None] * dfn.normal[:, None, :])
+
+        # for r, per in zip(dfn.radius, cond_tn):
+        #     print("radius: {}, cond: {}".format(r, per))
+
+        return cross_section, cond_tn
 
     @staticmethod
     def create_mesh_fields(fr_media, bulk_cond_values, bulk_cond_points, dimensions, mesh_step, sample_dir, work_dir, center=[0, 0, 0]):
@@ -1746,10 +1874,12 @@ class DFMSim3D(Simulation):
         n = 0
         for i in range(fr_cond.shape[0]):
             evals, evecs = np.linalg.eigh(fr_cond[i])
+            #print("evals ", evals)
             if np.any(evals <= 0):
                 print("evals equivalent cond tn ", evals)
                 print("cond_tensors[i].shape", fr_cond[i])
                 n += 1
+
         print("NUM fr cond non positive evals ", n)
 
         mesh_file, fr_region_map = DFMSim3D.ref_solution_mesh(sample_dir, dimensions, dfn, fr_step=mesh_step,
@@ -1900,7 +2030,6 @@ class DFMSim3D(Simulation):
         fem_grid_rast = fem.fem_grid(domain_size, n_steps, fem.Fe.Q(dim=3),
                                      origin=-domain_size / 2)  # 27 cells
 
-
         #######################
         ## Bulk conductivity ##
         #######################
@@ -2030,23 +2159,23 @@ class DFMSim3D(Simulation):
         DFMSim3D.rasterize_save_to_zarr(zarr_file_path, config, sample_idx, bulk_cond_values, bulk_cond_points, dfn, fr_cond,
                                fem_grid_rast, n_steps, fine_res)
 
-        # zarr_file_path = os.path.join(config["fine"]["common_files_dir"], DFMSim3D.ZARR_FILE)
-        # if os.path.exists(zarr_file_path):
-        #     zarr_file = zarr.open(zarr_file_path, mode='r+')
-        #     # Write data to the specified slice or index
-        #
-        #     #######
-        #     ## bulk cond values to fem grid rast
-        #     #######
-        #     bulk_cond_fem_rast = DFMSim3D._bulk_cond_to_rast_grid(bulk_cond_values, bulk_cond_points, fem_grid_rast.grid)
-        #
-        #     rasterized_input = DFMSim3D.rasterize(fem_grid_rast, dfn, bulk_cond=bulk_cond_fem_rast, fr_cond=fr_cond)
-        #
-        #     rasterized_input_voigt = tn_to_voigt(rasterized_input)
-        #     rasterized_input_voigt = rasterized_input_voigt.reshape(*n_steps, rasterized_input_voigt.shape[-1]).T
-        #
-        #     zarr_file["inputs"][sample_idx, ...] = rasterized_input_voigt
-        #     zarr_file["outputs"][sample_idx, :] = fine_res
+        zarr_file_path = os.path.join(config["fine"]["common_files_dir"], DFMSim3D.ZARR_FILE)
+        if os.path.exists(zarr_file_path):
+            zarr_file = zarr.open(zarr_file_path, mode='r+')
+            # Write data to the specified slice or index
+
+            #######
+            ## bulk cond values to fem grid rast
+            #######
+            bulk_cond_fem_rast = DFMSim3D._bulk_cond_to_rast_grid(bulk_cond_values, bulk_cond_points, fem_grid_rast.grid)
+
+            rasterized_input = DFMSim3D.rasterize(fem_grid_rast, dfn, bulk_cond=bulk_cond_fem_rast, fr_cond=fr_cond)
+
+            rasterized_input_voigt = tn_to_voigt(rasterized_input)
+            rasterized_input_voigt = rasterized_input_voigt.reshape(*n_steps, rasterized_input_voigt.shape[-1]).T
+
+            zarr_file["inputs"][sample_idx, ...] = rasterized_input_voigt
+            zarr_file["outputs"][sample_idx, :] = fine_res
 
         return fine_res, coarse_res
 
@@ -2148,6 +2277,8 @@ class DFMSim3D(Simulation):
         bulk_cond_fem_rast_voigt = tn_to_voigt(bulk_cond_fem_rast)
         bulk_cond_fem_rast_voigt = bulk_cond_fem_rast_voigt.reshape(*fem_grid_n_steps, bulk_cond_fem_rast_voigt.shape[-1]).T
         #print("bulk cond fem rast ", bulk_cond_fem_rast.shape)
+
+        print("len(dfn_to_homogenization) ", len(dfn_to_homogenization))
 
         if len(dfn_to_homogenization) == 0:
             rasterized_input = bulk_cond_fem_rast
@@ -2384,8 +2515,6 @@ class DFMSim3D(Simulation):
 
         return pred_cond_tensors
 
-
-
     @staticmethod
     def calculate(config, seed):
         """
@@ -2583,7 +2712,6 @@ class DFMSim3D(Simulation):
                 #     raise Exception("fine sample not converged")
                 pass
 
-
             if os.path.exists("flow123.0.log"):
                 shutil.move("flow123.0.log", "fine_flow123.0.log")
             if os.path.exists("flow_upscale_templ.yaml_stderr"):
@@ -2639,9 +2767,19 @@ class DFMSim3D(Simulation):
                 #print("fem_grid_n_steps ", fem_grid_n_steps)
 
                 #print("domain size ", domain_size)
+
+                import cProfile
+                import pstats
+                pr = cProfile.Profile()
+                pr.enable()
+
                 fem_grid_rast = fem.fem_grid(domain_size, fem_grid_n_steps, fem.Fe.Q(dim=3), origin=-domain_size[0] / 2)
                 cond_tensors = DFMSim3D.rasterize_at_once_zarr(config, dfn_to_homogenization, bulk_cond_values,
                                                                bulk_cond_points, fem_grid_rast, n_subdomains_per_axes)
+
+                pr.disable()
+                ps = pstats.Stats(pr).sort_stats('cumtime')
+                ps.print_stats(15)
 
             else:
                 print("=== COARSE PROBLEM ===")
@@ -2651,15 +2789,18 @@ class DFMSim3D(Simulation):
                     config["sim_config"]["geometry"]["fractures_box"] = hom_domain_box
                     # print("config geometry ", config["sim_config"]["geometry"])
 
-                # import cProfile
-                # import pstats
-                #
-                # pr = cProfile.Profile()
-                # pr.enable()
+                import cProfile
+                import pstats
+                pr = cProfile.Profile()
+                pr.enable()
 
                 cond_tensors, pred_cond_tensors_homo = DFMSim3D.homogenization(config, dfn_to_homogenization,
                                                                                dfn_to_homogenization_list,
                                                                                bulk_cond_values, bulk_cond_points)
+
+                pr.disable()
+                ps = pstats.Stats(pr).sort_stats('cumtime')
+                ps.print_stats(15)
 
                 # print("cond tensors rast ", cond_tensors)
                 # print("cond tensors homo ", cond_tensors_homo)
