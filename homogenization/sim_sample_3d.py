@@ -38,9 +38,11 @@ import decovalex_dfnmap as dmap
 from typing import *
 import zarr
 from bgem.stochastic import FractureSet, EllipseShape, PolygonShape
-from bgem.upscale.voxelize import fr_conductivity
+#from bgem.upscale.voxelize import fr_conductivity
 from bgem.upscale import *
 import scipy.interpolate as sc_interpolate
+
+#os.environ["CUDA_VISIBLE_DEVICES"]=""
 
 
 def check_conv_reasons(log_fname):
@@ -386,193 +388,193 @@ class DFMSim3D(Simulation):
                     # shutil.copy("summary.yaml", dset_dir)
                     sample_center[sample_name] = (center_x, center_y)
 
-    @staticmethod
-    def rasterize_at_once(sample_dir, dataset_path, config, n_subdomains, fractures, hom_dir, seed=None, fields_file="fields_fine_to_rast.msh", mesh_file="mesh_fine_to_rast.msh" ):
-        n_non_overlapping_subdomains = n_subdomains - ((n_subdomains-1)/2)
-
-        # import psutil
-        # float_size_bytes = 8  # Assuming double precision (8 bytes)
-        # available_memory = psutil.virtual_memory().available
-        # print(f"Available memory: {available_memory} bytes")
-        # max_floats = (available_memory // float_size_bytes) * 0.8
-        max_floats = 10000000000 # 10 Gb
-
-        #print("n subdomains ", n_subdomains)
-
-        n_pixels = 256
-        total_n_pixels_x = n_pixels**2 * n_non_overlapping_subdomains **2
-        #total_n_pixels_x = 4**2
-        print("total n pixels x ", total_n_pixels_x)
-        split_exp = 0
-        if total_n_pixels_x >= max_floats:
-            split_exp = 1
-            tot_pixels = total_n_pixels_x
-
-            tot_pixels /= 4**split_exp
-            while tot_pixels >= max_floats:
-                split_exp += 1
-                tot_pixels /= 4 ** split_exp
-
-        if split_exp > 1:
-            raise Exception("Total number of pixels: {} does not fit into memory. Not supported yet".format(total_n_pixels_x))
-
-        sample_0_path = DFMSim3D.split_domain(config, dataset_path, n_split_subdomains=4**split_exp, fractures=fractures, sample_dir=sample_dir, seed=seed, fields_file=fields_file, mesh_file=mesh_file)
-
-        print("dataset path ", dataset_path)
-
-        ####################
-        ## Create dataset ##
-        ####################
-        process = subprocess.run(["bash", config["sim_config"]["create_dataset_script"], dataset_path, "{}".format(int(np.sqrt(total_n_pixels_x)))],
-                                 capture_output=True, text=True)
-        pred_cond_tensors = {}
-
-        if process.returncode == 0:
-            bulk_path = os.path.join(sample_0_path, "bulk.npz")
-            fractures_path = os.path.join(sample_0_path, "fractures.npz")
-            cross_section_path = os.path.join(sample_0_path, "cross_sections.npz")
-            bulk = np.load(bulk_path)["data"]
-            fractures = np.load(fractures_path)["data"]
-            cross_section = np.load(cross_section_path)["data"]
-            domain_box = config["sim_config"]["geometry"]["orig_domain_box"]
-            subdomain_box = config["sim_config"]["geometry"]["subdomain_box"]
-
-            #print("bulk.shape ", bulk.shape)
-            #print("fractures.shape ", fractures.shape)
-
-            final_dataset_path = os.path.join(hom_dir, "final_dataset")
-            os.mkdir(final_dataset_path)
-            subdomain_size = 256
-            sample_center = {}
-            lx, ly = domain_box
-            lx += subdomain_box[0]
-            ly += subdomain_box[1]
-            k = 0
-
-            #print("subdomain box ", subdomain_box)
-
-            # print("bulk[0, ...] ", bulk[0, ...])
-            print("rasterize n subdomains ", n_subdomains)
-            for i in range(n_subdomains):
-                #print("lx ", lx)
-                center_y = -(subdomain_box[0] / 2 + (lx - subdomain_box[0]) / (n_subdomains - 1) * i - lx / 2)
-                for j in range(n_subdomains):
-                    sample_name = "sample_{}".format(k)
-                    print("sample name ", sample_name)
-                    f_dset_sample_dir = os.path.join(final_dataset_path, sample_name)
-                    os.mkdir(f_dset_sample_dir)
-
-                    # print("subdomain box ", subdomain_box)
-                    # exit()
-
-                    center_x = (subdomain_box[1] / 2 + (lx - subdomain_box[1]) / (n_subdomains - 1) * j - lx / 2)
-
-                    #print("center(i: {}, j:{}) x: {}, y: {}".format(i, j, center_x, center_y))
-                    # print("x from: {}, to: {}".format(i*int((subdomain_size)/2), i*int((subdomain_size)/2) + subdomain_size))
-                    # print("y from: {} to: {}".format(j*int((subdomain_size)/2), j*int((subdomain_size)/2) + subdomain_size))
-                    # print("j*int((subdomain_size)/2) + subdomain_size ", j*int((subdomain_size)/2) + subdomain_size)
-
-                    bulk_subdomain = bulk[:, i*int((subdomain_size)/2): i*int((subdomain_size)/2) + subdomain_size,
-                                     j*int((subdomain_size)/2): j*int((subdomain_size)/2) + subdomain_size]
-                    fractures_subdomain = fractures[:, i * int((subdomain_size) / 2): i * int((subdomain_size) / 2) + subdomain_size,
-                                     j * int((subdomain_size) / 2): j * int((subdomain_size) / 2) + subdomain_size]
-                    cross_section_subdomain = cross_section[:,
-                                          i * int((subdomain_size) / 2): i * int((subdomain_size) / 2) + subdomain_size,
-                                          j * int((subdomain_size) / 2): j * int((subdomain_size) / 2) + subdomain_size]
-
-                    #print("bulk_subdomain[0,...] ", bulk_subdomain[0,...])
-
-                    np.savez_compressed(os.path.join(f_dset_sample_dir, "bulk"), data=bulk_subdomain)
-                    np.savez_compressed(os.path.join(f_dset_sample_dir, "fractures"), data=fractures_subdomain)
-                    np.savez_compressed(os.path.join(f_dset_sample_dir, "cross_sections"), data=cross_section_subdomain)
-
-                    #print("sample name ", sample_name)
-                    sample_center[sample_name] = (center_x, center_y)
-                    k += 1
-
-            if DFMSim3D.model is None:
-                nn_path = config["sim_config"]["nn_path"]
-                study = load_study(nn_path)
-                model_path = get_saved_model_path(nn_path, study.best_trial)
-                model_kwargs = study.best_trial.user_attrs["model_kwargs"]
-                DFMSim3D.model = study.best_trial.user_attrs["model_class"](**model_kwargs)
-                if not torch.cuda.is_available():
-                    DFMSim3D.checkpoint = torch.load(model_path, map_location=torch.device('cpu'))
-                else:
-                    DFMSim3D.checkpoint = torch.load(model_path)
-                DFMSim3D.inverse_transform = get_inverse_transform(study, results_dir=nn_path)
-                DFMSim3D.transform = get_transform(study, results_dir=nn_path)
-
-            ##
-            # Create dataset
-            ##
-            dataset_for_prediction = DFMDataset(data_dir=final_dataset_path,
-                                                # output_file_name=output_file_name,
-                                                init_transform=DFMSim3D.transform[0],
-                                                input_transform=DFMSim3D.transform[1],
-                                                output_transform=DFMSim3D.transform[2],
-                                                two_dim=True,
-                                                cross_section=True,
-                                                # input_channels=config[
-                                                #     "input_channels"] if "input_channels" in config else None,
-                                                # output_channels=config[
-                                                #     "output_channels"] if "output_channels" in config else None,
-                                                # fractures_sep=config[
-                                                #     "fractures_sep"] if "fractures_sep" in config else False,
-                                                # vel_avg=config["vel_avg"] if "vel_avg" in config else False
-                                                )
-
-            dset_prediction_loader = torch.utils.data.DataLoader(dataset_for_prediction, batch_size=1, shuffle=False)
-            with torch.no_grad():
-                DFMSim3D.model.load_state_dict(DFMSim3D.checkpoint['best_model_state_dict'])
-                DFMSim3D.model.eval()
-
-                for i, sample in enumerate(dset_prediction_loader):
-                    inputs, targets = sample
-                    print("inputs ", inputs.shape)
-                    inputs = inputs.float()
-                    sample_n = dataset_for_prediction._bulk_file_paths[i].split('/')[-2]
-                    center = sample_center[sample_n]
-                    # if args.cuda and torch.cuda.is_available():
-                    #    inputs = inputs.cuda()
-                    predictions = DFMSim3D.model(inputs)
-                    predictions = np.squeeze(predictions)
-
-                    print("predictions ", predictions)
-
-                    # if np.any(predictions < 0):
-                    #     print("inputs ", inputs)
-                    #     print("negative predictions ", predictions)
-
-                    inv_predictions = torch.squeeze(
-                        DFMSim3D.inverse_transform(torch.reshape(predictions, (*predictions.shape, 1, 1))))
-
-
-                    #print("inv predictions shape ", inv_predictions.shape)
-
-
-                    if dataset_for_prediction.init_transform is not None:
-                        inv_predictions *= dataset_for_prediction._bulk_features_avg
-
-                    pred_cond_tn = np.array([[inv_predictions[0], inv_predictions[1]],
-                                             [inv_predictions[1], inv_predictions[2]]])
-
-                    if pred_cond_tn is not None:
-                        pred_cond_tn_flatten = pred_cond_tn.flatten()
-
-                        if not np.any(np.isnan(pred_cond_tn_flatten)):
-                            pred_cond_tensors[center] = [pred_cond_tn_flatten[0],
-                                                         (pred_cond_tn_flatten[1] + pred_cond_tn_flatten[2]) / 2,
-                                                         pred_cond_tn_flatten[3]]
-
-                            #print("pred cond tn: {}".format(pred_cond_tensors[center]))
-                            # if pred_cond_tn_flatten[0] < 0:
-                            #     print("inputs ", inputs)
-
-        else:
-            raise Exception(process.stderr)
-
-        return pred_cond_tensors
+    # @staticmethod
+    # def rasterize_at_once(sample_dir, dataset_path, config, n_subdomains, fractures, hom_dir, seed=None, fields_file="fields_fine_to_rast.msh", mesh_file="mesh_fine_to_rast.msh" ):
+    #     n_non_overlapping_subdomains = n_subdomains - ((n_subdomains-1)/2)
+    #
+    #     # import psutil
+    #     # float_size_bytes = 8  # Assuming double precision (8 bytes)
+    #     # available_memory = psutil.virtual_memory().available
+    #     # print(f"Available memory: {available_memory} bytes")
+    #     # max_floats = (available_memory // float_size_bytes) * 0.8
+    #     max_floats = 10000000000 # 10 Gb
+    #
+    #     #print("n subdomains ", n_subdomains)
+    #
+    #     n_pixels = 256
+    #     total_n_pixels_x = n_pixels**2 * n_non_overlapping_subdomains **2
+    #     #total_n_pixels_x = 4**2
+    #     print("total n pixels x ", total_n_pixels_x)
+    #     split_exp = 0
+    #     if total_n_pixels_x >= max_floats:
+    #         split_exp = 1
+    #         tot_pixels = total_n_pixels_x
+    #
+    #         tot_pixels /= 4**split_exp
+    #         while tot_pixels >= max_floats:
+    #             split_exp += 1
+    #             tot_pixels /= 4 ** split_exp
+    #
+    #     if split_exp > 1:
+    #         raise Exception("Total number of pixels: {} does not fit into memory. Not supported yet".format(total_n_pixels_x))
+    #
+    #     sample_0_path = DFMSim3D.split_domain(config, dataset_path, n_split_subdomains=4**split_exp, fractures=fractures, sample_dir=sample_dir, seed=seed, fields_file=fields_file, mesh_file=mesh_file)
+    #
+    #     print("dataset path ", dataset_path)
+    #
+    #     ####################
+    #     ## Create dataset ##
+    #     ####################
+    #     process = subprocess.run(["bash", config["sim_config"]["create_dataset_script"], dataset_path, "{}".format(int(np.sqrt(total_n_pixels_x)))],
+    #                              capture_output=True, text=True)
+    #     pred_cond_tensors = {}
+    #
+    #     if process.returncode == 0:
+    #         bulk_path = os.path.join(sample_0_path, "bulk.npz")
+    #         fractures_path = os.path.join(sample_0_path, "fractures.npz")
+    #         cross_section_path = os.path.join(sample_0_path, "cross_sections.npz")
+    #         bulk = np.load(bulk_path)["data"]
+    #         fractures = np.load(fractures_path)["data"]
+    #         cross_section = np.load(cross_section_path)["data"]
+    #         domain_box = config["sim_config"]["geometry"]["orig_domain_box"]
+    #         subdomain_box = config["sim_config"]["geometry"]["subdomain_box"]
+    #
+    #         #print("bulk.shape ", bulk.shape)
+    #         #print("fractures.shape ", fractures.shape)
+    #
+    #         final_dataset_path = os.path.join(hom_dir, "final_dataset")
+    #         os.mkdir(final_dataset_path)
+    #         subdomain_size = 256
+    #         sample_center = {}
+    #         lx, ly = domain_box
+    #         lx += subdomain_box[0]
+    #         ly += subdomain_box[1]
+    #         k = 0
+    #
+    #         #print("subdomain box ", subdomain_box)
+    #
+    #         # print("bulk[0, ...] ", bulk[0, ...])
+    #         print("rasterize n subdomains ", n_subdomains)
+    #         for i in range(n_subdomains):
+    #             #print("lx ", lx)
+    #             center_y = -(subdomain_box[0] / 2 + (lx - subdomain_box[0]) / (n_subdomains - 1) * i - lx / 2)
+    #             for j in range(n_subdomains):
+    #                 sample_name = "sample_{}".format(k)
+    #                 print("sample name ", sample_name)
+    #                 f_dset_sample_dir = os.path.join(final_dataset_path, sample_name)
+    #                 os.mkdir(f_dset_sample_dir)
+    #
+    #                 # print("subdomain box ", subdomain_box)
+    #                 # exit()
+    #
+    #                 center_x = (subdomain_box[1] / 2 + (lx - subdomain_box[1]) / (n_subdomains - 1) * j - lx / 2)
+    #
+    #                 #print("center(i: {}, j:{}) x: {}, y: {}".format(i, j, center_x, center_y))
+    #                 # print("x from: {}, to: {}".format(i*int((subdomain_size)/2), i*int((subdomain_size)/2) + subdomain_size))
+    #                 # print("y from: {} to: {}".format(j*int((subdomain_size)/2), j*int((subdomain_size)/2) + subdomain_size))
+    #                 # print("j*int((subdomain_size)/2) + subdomain_size ", j*int((subdomain_size)/2) + subdomain_size)
+    #
+    #                 bulk_subdomain = bulk[:, i*int((subdomain_size)/2): i*int((subdomain_size)/2) + subdomain_size,
+    #                                  j*int((subdomain_size)/2): j*int((subdomain_size)/2) + subdomain_size]
+    #                 fractures_subdomain = fractures[:, i * int((subdomain_size) / 2): i * int((subdomain_size) / 2) + subdomain_size,
+    #                                  j * int((subdomain_size) / 2): j * int((subdomain_size) / 2) + subdomain_size]
+    #                 cross_section_subdomain = cross_section[:,
+    #                                       i * int((subdomain_size) / 2): i * int((subdomain_size) / 2) + subdomain_size,
+    #                                       j * int((subdomain_size) / 2): j * int((subdomain_size) / 2) + subdomain_size]
+    #
+    #                 #print("bulk_subdomain[0,...] ", bulk_subdomain[0,...])
+    #
+    #                 np.savez_compressed(os.path.join(f_dset_sample_dir, "bulk"), data=bulk_subdomain)
+    #                 np.savez_compressed(os.path.join(f_dset_sample_dir, "fractures"), data=fractures_subdomain)
+    #                 np.savez_compressed(os.path.join(f_dset_sample_dir, "cross_sections"), data=cross_section_subdomain)
+    #
+    #                 #print("sample name ", sample_name)
+    #                 sample_center[sample_name] = (center_x, center_y)
+    #                 k += 1
+    #
+    #         if DFMSim3D.model is None:
+    #             nn_path = config["sim_config"]["nn_path"]
+    #             study = load_study(nn_path)
+    #             model_path = get_saved_model_path(nn_path, study.best_trial)
+    #             model_kwargs = study.best_trial.user_attrs["model_kwargs"]
+    #             DFMSim3D.model = study.best_trial.user_attrs["model_class"](**model_kwargs)
+    #             if not torch.cuda.is_available():
+    #                 DFMSim3D.checkpoint = torch.load(model_path, map_location=torch.device('cpu'))
+    #             else:
+    #                 DFMSim3D.checkpoint = torch.load(model_path)
+    #             DFMSim3D.inverse_transform = get_inverse_transform(study, results_dir=nn_path)
+    #             DFMSim3D.transform = get_transform(study, results_dir=nn_path)
+    #
+    #         ##
+    #         # Create dataset
+    #         ##
+    #         dataset_for_prediction = DFMDataset(data_dir=final_dataset_path,
+    #                                             # output_file_name=output_file_name,
+    #                                             init_transform=DFMSim3D.transform[0],
+    #                                             input_transform=DFMSim3D.transform[1],
+    #                                             output_transform=DFMSim3D.transform[2],
+    #                                             two_dim=True,
+    #                                             cross_section=True,
+    #                                             # input_channels=config[
+    #                                             #     "input_channels"] if "input_channels" in config else None,
+    #                                             # output_channels=config[
+    #                                             #     "output_channels"] if "output_channels" in config else None,
+    #                                             # fractures_sep=config[
+    #                                             #     "fractures_sep"] if "fractures_sep" in config else False,
+    #                                             # vel_avg=config["vel_avg"] if "vel_avg" in config else False
+    #                                             )
+    #
+    #         dset_prediction_loader = torch.utils.data.DataLoader(dataset_for_prediction, batch_size=1, shuffle=False)
+    #         with torch.no_grad():
+    #             DFMSim3D.model.load_state_dict(DFMSim3D.checkpoint['best_model_state_dict'])
+    #             DFMSim3D.model.eval()
+    #
+    #             for i, sample in enumerate(dset_prediction_loader):
+    #                 inputs, targets = sample
+    #                 print("inputs ", inputs.shape)
+    #                 inputs = inputs.float()
+    #                 sample_n = dataset_for_prediction._bulk_file_paths[i].split('/')[-2]
+    #                 center = sample_center[sample_n]
+    #                 # if args.cuda and torch.cuda.is_available():
+    #                 #    inputs = inputs.cuda()
+    #                 predictions = DFMSim3D.model(inputs)
+    #                 predictions = np.squeeze(predictions)
+    #
+    #                 print("predictions ", predictions)
+    #
+    #                 # if np.any(predictions < 0):
+    #                 #     print("inputs ", inputs)
+    #                 #     print("negative predictions ", predictions)
+    #
+    #                 inv_predictions = torch.squeeze(
+    #                     DFMSim3D.inverse_transform(torch.reshape(predictions, (*predictions.shape, 1, 1))))
+    #
+    #
+    #                 #print("inv predictions shape ", inv_predictions.shape)
+    #
+    #
+    #                 if dataset_for_prediction.init_transform is not None:
+    #                     inv_predictions *= dataset_for_prediction._bulk_features_avg
+    #
+    #                 pred_cond_tn = np.array([[inv_predictions[0], inv_predictions[1]],
+    #                                          [inv_predictions[1], inv_predictions[2]]])
+    #
+    #                 if pred_cond_tn is not None:
+    #                     pred_cond_tn_flatten = pred_cond_tn.flatten()
+    #
+    #                     if not np.any(np.isnan(pred_cond_tn_flatten)):
+    #                         pred_cond_tensors[center] = [pred_cond_tn_flatten[0],
+    #                                                      (pred_cond_tn_flatten[1] + pred_cond_tn_flatten[2]) / 2,
+    #                                                      pred_cond_tn_flatten[3]]
+    #
+    #                         #print("pred cond tn: {}".format(pred_cond_tensors[center]))
+    #                         # if pred_cond_tn_flatten[0] < 0:
+    #                         #     print("inputs ", inputs)
+    #
+    #     else:
+    #         raise Exception(process.stderr)
+    #
+    #     return pred_cond_tensors
 
     @staticmethod
     def create_zarr_file(dir_path, n_samples, config_dict, centers=False):
@@ -582,6 +584,7 @@ class DFMSim3D(Simulation):
         # n_cross_section_channels = 1
         output_shape = (6,)
         centers_shape = (3,)
+        chunk_size = 1
 
         zarr_file_path = os.path.join(dir_path, DFMSim3D.ZARR_FILE)
 
@@ -592,7 +595,7 @@ class DFMSim3D(Simulation):
             inputs = zarr_file.create_dataset('inputs',
                                               shape=(n_samples,) + (input_shape_n_channels, *input_shape_n_voxels),
                                               dtype='float32',
-                                              chunks=(1, n_cond_tn_channels, *input_shape_n_voxels),
+                                              chunks=(chunk_size, n_cond_tn_channels, *input_shape_n_voxels),
                                               fill_value=0)
             # inputs[:, :, :, :, :] = np.zeros((n_samples, n_cond_tn_channels, *input_shape_n_voxels,
             #                                                         ))  # Populate the first 6 channels
@@ -601,10 +604,10 @@ class DFMSim3D(Simulation):
 
             # Create the 'outputs' dataset with the specified shape
             outputs = zarr_file.create_dataset('outputs', shape=(n_samples,) + output_shape, dtype='float32',
-                                               chunks=(1, n_cond_tn_channels), fill_value=0)
+                                               chunks=(chunk_size, n_cond_tn_channels), fill_value=0)
 
             bulk_avg = zarr_file.create_dataset('bulk_avg', shape=(n_samples,) + output_shape, dtype='float32',
-                                                chunks=(1, n_cond_tn_channels), fill_value=0)
+                                                chunks=(chunk_size, n_cond_tn_channels), fill_value=0)
             # outputs[:, :] = np.zeros((n_samples, n_cond_tn_channels))  # Populate the first 6 channels
             # outputs[:, n_cond_tn_channels] = np.random.rand(n_samples)  # Populate the last channel
 
@@ -619,7 +622,7 @@ class DFMSim3D(Simulation):
 
             if centers:
                 centers = zarr_file.create_dataset('centers', shape=(n_samples,) + centers_shape, dtype='float32',
-                                                   chunks=(1), fill_value=0)
+                                                   chunks=(chunk_size), fill_value=0)
                 centers.attrs['channel_names'] = ['center_x', 'center_y', 'center_z']
 
         return zarr_file_path
@@ -1181,20 +1184,20 @@ class DFMSim3D(Simulation):
         return fractures
 
 
-    @staticmethod
-    def homo_decovalex(fr_media: FracturedMedia, grid: fem.Grid):
-        """
-        Homogenize fr_media to the conductivity tensor field on grid.
-        :return: conductivity_field, np.array, shape (n_elements, n_voight)
-        """
-        ellipses = [dmap.Ellipse(fr.normal, fr.center, fr.scale) for fr in fr_media.dfn]
-        d_grid = dmap.Grid.make_grid(grid.origin, grid.step, grid.dimensions)
-        fractures = dmap.map_dfn(d_grid, ellipses)
-        fr_transmissivity = fr_media.fr_conductivity * fr_media.fr_cross_section
-        k_iso_zyx = dmap.permIso(d_grid, fractures, fr_transmissivity, fr_media.conductivity)
-        k_iso_xyz = grid.cell_field_C_like(k_iso_zyx)
-        k_voigt = k_iso_xyz[:, None] * np.array([1, 1, 1, 0, 0, 0])[None, :]
-        return k_voigt
+    # @staticmethod
+    # def homo_decovalex(fr_media: FracturedMedia, grid: fem.Grid):
+    #     """
+    #     Homogenize fr_media to the conductivity tensor field on grid.
+    #     :return: conductivity_field, np.array, shape (n_elements, n_voight)
+    #     """
+    #     ellipses = [dmap.Ellipse(fr.normal, fr.center, fr.scale) for fr in fr_media.dfn]
+    #     d_grid = dmap.Grid.make_grid(grid.origin, grid.step, grid.dimensions)
+    #     fractures = dmap.map_dfn(d_grid, ellipses)
+    #     fr_transmissivity = fr_media.fr_conductivity * fr_media.fr_cross_section
+    #     k_iso_zyx = dmap.permIso(d_grid, fractures, fr_transmissivity, fr_media.conductivity)
+    #     k_iso_xyz = grid.cell_field_C_like(k_iso_zyx)
+    #     k_voigt = k_iso_xyz[:, None] * np.array([1, 1, 1, 0, 0, 0])[None, :]
+    #     return k_voigt
 
     @staticmethod
     def create_fractures_rectangles(gmsh_geom, fractures: FrozenSet, base_shape: gmsh.ObjectSet,
@@ -1795,7 +1798,7 @@ class DFMSim3D(Simulation):
         # pr = cProfile.Profile()
         # pr.enable()
 
-        #isec_corners = intersection_cell_corners(dfn, target_grid)
+        #isec_corners_orig = intersection_cell_corners(dfn, target_grid)
         isec_corners = DFMSim3D.intersection_cell_corners_vec(dfn, target_grid)
 
         #print("isec_corners.count_fr_cells ", isec_corners.count_fr_cells())
@@ -1867,7 +1870,7 @@ class DFMSim3D(Simulation):
         ###########################
         fr_cond, fr_cross_section = [], []
         if len(dfn) > 0:
-            fr_cross_section, fr_cond = fr_conductivity(dfn, cross_section_factor=1e-4)
+            fr_cross_section, fr_cond = DFMSim3D.fr_conductivity(dfn, cross_section_factor=1e-4)
 
         fr_cond = DFMSim3D.make_fr_cond_pd(fr_cond)
 
@@ -2272,7 +2275,7 @@ class DFMSim3D(Simulation):
 
         fr_cond, fr_cross_section = [], []
         if len(dfn_to_homogenization) > 0:
-            fr_cross_section, fr_cond = fr_conductivity(dfn_to_homogenization, cross_section_factor=1e-4)
+            fr_cross_section, fr_cond = DFMSim3D.fr_conductivity(dfn_to_homogenization, cross_section_factor=1e-4)
 
         bulk_cond_fem_rast_voigt = tn_to_voigt(bulk_cond_fem_rast)
         bulk_cond_fem_rast_voigt = bulk_cond_fem_rast_voigt.reshape(*fem_grid_n_steps, bulk_cond_fem_rast_voigt.shape[-1]).T
@@ -2302,7 +2305,7 @@ class DFMSim3D(Simulation):
         ly += subdomain_box[1]
         lz += subdomain_box[2]
 
-        batch_size = 5
+        batch_size = 1
 
         C, H, W, D = rasterized_input_voigt.shape
 
@@ -2318,67 +2321,119 @@ class DFMSim3D(Simulation):
         stride = config["sim_config"]["geometry"]["pixel_stride_div"]
 
         zarr_file = zarr.open(zarr_file_path, mode='r+')
-        for i in range(num_subdomains_x):
-            center_x = subdomain_box[0] / stride + (lx - subdomain_box[0]) / (n_subdomains_per_axes - 1) * i - lx / stride
+        # for i in range(num_subdomains_x):
+        #     center_x = subdomain_box[0] / stride + (lx - subdomain_box[0]) / (n_subdomains_per_axes - 1) * i - lx / stride
+        #
+        #     for j in range(num_subdomains_y):
+        #         #start_time = time.time()
+        #
+        #         center_y = subdomain_box[1] / stride + (ly - subdomain_box[1]) / (n_subdomains_per_axes - 1) * j - ly / stride
+        #
+        #         for l in range(num_subdomains_z):
+        #
+        #             #subdir_name = "i_{}_j_{}_l_{}_k_{}".format(i, j, l, k)
+        #             #os.mkdir(subdir_name)
+        #             #os.chdir(subdir_name)
+        #
+        #             #hom_sample_dir = Path(os.getcwd()).absolute()
+        #
+        #             center_z = subdomain_box[1] / stride + (lz - subdomain_box[1]) / (n_subdomains_per_axes - 1) * l - lz / stride
+        #
+        #             # center_z_2 = subdomain_box[1] / 2 + (lz - subdomain_box[1]) / (
+        #             #             n_subdomains_per_axes - 1) * (l+1) - lz / 2
+        #
+        #             #center_x = 0.0
+        #             #center_y = -7.5
+        #             #center_z = -7.5
+        #             #k = 10
+        #             #
+        #
+        #             zarr_file["centers"][index, :] = (center_x, center_y, center_z)
+        #
+        #             zarr_file["inputs"][index, :] = rasterized_input_voigt[:,
+        #                                             i * pixel_stride: i * pixel_stride + subdomain_pixel_size,
+        #                                             j * pixel_stride: j * pixel_stride + subdomain_pixel_size,
+        #                                             l * pixel_stride: l * pixel_stride + subdomain_pixel_size]
+        #
+        #
+        #             # if index == 0:
+        #             #     print("center x:{} y:{}, z:{}, k: {}".format(center_x, center_y, center_z, index))
+        #             #     # print("rasterized_input_voigt[:,] ", rasterized_input_voigt[:,
+        #             #     #                             i * pixel_stride: i * pixel_stride + subdomain_pixel_size,
+        #             #     #                             j * pixel_stride: j * pixel_stride + subdomain_pixel_size,
+        #             #     #                             l * pixel_stride: l * pixel_stride + subdomain_pixel_size])
+        #             #
+        #             #     print("rasterized_input_voigt[:, 0, 0, 0] ", rasterized_input_voigt[:, 0, 0, 0])
+        #
+        #
+        #
+        #             #print("i * pixel_stride: {}, i * pixel_stride + subdomain_pixel_size: {}".format(i * pixel_stride, i * pixel_stride + subdomain_pixel_size))
+        #
+        #             #print("zarr_file[inputs][index, :].shape ", zarr_file["inputs"][index, :].shape)
+        #
+        #
+        #             hom_block_bulk = bulk_cond_fem_rast_voigt[:,
+        #                              i * pixel_stride: i * pixel_stride + subdomain_pixel_size,
+        #                              j * pixel_stride: j * pixel_stride + subdomain_pixel_size,
+        #                              l * pixel_stride: l * pixel_stride + subdomain_pixel_size]
+        #
+        #             #print("hom_block_bulk shape ", hom_block_bulk.shape)
+        #             #print("np.mean(hom_block_bulk, axis=(1, 2, 3)) ", np.mean(hom_block_bulk, axis=(1, 2, 3)))
+        #
+        #             zarr_file["bulk_avg"][index, :] = np.mean(hom_block_bulk, axis=(1, 2, 3))
+        #             index += 1
 
-            for j in range(num_subdomains_y):
-                #start_time = time.time()
+        num_subdomains = num_subdomains_x * num_subdomains_y * num_subdomains_z
+        # Generate all index combinations
+        all_indices = itertools.product(range(num_subdomains_x), range(num_subdomains_y), range(num_subdomains_z))
 
-                center_y = subdomain_box[1] / stride + (ly - subdomain_box[1]) / (n_subdomains_per_axes - 1) * j - ly / stride
+        zarr_batch_size = 1
 
-                for l in range(num_subdomains_z):
+        # Process in batches
+        for start in range(0, num_subdomains, zarr_batch_size):
+            end = min(start + zarr_batch_size, num_subdomains)
 
-                    #subdir_name = "i_{}_j_{}_l_{}_k_{}".format(i, j, l, k)
-                    #os.mkdir(subdir_name)
-                    #os.chdir(subdir_name)
+            # Preallocate batch arrays
+            batch_centers = np.zeros((end - start, 3), dtype=np.float32)
+            batch_inputs = np.zeros((end - start, *(rasterized_input_voigt.shape[0], subdomain_pixel_size, subdomain_pixel_size, subdomain_pixel_size)), dtype=np.float32)
+            batch_bulk_avg = np.zeros((end - start, rasterized_input_voigt.shape[0]), dtype=np.float32)
 
-                    #hom_sample_dir = Path(os.getcwd()).absolute()
+            # Use `itertools.islice` to get a batch from the iterator
+            batch_indices = list(itertools.islice(all_indices, zarr_batch_size))
 
-                    center_z = subdomain_box[1] / stride + (lz - subdomain_box[1]) / (n_subdomains_per_axes - 1) * l - lz / stride
+            # Fill batch
+            for batch_index, (i, j, l) in enumerate(batch_indices):
+                center_x = subdomain_box[0] / stride + (lx - subdomain_box[0]) / (
+                            n_subdomains_per_axes - 1) * i - lx / stride
+                center_y = subdomain_box[1] / stride + (ly - subdomain_box[1]) / (
+                            n_subdomains_per_axes - 1) * j - ly / stride
+                center_z = subdomain_box[1] / stride + (lz - subdomain_box[1]) / (
+                            n_subdomains_per_axes - 1) * l - lz / stride
 
-                    # center_z_2 = subdomain_box[1] / 2 + (lz - subdomain_box[1]) / (
-                    #             n_subdomains_per_axes - 1) * (l+1) - lz / 2
+                batch_centers[batch_index] = (center_x, center_y, center_z)
+                batch_inputs[batch_index] = rasterized_input_voigt[:,
+                                            i * pixel_stride: i * pixel_stride + subdomain_pixel_size,
+                                            j * pixel_stride: j * pixel_stride + subdomain_pixel_size,
+                                            l * pixel_stride: l * pixel_stride + subdomain_pixel_size]
 
-                    #center_x = 0.0
-                    #center_y = -7.5
-                    #center_z = -7.5
-                    #k = 10
-                    #
-
-                    zarr_file["centers"][index, :] = (center_x, center_y, center_z)
-
-                    zarr_file["inputs"][index, :] = rasterized_input_voigt[:,
-                                                    i * pixel_stride: i * pixel_stride + subdomain_pixel_size,
-                                                    j * pixel_stride: j * pixel_stride + subdomain_pixel_size,
-                                                    l * pixel_stride: l * pixel_stride + subdomain_pixel_size]
-
-
-                    # if index == 0:
-                    #     print("center x:{} y:{}, z:{}, k: {}".format(center_x, center_y, center_z, index))
-                    #     # print("rasterized_input_voigt[:,] ", rasterized_input_voigt[:,
-                    #     #                             i * pixel_stride: i * pixel_stride + subdomain_pixel_size,
-                    #     #                             j * pixel_stride: j * pixel_stride + subdomain_pixel_size,
-                    #     #                             l * pixel_stride: l * pixel_stride + subdomain_pixel_size])
-                    #
-                    #     print("rasterized_input_voigt[:, 0, 0, 0] ", rasterized_input_voigt[:, 0, 0, 0])
+                batch_bulk_avg[batch_index] = np.mean(bulk_cond_fem_rast_voigt[:,
+                                 i * pixel_stride: i * pixel_stride + subdomain_pixel_size,
+                                 j * pixel_stride: j * pixel_stride + subdomain_pixel_size,
+                                 l * pixel_stride: l * pixel_stride + subdomain_pixel_size], axis=(1, 2, 3))
 
 
+            # print("batch inputs ", batch_inputs)
+            #
+            # print("batch centers ", batch_centers)
+            # print("batch inputs ", batch_inputs[0, :, 0, 0, 0])
 
-                    #print("i * pixel_stride: {}, i * pixel_stride + subdomain_pixel_size: {}".format(i * pixel_stride, i * pixel_stride + subdomain_pixel_size))
+            # Batch write to Zarr
+            zarr_file["centers"][start:end] = batch_centers
+            zarr_file["inputs"][start:end] = batch_inputs
+            zarr_file["bulk_avg"][start:end] = batch_bulk_avg
 
-                    #print("zarr_file[inputs][index, :].shape ", zarr_file["inputs"][index, :].shape)
-
-
-                    hom_block_bulk = bulk_cond_fem_rast_voigt[:,
-                                     i * pixel_stride: i * pixel_stride + subdomain_pixel_size,
-                                     j * pixel_stride: j * pixel_stride + subdomain_pixel_size,
-                                     l * pixel_stride: l * pixel_stride + subdomain_pixel_size]
-
-                    #print("hom_block_bulk shape ", hom_block_bulk.shape)
-                    #print("np.mean(hom_block_bulk, axis=(1, 2, 3)) ", np.mean(hom_block_bulk, axis=(1, 2, 3)))
-
-                    zarr_file["bulk_avg"][index, :] = np.mean(hom_block_bulk, axis=(1, 2, 3))
-                    index += 1
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        import torch.autograd.profiler as profiler
 
         if DFMSim3D.model is None:
             nn_path = config["sim_config"]["nn_path"]
@@ -2397,26 +2452,35 @@ class DFMSim3D(Simulation):
         # Create dataset
         ##
         dataset_for_prediction = DFM3DDataset(zarr_path=zarr_file_path,
-                                                init_transform=DFMSim3D.transform[0],
-                                                input_transform=DFMSim3D.transform[1],
-                                                output_transform=DFMSim3D.transform[2],
+                                              init_transform=DFMSim3D.transform[0],
+                                              input_transform=DFMSim3D.transform[1],
+                                              output_transform=DFMSim3D.transform[2],
                                               return_centers_bulk_avg=True)
 
-        dset_prediction_loader = torch.utils.data.DataLoader(dataset_for_prediction, batch_size=batch_size,
-                                                             shuffle=False)
-        with torch.no_grad():
-            DFMSim3D.model.load_state_dict(DFMSim3D.checkpoint['best_model_state_dict'])
-            DFMSim3D.model.eval()
+        dset_prediction_loader = torch.utils.data.DataLoader(dataset_for_prediction, batch_size=batch_size, shuffle=False)
 
-            #print(" torch.cuda.is_available() ", torch.cuda.is_available())
+        DFMSim3D.model.load_state_dict(DFMSim3D.checkpoint['best_model_state_dict'])
 
+        #DFMSim3D.model.eval()
+
+        DFMSim3D.model.to(device).eval()
+
+        #scripted_model = torch.jit.script(DFMSim3D.model)
+        #output = scripted_model(data)
+
+        # print(" torch.cuda.is_available() ", torch.cuda.is_available())
+
+        #DFMSim3D.model = torch.compile(DFMSim3D.model)
+
+        with torch.inference_mode():
             for i, sample in enumerate(dset_prediction_loader):
                 # print("i ", i)
                 inputs, targets, centers, bulk_features_avg = sample
                 # print("inputs ", inputs.shape)
                 # print("centers ", centers)
-                #print("bulk features avg ", bulk_features_avg)
-                inputs = inputs.float()
+                # print("bulk features avg ", bulk_features_avg)
+                inputs = inputs.float().to(device)
+                inputs = inputs.contiguous()
                 # sample_n = dataset_for_prediction._bulk_file_paths[i].split('/')[-2]
                 # center = sample_center[sample_n]
                 # print("torch.cuda.is_available() ", torch.cuda.is_available())
@@ -2424,13 +2488,19 @@ class DFMSim3D(Simulation):
                     # print("cuda available")
                     inputs = inputs.cuda()
                     DFMSim3D.model = DFMSim3D.model.cuda()
+
+                # with profiler.profile() as prof:
+                #     #with profiler.record_function("conv3d"):
+                #     predictions = DFMSim3D.model(inputs)
+                # print(prof.key_averages().table(sort_by="cpu_time_total"))
+                # exit()
                 predictions = DFMSim3D.model(inputs)
                 predictions = np.squeeze(predictions)
 
-                #print("dset_prediction_loader ", dset_prediction_loader._bulk_features_avg)
+                # print("dset_prediction_loader ", dset_prediction_loader._bulk_features_avg)
 
-                #print("zarr predictions ", predictions)
-                #print("torch.reshape(predictions, (*predictions.shape, 1, 1))) ", torch.reshape(predictions, (*predictions.shape, 1, 1)).shape)
+                # print("zarr predictions ", predictions)
+                # print("torch.reshape(predictions, (*predictions.shape, 1, 1))) ", torch.reshape(predictions, (*predictions.shape, 1, 1)).shape)
 
                 # if np.any(predictions < 0):
                 #     print("inputs ", inputs)
@@ -2438,7 +2508,6 @@ class DFMSim3D(Simulation):
 
                 inv_predictions = torch.squeeze(
                     DFMSim3D.inverse_transform(torch.reshape(predictions, (*predictions.shape, 1, 1))))
-
                 # print("inv predictions shape ", inv_predictions.shape)
                 # print("bulk_features_avg.shape ", bulk_features_avg.shape)
                 #print("inv predictions ", inv_predictions)
@@ -2779,7 +2848,7 @@ class DFMSim3D(Simulation):
 
                 pr.disable()
                 ps = pstats.Stats(pr).sort_stats('cumtime')
-                ps.print_stats(15)
+                ps.print_stats(25)
 
             else:
                 print("=== COARSE PROBLEM ===")
