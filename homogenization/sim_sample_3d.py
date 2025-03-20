@@ -45,6 +45,16 @@ import scipy.interpolate as sc_interpolate
 #os.environ["CUDA_VISIBLE_DEVICES"]=""
 
 
+print("torch.get_num_threads() ", torch.get_num_threads())
+torch.set_num_threads(torch.get_num_threads())  # Max out CPU cores
+torch.backends.mkldnn.enabled = True  # Use MKL-DNN for Conv3D
+torch.backends.openmp.enabled = True  # Enable OpenMP
+
+# os.environ["OMP_NUM_THREADS"] = "1"
+# os.environ["MKL_NUM_THREADS"] = "1"
+# torch.set_num_threads(1)
+
+
 def check_conv_reasons(log_fname):
     with open(log_fname, "r") as f:
         for line in f:
@@ -1159,6 +1169,32 @@ class DFMSim3D(Simulation):
         if os.path.exists("flow_fields.msh"):
             os.remove("flow_fields.msh")
 
+    @staticmethod
+    def calculate_P32(P30, size_range=(1, 564), exp=2.5, p32_exp=2.5, shape_area=1):
+        """
+        Calculate P32 given a P30 value using the formula derived from the integral relations.
+
+        Parameters:
+        - P30: Value of P30 (fracture intensity for P30)
+        - size_range: Tuple defining the size range (a, b)
+        - exp: The exponent used in P30 calculation
+        - p32_exp: The exponent used in P32 calculation
+        - shape_area: The shape area
+
+        Returns:
+        - P32: Corresponding value for P32
+        """
+
+        a, b = size_range
+        # Calculate integral area and intensity for P32
+        integral_area = (b ** (2 - p32_exp) - a ** (2 - p32_exp)) / (2 - p32_exp)
+        integral_intensity = (b ** (-exp) - a ** (-exp)) / -exp
+
+        # Reversing the relationship to get P32 from P30
+        P32 = P30 * integral_area * shape_area / integral_intensity
+
+        return P32
+
 
     @staticmethod
     def fracture_random_set(seed, size_range, work_dir, max_frac=1e21):
@@ -1171,13 +1207,29 @@ class DFMSim3D(Simulation):
         #    pop_cfg = yaml.load(f, Loader=yaml.SafeLoader)
         fr_pop = stochastic.Population.from_cfg(fr_cfg_path, box_dimensions, shape=stochastic.EllipseShape())
         if fr_pop.mean_size() > max_frac:
-            common_range = fr_pop.common_range_for_sample_size(sample_size=max_frac)
-            print("common range ", common_range)
+            common_range, intensities = fr_pop.common_range_for_sample_size(sample_size=max_frac)
             fr_pop = fr_pop.set_sample_range(common_range)
         print(f"fr set range: {[rmin, rmax]}, fr_lim: {max_frac}, mean population size: {fr_pop.mean_size()}")
+
         pos_gen = stochastic.UniformBoxPosition(fr_pop.domain)
         np.random.seed(seed)
         fractures = fr_pop.sample(pos_distr=pos_gen, keep_nonempty=True)
+
+        # new_p32 = []
+        # for idx, new_intensity in enumerate(intensities):
+        #     # print("fr_pop.families[idx] ", fr_pop.families[idx].size.power)
+        #     # exit()
+        #     new_p32.append(DFMSim3D.calculate_P32(new_intensity, size_range, exp=fr_pop.families[idx].size.power,
+        #                                           p32_exp=fr_pop.families[idx].size.power))
+
+        # print("intensities ", intensities)
+        # print("new p32 ", new_p32)
+        # print("np.sum new p32 ", np.sum(new_p32))
+        #
+        # print("SUM P_30 ", np.sum(intensities))
+        #
+        # exit()
+
 
         # for fr in fractures:
         #    fr.region = gmsh.Region.get("fr", 2)
@@ -2263,12 +2315,8 @@ class DFMSim3D(Simulation):
     @staticmethod
     def rasterize_at_once_zarr(config, dfn_to_homogenization, bulk_cond_values, bulk_cond_points, fem_grid_rast, n_subdomains_per_axes):
         zarr_file_path = DFMSim3D.create_zarr_file(os.getcwd(), n_samples=int(n_subdomains_per_axes ** 3), config_dict=config, centers=True)
-        #n_steps = config["sim_config"]["geometry"]["n_voxels"]
-
-        #@TODO: Take average bulk into account
 
         fem_grid_n_steps = fem_grid_rast.grid.shape
-        #print("fem_grid_n_steps ", fem_grid_n_steps)
 
         bulk_cond_fem_rast = DFMSim3D._bulk_cond_to_rast_grid(bulk_cond_values, bulk_cond_points,
                                                               fem_grid_rast.grid)
@@ -2432,6 +2480,71 @@ class DFMSim3D(Simulation):
             zarr_file["inputs"][start:end] = batch_inputs
             zarr_file["bulk_avg"][start:end] = batch_bulk_avg
 
+        # ####################
+        # inputs = zarr_file['inputs']
+        # outputs = zarr_file['outputs']
+        # bulk_avg = zarr_file['bulk_avg']
+        # centers = zarr_file['centers']
+        #
+        # # Get the shape of the datasets
+        # n_samples_existing = inputs.shape[0]  # Number of existing samples
+        #
+        # # Define how many times you want to repeat the data to form a larger Zarr
+        # repeat_factor = 5  # For example, repeat 10 times
+        #
+        # # Calculate the new number of samples for the larger Zarr
+        # new_n_samples = n_samples_existing * repeat_factor
+        # new_zarr_file_path = os.path.join(os.getcwd(), "Larger_Zarr_File.zarr")
+        #
+        # # Create a new Zarr file to store the larger dataset
+        # if not os.path.exists(new_zarr_file_path):
+        #     new_zarr_file = zarr.open(new_zarr_file_path, mode='w')
+        #
+        #     # Create the 'inputs' dataset with the new shape
+        #     new_inputs = new_zarr_file.create_dataset('inputs',
+        #                                               shape=(new_n_samples,) + inputs.shape[1:],
+        #                                               # New shape with repeated samples
+        #                                               dtype='float32',
+        #                                               chunks=(inputs.chunks[0],) + inputs.shape[1:],
+        #                                               fill_value=0)
+        #
+        #     # Create the 'outputs' dataset with the new shape
+        #     new_outputs = new_zarr_file.create_dataset('outputs',
+        #                                                shape=(new_n_samples,) + outputs.shape[1:],
+        #                                                # New shape with repeated samples
+        #                                                dtype='float32',
+        #                                                chunks=(outputs.chunks[0],) + outputs.shape[1:],
+        #                                                fill_value=0)
+        #
+        #     # Create the 'bulk_avg' dataset with the new shape
+        #     new_bulk_avg = new_zarr_file.create_dataset('bulk_avg',
+        #                                                 shape=(new_n_samples,) + bulk_avg.shape[1:],
+        #                                                 # New shape with repeated samples
+        #                                                 dtype='float32',
+        #                                                 chunks=(bulk_avg.chunks[0],) + bulk_avg.shape[1:],
+        #                                                 fill_value=0)
+        #
+        #     # Create the 'centers' dataset with the new shape
+        #     new_centers = new_zarr_file.create_dataset('centers',
+        #                                                shape=(new_n_samples,) + centers.shape[1:],
+        #                                                # New shape with repeated samples
+        #                                                dtype='float32',
+        #                                                chunks=(centers.chunks[0],) + centers.shape[1:],
+        #                                                fill_value=0)
+        #
+        #     # Populate the new datasets by copying the data multiple times (using the repeat_factor)
+        #     new_inputs[:] = np.tile(inputs[:], (repeat_factor, 1, 1, 1, 1))  # Repeating the inputs dataset
+        #     new_outputs[:] = np.tile(outputs[:], (repeat_factor, 1))  # Repeating the outputs dataset
+        #     new_bulk_avg[:] = np.tile(bulk_avg[:], (repeat_factor, 1))  # Repeating the bulk_avg dataset
+        #     new_centers[:] = np.tile(centers[:], (repeat_factor, 1))  # Repeating the centers dataset
+        #
+        #     print(f"New larger Zarr file created with {new_n_samples} samples.")
+        # else:
+        #     print(f"The larger Zarr file already exists at {new_zarr_file_path}.")
+        #
+        # zarr_file_path = new_zarr_file_path
+        # ####################
+
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         import torch.autograd.profiler as profiler
 
@@ -2463,9 +2576,14 @@ class DFMSim3D(Simulation):
 
         #DFMSim3D.model.eval()
 
+        DFMSim3D.model = DFMSim3D.model.to(memory_format=torch.channels_last_3d)
         DFMSim3D.model.to(device).eval()
 
-        #scripted_model = torch.jit.script(DFMSim3D.model)
+        #model.half()
+
+        #example_input = torch.randn(1, 6, 64, 64, 64)
+        #scripted_model = torch.jit.trace(DFMSim3D.model, example_input)
+        #scripted_model = torch.compile(DFMSim3D.model, backend="aot_eager")
         #output = scripted_model(data)
 
         # print(" torch.cuda.is_available() ", torch.cuda.is_available())
@@ -2479,22 +2597,28 @@ class DFMSim3D(Simulation):
                 # print("inputs ", inputs.shape)
                 # print("centers ", centers)
                 # print("bulk features avg ", bulk_features_avg)
+
+                inputs = inputs.to(memory_format=torch.channels_last_3d)  # Optimize for 3D convolution
                 inputs = inputs.float().to(device)
-                inputs = inputs.contiguous()
+
+                #inputs = inputs.contiguous()
                 # sample_n = dataset_for_prediction._bulk_file_paths[i].split('/')[-2]
                 # center = sample_center[sample_n]
                 # print("torch.cuda.is_available() ", torch.cuda.is_available())
-                if torch.cuda.is_available():
-                    # print("cuda available")
-                    inputs = inputs.cuda()
-                    DFMSim3D.model = DFMSim3D.model.cuda()
+                # if torch.cuda.is_available():
+                #     # print("cuda available")
+                #     inputs = inputs.cuda()
+                #     DFMSim3D.model = DFMSim3D.model.cuda()
 
                 # with profiler.profile() as prof:
                 #     #with profiler.record_function("conv3d"):
                 #     predictions = DFMSim3D.model(inputs)
                 # print(prof.key_averages().table(sort_by="cpu_time_total"))
                 # exit()
+                #with torch.autocast(device_type="cpu", dtype=torch.bfloat16):
                 predictions = DFMSim3D.model(inputs)
+                #predictions = model(inputs)
+
                 predictions = np.squeeze(predictions)
 
                 # print("dset_prediction_loader ", dset_prediction_loader._bulk_features_avg)
@@ -2629,6 +2753,8 @@ class DFMSim3D(Simulation):
         if "generate_hom_samples_split" in config["sim_config"] and config["sim_config"]["generate_hom_samples_split"]:
             gen_hom_samples_split = True
 
+        print("coarse step ", config["coarse"]["step"])
+
         if gen_hom_samples:
             return DFMSim3D.calculate_hom_sample(config, current_dir, sample_idx, sample_seed)
 
@@ -2685,6 +2811,12 @@ class DFMSim3D(Simulation):
         ### Fine sample ###
         ###################
         dfn = DFMSim3D.fracture_random_set(sample_seed, fr_range, sim_config["work_dir"], max_frac=geom["n_frac_limit"])
+
+        dfn_to_fine_list = []
+        for fr in dfn:
+            if fr.r >= fine_step:
+                dfn_to_fine_list.append(fr)
+        dfn = stochastic.FractureSet.from_list(dfn_to_fine_list)
 
         #n_steps = config["sim_config"]["geometry"]["n_voxels"]
         #print("n steps ", n_steps)
@@ -2821,7 +2953,6 @@ class DFMSim3D(Simulation):
                 else:
                     dfn_to_coarse_list.append(fr)
             dfn_to_homogenization = stochastic.FractureSet.from_list(dfn_to_homogenization_list)
-
             dfn_to_coarse = stochastic.FractureSet.from_list(dfn_to_coarse_list)
             coarse_fr_media = FracturedMedia.fracture_cond_params(dfn_to_coarse, 1e-4, 0.00001)
 
