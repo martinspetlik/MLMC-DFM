@@ -1207,7 +1207,8 @@ class DFMSim3D(Simulation):
         #    pop_cfg = yaml.load(f, Loader=yaml.SafeLoader)
         fr_pop = stochastic.Population.from_cfg(fr_cfg_path, box_dimensions, shape=stochastic.EllipseShape())
         if fr_pop.mean_size() > max_frac:
-            common_range, intensities = fr_pop.common_range_for_sample_size(sample_size=max_frac)
+            #common_range, intensities = fr_pop.common_range_for_sample_size(sample_size=max_frac)
+            common_range = fr_pop.common_range_for_sample_size(sample_size=max_frac)
             fr_pop = fr_pop.set_sample_range(common_range)
         print(f"fr set range: {[rmin, rmax]}, fr_lim: {max_frac}, mean population size: {fr_pop.mean_size()}")
 
