@@ -2944,6 +2944,8 @@ class DFMSim3D(Simulation):
         # print("fr range ", fr_range)
         #print("n frac limit ", geom["n_frac_limit"])
 
+        no_homogenization_flag = config["sim_config"]["no_homogenization_flag"] if "no_homogenization_flag" in config["sim_config"] else False
+
         # rasterize bulk for homogenization
         if coarse_step > 0:
             dfn_to_homogenization_list = []
@@ -2957,57 +2959,66 @@ class DFMSim3D(Simulation):
             dfn_to_coarse = stochastic.FractureSet.from_list(dfn_to_coarse_list)
             coarse_fr_media = FracturedMedia.fracture_cond_params(dfn_to_coarse, 1e-4, 0.00001)
 
-            if "nn_path" in config["sim_config"]:
-                domain_size = config["sim_config"]["geometry"]["domain_box"]
 
-                #print("n voxels ", config["sim_config"]["geometry"]["n_voxels"])
+            # Carry out homogenization
+            if not no_homogenization_flag:
+                if "nn_path" in config["sim_config"]:
+                    domain_size = config["sim_config"]["geometry"]["domain_box"]
 
-                n_steps_per_axes = config["sim_config"]["geometry"]["n_voxels"][0]
-                fem_grid_n_steps = [n_steps_per_axes * n_nonoverlap_subdomains] * 3
+                    #print("n voxels ", config["sim_config"]["geometry"]["n_voxels"])
 
-                #print("fem_grid_n_steps ", fem_grid_n_steps)
+                    n_steps_per_axes = config["sim_config"]["geometry"]["n_voxels"][0]
+                    fem_grid_n_steps = [n_steps_per_axes * n_nonoverlap_subdomains] * 3
 
-                #print("domain size ", domain_size)
+                    #print("fem_grid_n_steps ", fem_grid_n_steps)
 
-                import cProfile
-                import pstats
-                pr = cProfile.Profile()
-                pr.enable()
+                    #print("domain size ", domain_size)
 
-                fem_grid_rast = fem.fem_grid(domain_size, fem_grid_n_steps, fem.Fe.Q(dim=3), origin=-domain_size[0] / 2)
-                cond_tensors = DFMSim3D.rasterize_at_once_zarr(config, dfn_to_homogenization, bulk_cond_values,
-                                                               bulk_cond_points, fem_grid_rast, n_subdomains_per_axes)
+                    import cProfile
+                    import pstats
+                    pr = cProfile.Profile()
+                    pr.enable()
 
-                pr.disable()
-                ps = pstats.Stats(pr).sort_stats('cumtime')
-                ps.print_stats(25)
+                    fem_grid_rast = fem.fem_grid(domain_size, fem_grid_n_steps, fem.Fe.Q(dim=3), origin=-domain_size[0] / 2)
+                    cond_tensors = DFMSim3D.rasterize_at_once_zarr(config, dfn_to_homogenization, bulk_cond_values,
+                                                                   bulk_cond_points, fem_grid_rast, n_subdomains_per_axes)
 
+                    pr.disable()
+                    ps = pstats.Stats(pr).sort_stats('cumtime')
+                    ps.print_stats(25)
+
+                else:
+                    print("=== COARSE PROBLEM ===")
+                    if config["sim_config"]["use_larger_domain"]:
+                        # print("hom domain box ", hom_domain_box)
+                        config["sim_config"]["geometry"]["domain_box"] = hom_domain_box
+                        config["sim_config"]["geometry"]["fractures_box"] = hom_domain_box
+                        # print("config geometry ", config["sim_config"]["geometry"])
+
+                    import cProfile
+                    import pstats
+                    pr = cProfile.Profile()
+                    pr.enable()
+
+                    cond_tensors, pred_cond_tensors_homo = DFMSim3D.homogenization(config, dfn_to_homogenization,
+                                                                                   dfn_to_homogenization_list,
+                                                                                   bulk_cond_values, bulk_cond_points)
+
+                    pr.disable()
+                    ps = pstats.Stats(pr).sort_stats('cumtime')
+                    ps.print_stats(15)
+
+                    # print("cond tensors rast ", cond_tensors)
+                    # print("cond tensors homo ", cond_tensors_homo)
+                    # print("pred cond tensors homo ", pred_cond_tensors_homo)
+                    #
+                    # exit()
+            # Do not carry out homogenization at all
             else:
-                print("=== COARSE PROBLEM ===")
-                if config["sim_config"]["use_larger_domain"]:
-                    # print("hom domain box ", hom_domain_box)
-                    config["sim_config"]["geometry"]["domain_box"] = hom_domain_box
-                    config["sim_config"]["geometry"]["fractures_box"] = hom_domain_box
-                    # print("config geometry ", config["sim_config"]["geometry"])
+                # Use fine sample grid conductivity directly for upscaled sample
+                #cond_tensors = dict(zip(list(bulk_cond_points), list(bulk_cond_values)))
+                cond_tensors = dict(zip(map(tuple, bulk_cond_points), bulk_cond_values))
 
-                import cProfile
-                import pstats
-                pr = cProfile.Profile()
-                pr.enable()
-
-                cond_tensors, pred_cond_tensors_homo = DFMSim3D.homogenization(config, dfn_to_homogenization,
-                                                                               dfn_to_homogenization_list,
-                                                                               bulk_cond_values, bulk_cond_points)
-
-                pr.disable()
-                ps = pstats.Stats(pr).sort_stats('cumtime')
-                ps.print_stats(15)
-
-                # print("cond tensors rast ", cond_tensors)
-                # print("cond tensors homo ", cond_tensors_homo)
-                # print("pred cond tensors homo ", pred_cond_tensors_homo)
-                #
-                # exit()
 
             DFMSim3D._save_tensors(cond_tensors, file=os.path.join(current_dir, DFMSim3D.COND_TN_FILE))
 
