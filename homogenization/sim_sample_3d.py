@@ -788,7 +788,6 @@ class DFMSim3D(Simulation):
         # Compute the bounding box limits
         lower_bounds = np.array(center) - np.array(domain_size) / 2
         upper_bounds = np.array(center) + np.array(domain_size) / 2
-
         # Apply boolean mask to filter coordinates inside the subdomain
         mask = np.all((coordinates >= lower_bounds) & (coordinates <= upper_bounds), axis=1)
 
@@ -819,13 +818,12 @@ class DFMSim3D(Simulation):
         # print("config[scratch_dir] ", config["sim_config"]["scratch_dir"])
         print("os environ get SCRATCHDIR ", os.environ.get("SCRATCHDIR"))
 
-        hom_dir_abs_path = os.path.join(sample_dir, hom_dir_name)
-        # hom_dir_name = "homogenization"
-        # if "scratch_dir" in config["sim_config"] and config["sim_config"]["scratch_dir"] is not None:
-        #     # hom_dir_abs_path = os.path.join(config["sim_config"]["scratch_dir"], hom_dir_name)
-        #     hom_dir_abs_path = os.path.join(os.environ.get("SCRATCHDIR"), hom_dir_name)
-        # else:
-        #     hom_dir_abs_path = os.path.join(sample_dir, hom_dir_name)
+        #hom_dir_abs_path = os.path.join(sample_dir, hom_dir_name)
+        #hom_dir_name = "homogenization"
+        if os.environ.get("SCRATCHDIR") is not None:
+            hom_dir_abs_path = os.path.join(os.environ.get("SCRATCHDIR"), hom_dir_name)
+        else:
+            hom_dir_abs_path = os.path.join(sample_dir, hom_dir_name)
 
         print("hom_dir_abs_path ", hom_dir_abs_path)
 
@@ -986,7 +984,10 @@ class DFMSim3D(Simulation):
 
                     # print("subdomain box run samples ", subdomain_box_run_samples)
                     # print("np.array(subdomain_box_run_samples)*1.1 ", np.array(subdomain_box_run_samples)*1.1)
-                    subdomain_bulk_cond_values, subdomain_bulk_cond_points = DFMSim3D.extract_subdomain(bulk_cond_values, bulk_cond_points, (center_x, center_y, center_z), np.array(subdomain_box_run_samples)*1.1)
+
+                    cond_field_step = np.abs(bulk_cond_points[0][-1]) - np.abs(bulk_cond_points[1][-1])
+                    subdomain_to_extract = np.array(subdomain_box_run_samples) * 1.1 + cond_field_step
+                    subdomain_bulk_cond_values, subdomain_bulk_cond_points = DFMSim3D.extract_subdomain(bulk_cond_values, bulk_cond_points, (center_x, center_y, center_z), subdomain_to_extract)
 
                     try:
                         subdomain_dfn_to_homogenize = DFMSim3D.extract_dfn(dfn_to_homogenize, dfn_to_homogenize_list, (center_x, center_y, center_z), np.array(subdomain_box_run_samples) * 1.5)
@@ -1000,6 +1001,10 @@ class DFMSim3D(Simulation):
 
                     # print("subdomain_bulk_cond_values.shape ", subdomain_bulk_cond_values.shape)
                     # print("subdomain_bulk_cond_points.shape ", subdomain_bulk_cond_points.shape)
+
+                    orig_center_x = center_x
+                    orig_center_y = center_y
+                    orig_center_z = center_z
 
                     num_iterations = 0
                     while True:
@@ -1038,7 +1043,8 @@ class DFMSim3D(Simulation):
                             # exit()
                             break
 
-                        except:
+                        except Exception as msg:
+                            print(msg)
                             num_iterations += 1
                             # subdomain_box_run_samples[0] += subdomain_box_run_samples[0] * 0.05
                             # subdomain_box_run_samples[1] += subdomain_box_run_samples[1] * 0.05
@@ -1061,8 +1067,14 @@ class DFMSim3D(Simulation):
                             #         os.remove(file_path)
                             #         print(f"Deleted: {file_path}")
 
+                    center_x = orig_center_x
+                    center_y = orig_center_y
+                    center_z = orig_center_z
+
                     if num_iterations > 10:
-                        print("num iterations 10")
+                        print("subdir_name {} num iterations 10".format(subdir_name))
+                        #DFMSim3D._remove_files()
+                        os.chdir(h_dir)
                         continue
 
                     equivalent_cond_tn_voigt = equivalent_posdef_tensor(np.array(bc_pressure_gradients),
@@ -1954,11 +1966,7 @@ class DFMSim3D(Simulation):
         ## Interpolate SRF to mesh elements  ##
         #######################################
         bulk_elements_barycenters = full_mesh.el_barycenters(elements=full_mesh._bulk_elements)
-        print("bulk_elements_barycenters ", bulk_elements_barycenters.shape)
         full_mesh_bulk_cond_values = interp(bulk_elements_barycenters)
-
-        print("full_mesh_bulk_cond_values ", full_mesh_bulk_cond_values.shape)
-
         zero_rows = np.where(np.all(full_mesh_bulk_cond_values == 0, axis=1))[0]
         assert len(zero_rows) == 0
 
@@ -2838,6 +2846,9 @@ class DFMSim3D(Simulation):
 
         n_steps_cond_grid = (fem_grid_cond_domain_size, fem_grid_cond_domain_size, fem_grid_cond_domain_size)
 
+        # 16x16x16 cond values generated per homogenization block
+        n_steps_cond_grid = (n_nonoverlap_subdomains * 16, n_nonoverlap_subdomains * 16, n_nonoverlap_subdomains * 16)
+
         #n_steps_cond_grid = (2,2,2)
 
         print("n steps cond grid ", n_steps_cond_grid)
@@ -2999,6 +3010,7 @@ class DFMSim3D(Simulation):
                     import pstats
                     pr = cProfile.Profile()
                     pr.enable()
+
 
                     cond_tensors, pred_cond_tensors_homo = DFMSim3D.homogenization(config, dfn_to_homogenization,
                                                                                    dfn_to_homogenization_list,
