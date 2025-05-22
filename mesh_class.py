@@ -52,8 +52,6 @@ class Element:
         return (self.type, self.tags, node_ids)
 
 
-
-
 #@memoize
 def _load_mesh(mesh_file: 'File', heal_tol = None):
     # mesh_file = mesh_file.path
@@ -129,6 +127,8 @@ class Mesh:
         self._fracture_elements = []
         self._bulk_element_ids = []
         self._fracture_element_ids = []
+        self._bulk_elements_node_ids = []
+        self._fracture_elements_node_ids = []
         for i, (eid, el) in enumerate(self.gmsh_io.elements.items()):
             type, tags, node_ids = el
             element = Element(self, type, tags, [self.node_indices[nid] for nid in node_ids])
@@ -139,9 +139,11 @@ class Mesh:
             if type == 4:
                 self._bulk_elements.append(element)
                 self._bulk_element_ids.append(eid)
+                self._bulk_elements_node_ids.append([4] + [self.node_indices[nid] for nid in node_ids])
             elif type == 2:
                 self._fracture_elements.append(element)
                 self._fracture_element_ids.append(eid)
+                self._fracture_elements_node_ids.append([3] + [self.node_indices[nid] for nid in node_ids])
 
     def _update_regions(self):
         self.regions = {dim_tag: name for name, dim_tag in self.gmsh_io.physical.items()}
@@ -217,6 +219,13 @@ class Mesh:
                 fr_id = len(dfn)
             return fr_id
         el_type = [31, 1, 2, 4]         # gmsh element types
+
+        # reg_id_to_fr = {}
+        # for (reg_id, dim), name in self.regions.items():
+        #     print("name ", name)
+        #     if "fam" in name or "fr" in name:
+        #         reg_id_to_fr[(el_type[dim], reg_id)] = fr_id_from_name(name)
+
         reg_id_to_fr = { (el_type[dim], reg_id): fr_id_from_name(name) for (reg_id, dim), name in self.regions.items()}
         fr_map = [reg_id_to_fr.get((e.type, e.tags[0]), len(dfn)) for e in self.elements]
 
@@ -284,7 +293,6 @@ class Mesh:
         values_mesh = np.empty_like(values)
         values_mesh[value_to_node_idx[:]] = values
         return values_mesh
-
 
     def write_fields(self, file_name:str, fields: Dict[str, np.array]=None) -> 'File':
         self.gmsh_io.write(file_name, format="msh2")
