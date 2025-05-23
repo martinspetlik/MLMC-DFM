@@ -3480,7 +3480,7 @@ class DFMSim3D(Simulation):
                 if not conv_check:
                     raise Exception("coarse sample not converged")
 
-                if pred_cond_tensors_homo is not None:
+                if pred_cond_tensors_homo:
                     file_prefix = "pred_coarse_"
                     if os.path.exists("flow123.0.log"):
                         shutil.move("flow123.0.log", "hom_coarse_flow123.0.log")
@@ -3548,7 +3548,7 @@ class DFMSim3D(Simulation):
                 if not conv_check:
                     raise Exception("coarse sample not converged")
 
-                if pred_cond_tensors_homo is not None:
+                if pred_cond_tensors_homo:
                     if os.path.exists("flow123.0.log"):
                         shutil.move("flow123.0.log", "hom_coarse_flow123.0.log")
                     if os.path.exists("flow_fields.pvd"):
