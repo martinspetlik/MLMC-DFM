@@ -1032,7 +1032,7 @@ class DFMSim3D(Simulation):
                     # print("np.array(subdomain_box_run_samples)*1.1 ", np.array(subdomain_box_run_samples)*1.1)
 
                     cond_field_step = np.abs(bulk_cond_points[0][-1]) - np.abs(bulk_cond_points[1][-1])
-                    subdomain_to_extract = np.array(subdomain_box_run_samples) * 1.1 + cond_field_step
+                    subdomain_to_extract = np.array(subdomain_box_run_samples) * 1.1 + (2 * cond_field_step)
                     subdomain_bulk_cond_values, subdomain_bulk_cond_points = DFMSim3D.extract_subdomain(bulk_cond_values, bulk_cond_points, (center_x, center_y, center_z), subdomain_to_extract)
 
                     try:
@@ -1041,9 +1041,9 @@ class DFMSim3D(Simulation):
                         subdomain_dfn_to_homogenize = dfn_to_homogenize
                     subdomain_fr_media = FracturedMedia.fracture_cond_params(subdomain_dfn_to_homogenize, 1e-4, 0.00001)
 
-                    #subdomain_bulk_cond_values, subdomain_bulk_cond_points = bulk_cond_values, bulk_cond_points
-                    #subdomain_dfn_to_homogenize = dfn_to_homogenize
-                    #subdomain_fr_media = FracturedMedia.fracture_cond_params(subdomain_dfn_to_homogenize, 1e-4, 0.00001)
+                    # subdomain_bulk_cond_values, subdomain_bulk_cond_points = bulk_cond_values, bulk_cond_points
+                    # subdomain_dfn_to_homogenize = dfn_to_homogenize
+                    # subdomain_fr_media = FracturedMedia.fracture_cond_params(subdomain_dfn_to_homogenize, 1e-4, 0.00001)
 
                     # print("subdomain_bulk_cond_values.shape ", subdomain_bulk_cond_values.shape)
                     # print("subdomain_bulk_cond_points.shape ", subdomain_bulk_cond_points.shape)
@@ -1156,7 +1156,7 @@ class DFMSim3D(Simulation):
 
                     if "nn_path_for_block_hom" in config["sim_config"]:
                         #try:
-                        fem_grid_rast = fem.fem_grid(15, config["sim_config"]["geometry"]["n_voxels"], fem.Fe.Q(dim=3),
+                        fem_grid_rast = fem.fem_grid(subdomain_box[0], config["sim_config"]["geometry"]["n_voxels"], fem.Fe.Q(dim=3),
                                                      origin=[new_center_x - subdomain_box[0] / 2,
                                                              new_center_y - subdomain_box[0] / 2,
                                                              new_center_z - subdomain_box[0] / 2])
@@ -2090,8 +2090,8 @@ class DFMSim3D(Simulation):
         grid_cumul_prod = np.array([1, grid.shape[0], grid.shape[0] * grid.shape[1]])
         for i in range(len(dfn)):
             i_box_min, i_box_max = grid.coord_aabb(dfn.AABB[i])
+            #print("i box min: {}, i box max: {}".format(i_box_min, i_box_max))
             axis_ranges = [range(max(0, a), min(b, n)) for a, b, n in zip(i_box_min, i_box_max, grid.shape)]
-
             all_kji = np.array(list(itertools.product(*reversed(axis_ranges))))  # Convert to array at once
             if all_kji.shape[0] > 0:
                 all_ijk = np.flip(all_kji, axis=1)
@@ -2099,26 +2099,11 @@ class DFMSim3D(Simulation):
                 loc_corners = np.einsum('ij,jkl->ikl', dfn.inv_transform_mat[i], (corners - dfn.center[i]).T).transpose(
                     2, 0, 1)
 
-                # print("loc corners shape ", loc_corners.shape)
                 intersections = DFMSim3D.intersect_cells_batch(loc_corners, dfn.base_shape)
-
-                # print("np.sum intersections ", np.sum(intersections))
-                #
-                # print("all ijk shape ", all_ijk.shape)
-                # print("intersections shape ", intersections.shape)
 
                 # Compute cell indices for valid intersections
                 valid_cells = np.where(intersections)[0]  # Get the indices where intersection is True
-
                 valid_ijk = all_ijk[np.where(intersections)[0]]
-
-                # print("valid cells shape ", valid_cells.shape)
-                # print("grid cumul prod ", grid_cumul_prod.shape)
-                # print("valid ijk shape ", valid_ijk.shape)
-
-                # Vectorized cell index computation
-                # cell_indices = grid_cumul_prod.dot(loc_corners[valid_cells, 0, :].T).T  # Adjust based on shape and dimension
-
                 cell_indices = valid_ijk.dot(grid_cumul_prod)
 
                 # Store results for valid intersections
@@ -2644,9 +2629,6 @@ class DFMSim3D(Simulation):
     def _bulk_cond_to_rast_grid(bulk_cond_values, bulk_cond_points, grid_rast):
         from scipy.interpolate import griddata
         # Interpolate the scattered data onto the regular grid
-        print("bulk cond points ", bulk_cond_points)
-        print("grid.rast barycenters ", grid_rast.barycenters())
-
         resized_data = griddata(bulk_cond_points, bulk_cond_values, grid_rast.barycenters(), method='nearest')
         return resized_data
 
