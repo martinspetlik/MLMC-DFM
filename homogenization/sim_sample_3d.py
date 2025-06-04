@@ -1475,8 +1475,8 @@ class DFMSim3D(Simulation):
         #box_fr, fractures_fr = factory.fragment(box, fractures_group)
         fr_dict, fr_bnd_dict = DFMSim3D.fragment(factory, vol_dict, bnd_dict)
 
-        [print(k, v) for k, v in fr_dict.items()]
-        [print(k, v) for k, v in fr_bnd_dict.items()]
+        #[print(k, v) for k, v in fr_dict.items()]
+        #[print(k, v) for k, v in fr_bnd_dict.items()]
 
         geometry_set = list(fr_dict.values())
 
@@ -3380,8 +3380,6 @@ class DFMSim3D(Simulation):
         :return: List[fine result, coarse result], both flatten arrays (see mlmc.sim.synth_simulation.calculate())
         """
         sample_dir = Path(os.getcwd()).absolute()
-        #print("sample dir ", sample_dir)
-
         basename = os.path.basename(sample_dir)
         sample_idx = int(basename.split('S')[1])
 
@@ -3389,9 +3387,6 @@ class DFMSim3D(Simulation):
 
         scratch_sample_path = None
         if os.environ.get("SCRATCHDIR") is not None:
-            #hom_dir_abs_path = os.path.join(config["sim_config"]["scratch_dir"], hom_dir_name)
-            #scratch_samples = os.path.join(os.environ.get("SCRATCHDIR"), hom_dir_name)
-
             scratch_sample_path = os.path.join(os.environ.get("SCRATCHDIR"), basename)
 
             shutil.move(sample_dir, scratch_sample_path)
@@ -3399,23 +3394,13 @@ class DFMSim3D(Simulation):
 
         current_dir = Path(os.getcwd()).absolute()
 
-        #print("sample dir ", sample_dir)
-        #print("sample idx ", sample_idx)
-        print("os.getcwd()", os.getcwd())
-
         sample_seed = config["sim_config"]["seed"] + seed
-        print("sample seed ", sample_seed)
+        #print("sample seed ", sample_seed)
         np.random.seed(sample_seed)
 
         gen_hom_samples = False
         if "generate_hom_samples" in config["sim_config"] and config["sim_config"]["generate_hom_samples"]:
             gen_hom_samples = True
-
-        gen_hom_samples_split = False
-        if "generate_hom_samples_split" in config["sim_config"] and config["sim_config"]["generate_hom_samples_split"]:
-            gen_hom_samples_split = True
-
-        print("coarse step ", config["coarse"]["step"])
 
         if gen_hom_samples:
             return DFMSim3D.calculate_hom_sample(config, current_dir, sample_idx, sample_seed)
@@ -3472,6 +3457,7 @@ class DFMSim3D(Simulation):
         ###################
         ### Fine sample ###
         ###################
+        fine_sample_start_time = time.time()
         dfn = DFMSim3D.fracture_random_set(sample_seed, fr_range, sim_config["work_dir"], max_frac=geom["n_frac_limit"])
         dfn_list = []
         for fr in dfn:
@@ -3480,7 +3466,7 @@ class DFMSim3D(Simulation):
         dfn = stochastic.FractureSet.from_list(dfn_list)
         print("level parameters ", config["sim_config"]["level_parameters"])
 
-
+        bulk_cond_values_start_time = time.time()
         # If the finest level
         if list(np.squeeze(config["sim_config"]["level_parameters"])).index(config["fine"]["step"]) == (len(np.squeeze(config["sim_config"]["level_parameters"])) - 1):
             dfn_to_fine_list = []
@@ -3515,14 +3501,14 @@ class DFMSim3D(Simulation):
 
             print("bulk cond values shape ", bulk_cond_values.shape)
             print("bulk cond points shape ", bulk_cond_points.shape)
-
         else:
             fr_media, bulk_cond_values, bulk_cond_points = DFMSim3D.fine_SRF_from_homogenization(dfn, config, sample_seed)
+
+        print("bulk cond values time ", time.time() - bulk_cond_values_start_time)
 
         #######################
         ## Bulk conductivity ##
         #######################
-
         fr_rad_values = []
         total_area = 0
         total_excluded_volume = 0
@@ -3533,14 +3519,12 @@ class DFMSim3D(Simulation):
             fr_rad_values.append(fr.radius[0] * (fr.radius[1] ** 2) + (fr.radius[0] ** 2) * fr.radius[1])
 
         # Square fractures:
-
         # print("Whole sample mean fr rad values ", np.mean(fr_rad_values))
         # rho_3D = np.pi ** 2 / 2 * np.mean(fr_rad_values) * (len(dfn) / fr_range[1] ** 3)
         # rho_3D_new = total_excluded_volume * (len(dfn) / fr_range[1] ** 3)
         # print("rho_3D ", rho_3D)
         # print("rho_3D_new ", rho_3D_new)
         # #exit()
-
         #print("bulk step: {}, fr step: {}".format(bulk_step, fr_step))
 
         dimensions = config["sim_config"]["geometry"]["orig_domain_box"] #config["sim_config"]["geometry"]["domain_box"]
@@ -3548,8 +3532,8 @@ class DFMSim3D(Simulation):
         fine_res = [0, 0, 0, 0, 0, 0]
         print("fine sample dimensions ", dimensions)
 
-
         if not gen_hom_samples:
+            sim_run_start_time = time.time()
             if "flow_sim" in config["sim_config"] and config["sim_config"]["flow_sim"]:
                 bc_pressure_gradient = [1, 0, 0]
                 cond_file, fr_cond, fr_region_map = DFMSim3D._run_sample_flow(bc_pressure_gradient, fr_media, config, current_dir, bulk_cond_values, bulk_cond_points, dimensions, mesh_step=config["fine"]["step"])
@@ -3588,6 +3572,8 @@ class DFMSim3D(Simulation):
                     raise Exception("fine sample not converged")
                 pass
 
+            print("fine sim run time ", time.time() - sim_run_start_time)
+
             if os.path.exists("flow123.0.log"):
                 shutil.move("flow123.0.log", "fine_flow123.0.log")
             if os.path.exists("flow_upscale_templ.yaml_stderr"):
@@ -3613,10 +3599,12 @@ class DFMSim3D(Simulation):
             if os.path.exists("voxel_fracture_sizes.npy"):
                 shutil.move("voxel_fracture_sizes.npy", "fine_voxel_fracture_sizes.npy")
 
+        print("fine sample time ", time.time() - fine_sample_start_time)
 
         #####################
         ### Coarse sample ###
         #####################
+        coarse_sample_start_time = time.time()
         coarse_res = [0, 0, 0, 0, 0, 0]
         # print("fine_step", config["fine"]["step"])
         # print("coarse_step", config["coarse"]["step"])
@@ -3656,6 +3644,7 @@ class DFMSim3D(Simulation):
             print("len(dfn_to_homogenization_list) ", len(dfn_to_homogenization_list))
             print("len(dfn_to_coarse_list) ", len(dfn_to_coarse_list))
 
+            homogenization_start_time = time.time()
             # Carry out homogenization
             if not no_homogenization_flag:
                 if "nn_path" in config["sim_config"]:
@@ -3750,18 +3739,14 @@ class DFMSim3D(Simulation):
                 #cond_tensors = dict(zip(list(bulk_cond_points), list(bulk_cond_values)))
                 cond_tensors = dict(zip(map(tuple, bulk_cond_points), bulk_cond_values))
 
+            print("homogenization time ", time.time() - homogenization_start_time)
 
             DFMSim3D._save_tensors(cond_tensors, file=os.path.join(current_dir, DFMSim3D.COND_TN_FILE))
 
             hom_bulk_cond_values, hom_bulk_cond_points = np.squeeze(np.array(list(cond_tensors.values()))), np.array(list(cond_tensors.keys()))
 
-            #print("homogenized cond tensors ", cond_tensors)
 
-            #print("hom bulk cond values shape ", hom_bulk_cond_values.shape)
-            #print("hom bulk cond points shape ", hom_bulk_cond_points.shape)
-
-            #print("dimensions ", dimensions)
-
+            coarse_sim_start_time = time.time()
             file_prefix = "coarse_"
             if "flow_sim" in config["sim_config"] and config["sim_config"]["flow_sim"]:
                 bc_pressure_gradient = [1, 0, 0]
@@ -3901,6 +3886,10 @@ class DFMSim3D(Simulation):
                 if os.path.exists("voxel_fracture_sizes.npy"):
                     shutil.move("voxel_fracture_sizes.npy", "{}voxel_fracture_sizes.npy".format(file_prefix))
 
+            print("coarse sim time ", time.time() - coarse_sim_start_time)
+
+            print("coarse sample time ", time.time() - coarse_sample_start_time)
+
             print("fine res ", fine_res)
             print("coarse res ", coarse_res)
 
@@ -3913,124 +3902,6 @@ class DFMSim3D(Simulation):
                 shutil.move("flow_fields.msh", "flow_fields_fine.msh")
             if os.path.exists("mesh_fine.msh"):
                 shutil.move("mesh_fine.msh", "mesh_fine_fine.msh")
-
-
-            # if "flow_sim" in config["sim_config"] and config["sim_config"]["flow_sim"]:
-            #     pass
-            # else:
-            #     #exit()
-            #     #steps = (int(fine_step), int(fine_step), int(fine_step))
-            #
-            #     #n_steps_coef = 1.5
-            #     #n_steps = (int(domain_size/int(fine_step)*n_steps_coef), int(domain_size/int(fine_step)*n_steps_coef), int(domain_size/int(fine_step)*n_steps_coef))
-            #
-            #     #n_steps = (64, 64, 64)
-            #     #n_steps = (25, 25, 25)
-            #     #n_steps = (4, 4, 4)
-            #
-            #
-            #     #grid_cond = DFMSim3D.homo_decovalex(fr_media, fem_grid.grid)
-            #     #grid_cond = grid_cond.reshape(*n_steps, grid_cond.shape[-1])
-            #
-            #     #print("grid_cond shape ", grid_cond.shape)
-            #     #@TODO: rasterize input
-            #
-            #     # print(grid_cond.shape)
-            #     # print("np.array(bc_pressure_gradient)[None, :] ", np.array(bc_pressure_gradient)[None, :])
-            #
-            #     # grid_cond = np.ones(grid.n_elements)[:, None] * np.array([1, 1, 1, 0, 0, 0])[None, :]
-            #
-            #     ######
-            #     ## @TODO: there is no flow123d called inside
-            #     # pressure = fem_grid.solve_sparse(grid_cond, np.array(bc_pressure_gradient)[None, :])
-            #     # assert not np.any(np.isnan(pressure))
-            #
-            #     ##################################
-            #     ## Create mesh and input fields ##
-            #     ##################################
-            #     dimensions = (domain_size, domain_size, domain_size)
-            #
-            #     print("sample_dir ", sample_dir)
-            #
-            #     equivalent_cond_tn = DFMSim3D.get_equivalent_cond_tn(fr_media, config, sample_dir, bulk_cond_values, bulk_cond_points, dimensions)
-            #
-            #     # bc_pressure_gradient = [1, 0, 0]
-            #     # cond_file, fr_cond = DFMSim3D._run_sample(bc_pressure_gradient, fr_media, config, sample_dir, bulk_cond_values, bulk_cond_points, dimensions)
-            #     # flux_response_0 = DFMSim3D.get_flux_response()
-            #     #
-            #     # bc_pressure_gradient = [0, 1, 0]
-            #     # DFMSim3D._run_sample(bc_pressure_gradient, fr_media, config, sample_dir, bulk_cond_values, bulk_cond_points,
-            #     #                      dimensions, cond_file=cond_file)
-            #     # flux_response_1 = DFMSim3D.get_flux_response()
-            #     #
-            #     # bc_pressure_gradient = [0, 0, 1]
-            #     # DFMSim3D._run_sample(bc_pressure_gradient, fr_media, config, sample_dir, bulk_cond_values, bulk_cond_points,
-            #     #                      dimensions, cond_file=cond_file)
-            #     # flux_response_2 = DFMSim3D.get_flux_response()
-            #     #
-            #     # bc_pressure_gradients = np.stack(([1, 0, 0], [0, 1, 0], [0, 0, 1]), axis=0)
-            #     # flux_responses = np.squeeze(np.stack((flux_response_0, flux_response_1, flux_response_2), axis=0))
-            #     #
-            #     # equivalent_cond_tn_voigt = equivalent_posdef_tensor(np.array(bc_pressure_gradients), flux_responses)
-            #     # equivalent_cond_tn = voigt_to_tn(np.array([equivalent_cond_tn_voigt])) #np.zeros((3, 3))
-            #
-            #     # # Map the Voigt vector to the symmetric matrix
-            #     # equivalent_cond_tn[0, 0] = equivalent_cond_tn_voigt[0]  # xx
-            #     # equivalent_cond_tn[1, 1] = equivalent_cond_tn_voigt[1]  # yy
-            #     # equivalent_cond_tn[2, 2] = equivalent_cond_tn_voigt[2]  # zz
-            #     # equivalent_cond_tn[1, 2] = equivalent_cond_tn[2, 1] = equivalent_cond_tn_voigt[3]  # yz or zy
-            #     # equivalent_cond_tn[0, 2] = equivalent_cond_tn[2, 0] = equivalent_cond_tn_voigt[4]  # xz or zx
-            #     # equivalent_cond_tn[0, 1] = equivalent_cond_tn[1, 0] = equivalent_cond_tn_voigt[5]  # xy or yx
-            #     print("equivalent cond tn ", equivalent_cond_tn)
-            #     evals, evecs = np.linalg.eigh(equivalent_cond_tn)
-            #     print("evals equivalent cond tn ", evals)
-            #     assert np.all(evals) > 0
-            #
-            #
-            #     fine_res = np.squeeze(equivalent_cond_tn_voigt)
-            #
-            #     print("fine res shape ", fine_res.shape)
-            #
-            #     #DFMSim3D._remove_files()
-            #
-            #     gen_hom_samples = False
-            #     if "generate_hom_samples" in config["sim_config"] and config["sim_config"]["generate_hom_samples"]:
-            #         gen_hom_samples = True
-            #
-            #     cond_tn_pop = os.path.join(config["fine"]["common_files_dir"], DFMSim3D.COND_TN_POP_FILE)
-            #     if os.path.exists(cond_tn_pop):
-            #         config["fine"]["cond_tn_pop_file"] = cond_tn_pop
-            #
-            #     if "nn_path" in config["sim_config"]:
-            #         pred_cond_tn_pop = os.path.join(config["fine"]["common_files_dir"], DFMSim3D.PRED_COND_TN_POP_FILE)
-            #         if os.path.exists(pred_cond_tn_pop):
-            #             config["fine"]["pred_cond_tn_pop_file"] = pred_cond_tn_pop
-            #
-            #     sample_cond_tns = os.path.join(config["fine"]["common_files_dir"], DFMSim3D.SAMPLES_COND_TNS_DIR)
-            #     if os.path.exists(sample_cond_tns):
-            #         config["fine"]["sample_cond_tns"] = sample_cond_tns
-            #
-            #     coarse_res = [0, 0, 0, 0, 0, 0]
-            #     # print("fine res ", fine_res)
-            #
-            #
-            #     #if coarse_step > 0:
-            #
-            #     #######################
-            #     ## save to zarr file  #
-            #     #######################
-            #     # Shape of the data
-            #     zarr_file_path = os.path.join(config["fine"]["common_files_dir"], DFMSim3D.ZARR_FILE)
-            #     if os.path.exists(zarr_file_path):
-            #         zarr_file = zarr.open(zarr_file_path, mode='r+')
-            #         # Write data to the specified slice or index
-            #         rasterized_input = DFMSim3D.rasterize(fem_grid_rast, dfn, bulk_cond=bulk_cond_values, fr_cond=fr_cond)
-            #
-            #         rasterized_input_voigt = tn_to_voigt(rasterized_input)
-            #         rasterized_input_voigt = rasterized_input_voigt.reshape(*n_steps, rasterized_input_voigt.shape[-1]).T
-            #
-            #         zarr_file["inputs"][sample_idx, ...] = rasterized_input_voigt
-            #         zarr_file["outputs"][sample_idx, :] = fine_res
 
         if scratch_sample_path is not None:
             shutil.move(scratch_sample_path, sample_dir)
