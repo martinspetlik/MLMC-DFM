@@ -3461,14 +3461,14 @@ class DFMSim3D(Simulation):
         dfn = DFMSim3D.fracture_random_set(sample_seed, fr_range, sim_config["work_dir"], max_frac=geom["n_frac_limit"])
         dfn_list = []
         for fr in dfn:
-            if fr.r >= list(np.squeeze(config["sim_config"]["level_parameters"]))[-1] and fr.r <= orig_domain_box[0]:
+            if fr.r >= list(np.squeeze(config["sim_config"]["level_parameters"], axis=1))[-1] and fr.r <= orig_domain_box[0]:
                 dfn_list.append(fr)
         dfn = stochastic.FractureSet.from_list(dfn_list)
         print("level parameters ", config["sim_config"]["level_parameters"])
 
         bulk_cond_values_start_time = time.time()
         # If the finest level
-        if list(np.squeeze(config["sim_config"]["level_parameters"])).index(config["fine"]["step"]) == (len(np.squeeze(config["sim_config"]["level_parameters"])) - 1):
+        if list(np.squeeze(config["sim_config"]["level_parameters"], axis=1)).index(config["fine"]["step"]) == (len(np.squeeze(config["sim_config"]["level_parameters"], axis=1)) - 1):
             dfn_to_fine_list = []
             for fr in dfn:
                 if fr.r >= fine_step:
