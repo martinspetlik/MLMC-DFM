@@ -2225,6 +2225,17 @@ class DFMSim3D(Simulation):
         dfn = fr_media.dfn
         bulk_conductivity = fr_media.conductivity
 
+        cond_field_step = np.abs(bulk_cond_points[0][-1]) - np.abs(bulk_cond_points[1][-1])
+        subdomain_to_extract = np.array(dimensions) * 1.1 + (2 * cond_field_step)
+        print("subdomain to extract ", subdomain_to_extract)
+        subdomain_bulk_cond_values, subdomain_bulk_cond_points = DFMSim3D.extract_subdomain(bulk_cond_values,
+                                                                                            bulk_cond_points, (
+                                                                                            center[0], center[1],
+                                                                                            center[2]),
+                                                                                            subdomain_to_extract)
+        print("subdomain_bulk_cond_values.shape ", subdomain_bulk_cond_values.shape)
+
+
         interp = sc_interpolate.LinearNDInterpolator(bulk_cond_points, bulk_cond_values, fill_value=0)
         #interp = sc_interpolate.RegularGridInterpolator(bulk_cond_points, bulk_cond_values)
         #interp = sc_interpolate.NearestNDInterpolator(bulk_cond_points, bulk_cond_values)
@@ -3467,6 +3478,7 @@ class DFMSim3D(Simulation):
         print("level parameters ", config["sim_config"]["level_parameters"])
 
         bulk_cond_values_start_time = time.time()
+
         # If the finest level
         if list(np.squeeze(config["sim_config"]["level_parameters"], axis=1)).index(config["fine"]["step"]) == (len(np.squeeze(config["sim_config"]["level_parameters"], axis=1)) - 1):
             dfn_to_fine_list = []
@@ -3485,10 +3497,16 @@ class DFMSim3D(Simulation):
             # Cubic law transmisivity
             fr_media = FracturedMedia.fracture_cond_params(dfn, 1e-4, 0.00001)
             fem_grid_cond_domain_size = int(fem_grid_cond_domain_size)
+            print("fem grid cond domain size ", fem_grid_cond_domain_size)
             # n_steps_cond_grid = (fem_grid_cond_domain_size, fem_grid_cond_domain_size, fem_grid_cond_domain_size)
             # 16x16x16 cond values generated per homogenization block
             n_steps_cond_grid = (
             n_nonoverlap_subdomains * 16, n_nonoverlap_subdomains * 16, n_nonoverlap_subdomains * 16)
+
+            # 1LMC
+            if coarse_step == 0:
+                n_steps_cond_grid = (fem_grid_cond_domain_size, fem_grid_cond_domain_size, fem_grid_cond_domain_size)
+
             print("n steps cond grid ", n_steps_cond_grid)
             # fem_grid_cond = fem.fem_grid(fem_grid_cond_domain_size, n_steps_cond_grid, fem.Fe.Q(dim=3),
             #                             origin=-fem_grid_cond_domain_size / 2)  # 27 cells
@@ -3532,6 +3550,10 @@ class DFMSim3D(Simulation):
         fine_res = [0, 0, 0, 0, 0, 0]
         print("fine sample dimensions ", dimensions)
 
+        import cProfile
+        import pstats
+        pr = cProfile.Profile()
+        pr.enable()
         if not gen_hom_samples:
             sim_run_start_time = time.time()
             if "flow_sim" in config["sim_config"] and config["sim_config"]["flow_sim"]:
@@ -3600,6 +3622,9 @@ class DFMSim3D(Simulation):
                 shutil.move("voxel_fracture_sizes.npy", "fine_voxel_fracture_sizes.npy")
 
         print("fine sample time ", time.time() - fine_sample_start_time)
+        pr.disable()
+        ps = pstats.Stats(pr).sort_stats('cumtime')
+        ps.print_stats(30)
 
         #####################
         ### Coarse sample ###
