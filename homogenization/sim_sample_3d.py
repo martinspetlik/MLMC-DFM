@@ -2221,24 +2221,40 @@ class DFMSim3D(Simulation):
         return cross_section, cond_tn
 
     @staticmethod
-    def create_mesh_fields(fr_media, bulk_cond_values, bulk_cond_points, dimensions, mesh_step, sample_dir, work_dir, center=[0, 0, 0], outflow_problem=False, file_prefix="", fr_region_map=None):
+    def create_mesh_fields(fr_media, bulk_cond_values, bulk_cond_points, dimensions, mesh_step, sample_dir, work_dir,
+                           center=[0, 0, 0], outflow_problem=False, file_prefix="", fr_region_map=None, regular_grid_interp=False, config={}, sample_seed=None):
         dfn = fr_media.dfn
         bulk_conductivity = fr_media.conductivity
 
-        cond_field_step = np.abs(bulk_cond_points[0][-1]) - np.abs(bulk_cond_points[1][-1])
-        subdomain_to_extract = np.array(dimensions) * 1.1 + (2 * cond_field_step)
-        print("subdomain to extract ", subdomain_to_extract)
-        subdomain_bulk_cond_values, subdomain_bulk_cond_points = DFMSim3D.extract_subdomain(bulk_cond_values,
-                                                                                            bulk_cond_points, (
-                                                                                            center[0], center[1],
-                                                                                            center[2]),
-                                                                                            subdomain_to_extract)
-        print("subdomain_bulk_cond_values.shape ", subdomain_bulk_cond_values.shape)
+        if len(bulk_cond_values) > 0 and len(bulk_cond_points) > 0:
+            cond_field_step = np.abs(bulk_cond_points[0][-1]) - np.abs(bulk_cond_points[1][-1])
+            subdomain_to_extract = np.array(dimensions) * 1.1 + (cond_field_step)
+            #print("subdomain to extract ", subdomain_to_extract)
+            #print("bulk cond points ", bulk_cond_points)
+            subdomain_bulk_cond_values, subdomain_bulk_cond_points = DFMSim3D.extract_subdomain(bulk_cond_values,
+                                                                                                bulk_cond_points, (
+                                                                                                center[0], center[1],
+                                                                                                center[2]),
+                                                                                                subdomain_to_extract)
+            # print("subdomain_bulk_cond_points.shape ", subdomain_bulk_cond_points.shape)
+            # print("subdomain_bulk_cond_values.shape ", subdomain_bulk_cond_values.shape)
+            # print("bulk cond values.shape ", bulk_cond_values.shape)
 
+            if regular_grid_interp:
+                x_unique = np.unique(subdomain_bulk_cond_points[:, 0])
+                y_unique = np.unique(subdomain_bulk_cond_points[:, 1])
+                z_unique = np.unique(subdomain_bulk_cond_points[:, 2])
+                nx, ny, nz = len(x_unique), len(y_unique), len(z_unique)
 
-        interp = sc_interpolate.LinearNDInterpolator(bulk_cond_points, bulk_cond_values, fill_value=0)
-        #interp = sc_interpolate.RegularGridInterpolator(bulk_cond_points, bulk_cond_values)
-        #interp = sc_interpolate.NearestNDInterpolator(bulk_cond_points, bulk_cond_values)
+                sort_idx = np.lexsort((subdomain_bulk_cond_points[:, 2], subdomain_bulk_cond_points[:, 1], subdomain_bulk_cond_points[:, 0]))
+                #points_sorted = subdomain_bulk_cond_points[sort_idx]
+                values_sorted = subdomain_bulk_cond_values[sort_idx]
+                values_grid = values_sorted.reshape((nx, ny, nz, 3, 3))
+
+                interp = sc_interpolate.RegularGridInterpolator((x_unique, y_unique, z_unique), values_grid)
+            else:
+                interp = sc_interpolate.LinearNDInterpolator(subdomain_bulk_cond_points, subdomain_bulk_cond_values, fill_value=0)
+                #interp = sc_interpolate.NearestNDInterpolator(bulk_cond_points, bulk_cond_values)
 
         ###########################
         ## Fracture conductivity ##
@@ -2285,13 +2301,16 @@ class DFMSim3D(Simulation):
         ## Interpolate SRF to mesh elements  ##
         #######################################
         bulk_elements_barycenters = full_mesh.el_barycenters(elements=full_mesh._bulk_elements)
-        full_mesh_bulk_cond_values = interp(bulk_elements_barycenters)
-        zero_rows = np.where(np.all(full_mesh_bulk_cond_values == 0, axis=1))[0]
-        if len(zero_rows) > 0:
-            print("ZERO ROWS")
-            from scipy.interpolate import NearestNDInterpolator
-            nn_interp = NearestNDInterpolator(bulk_cond_points, bulk_cond_values)
-            full_mesh_bulk_cond_values[zero_rows] = nn_interp(bulk_elements_barycenters[zero_rows])
+        if len(bulk_cond_values) > 0 and len(bulk_cond_points) > 0:
+            full_mesh_bulk_cond_values = interp(bulk_elements_barycenters)
+            zero_rows = np.where(np.all(full_mesh_bulk_cond_values == 0, axis=1))[0]
+            if len(zero_rows) > 0:
+                print("ZERO ROWS")
+                from scipy.interpolate import NearestNDInterpolator
+                nn_interp = NearestNDInterpolator(bulk_cond_points, bulk_cond_values)
+                full_mesh_bulk_cond_values[zero_rows] = nn_interp(bulk_elements_barycenters[zero_rows])
+        else:
+            full_mesh_bulk_cond_values, bulk_cond_points = DFMSim3D.generate_grid_cond(bulk_elements_barycenters, config, seed=sample_seed)
 
         ##################
         ## Write fields ##
@@ -2461,7 +2480,7 @@ class DFMSim3D(Simulation):
         #######################
         ## Bulk conductivity ##
         #######################
-        bulk_cond_values, bulk_cond_points = DFMSim3D.generate_grid_cond(fem_grid_cond, config, seed=sample_seed)
+        bulk_cond_values, bulk_cond_points = DFMSim3D.generate_grid_cond(fem_grid_cond.grid.barycenters(), config, seed=sample_seed)
 
         print("bulk cond values shape ", bulk_cond_values.shape)
         print("bulk cond points shaoe ", bulk_cond_points.shape)
@@ -2653,10 +2672,10 @@ class DFMSim3D(Simulation):
         return [hom_box_size, hom_box_size, hom_box_size], int(n_centers+1), int(n_total_centers)
 
     @staticmethod
-    def get_equivalent_cond_tn(fr_media, config, sample_dir, bulk_cond_values, bulk_cond_points, dimensions, mesh_step, fr_region_map=None):
+    def get_equivalent_cond_tn(fr_media, config, sample_dir, bulk_cond_values, bulk_cond_points, dimensions, mesh_step, fr_region_map=None, sample_seed=None):
         bc_pressure_gradient = [1, 0, 0]
         cond_file, fr_cond, fr_region_map = DFMSim3D._run_sample(bc_pressure_gradient, fr_media, config, sample_dir, bulk_cond_values,
-                                                  bulk_cond_points, dimensions, mesh_step)
+                                                  bulk_cond_points, dimensions, mesh_step, sample_seed=sample_seed)
         flux_response_0 = DFMSim3D.get_flux_response()  # bc_pressure_gradient, fr_media, fem_grid, config, sample_dir,
         # sim_config)
 
@@ -3344,7 +3363,7 @@ class DFMSim3D(Simulation):
 
                 print("FEM GRID COND ", fem_grid_cond)
 
-                bulk_cond_values, bulk_cond_points = DFMSim3D.generate_grid_cond(fem_grid_cond, config, seed=sample_seed)
+                bulk_cond_values, bulk_cond_points = DFMSim3D.generate_grid_cond(fem_grid_cond.grid.barycenters(), config, seed=sample_seed)
 
             ##############
             # Upscaling  #
@@ -3506,19 +3525,21 @@ class DFMSim3D(Simulation):
             # 1LMC
             if coarse_step == 0:
                 n_steps_cond_grid = (fem_grid_cond_domain_size, fem_grid_cond_domain_size, fem_grid_cond_domain_size)
+                bulk_cond_values = {}
+                bulk_cond_points = {}
 
             print("n steps cond grid ", n_steps_cond_grid)
             # fem_grid_cond = fem.fem_grid(fem_grid_cond_domain_size, n_steps_cond_grid, fem.Fe.Q(dim=3),
             #                             origin=-fem_grid_cond_domain_size / 2)  # 27 cells
-            fem_grid_cond = fem.fem_grid(fem_grid_cond_domain_size, n_steps_cond_grid, fem.Fe.Q(dim=3),
-                                         origin=-fem_grid_cond_domain_size / 2)
-            print("fem grid cond ", fem_grid_cond)
-            generate_grid_cond_start_time = time.time()
-            bulk_cond_values, bulk_cond_points = DFMSim3D.generate_grid_cond(fem_grid_cond, config, seed=sample_seed)
-            print("time_generate_grid_cond ", time.time() - generate_grid_cond_start_time)
-
-            print("bulk cond values shape ", bulk_cond_values.shape)
-            print("bulk cond points shape ", bulk_cond_points.shape)
+            if coarse_step > 0:
+                fem_grid_cond = fem.fem_grid(fem_grid_cond_domain_size, n_steps_cond_grid, fem.Fe.Q(dim=3),
+                                             origin=-fem_grid_cond_domain_size / 2)
+                print("fem grid cond ", fem_grid_cond)
+                generate_grid_cond_start_time = time.time()
+                bulk_cond_values, bulk_cond_points = DFMSim3D.generate_grid_cond(fem_grid_cond.grid.barycenters(), config, seed=sample_seed)
+                print("time_generate_grid_cond ", time.time() - generate_grid_cond_start_time)
+                print("bulk cond values shape ", bulk_cond_values.shape)
+                print("bulk cond points shape ", bulk_cond_points.shape)
         else:
             fr_media, bulk_cond_values, bulk_cond_points = DFMSim3D.fine_SRF_from_homogenization(dfn, config, sample_seed)
 
@@ -3558,7 +3579,7 @@ class DFMSim3D(Simulation):
             sim_run_start_time = time.time()
             if "flow_sim" in config["sim_config"] and config["sim_config"]["flow_sim"]:
                 bc_pressure_gradient = [1, 0, 0]
-                cond_file, fr_cond, fr_region_map = DFMSim3D._run_sample_flow(bc_pressure_gradient, fr_media, config, current_dir, bulk_cond_values, bulk_cond_points, dimensions, mesh_step=config["fine"]["step"])
+                cond_file, fr_cond, fr_region_map = DFMSim3D._run_sample_flow(bc_pressure_gradient, fr_media, config, current_dir, bulk_cond_values, bulk_cond_points, dimensions, mesh_step=config["fine"]["step"], sample_seed=sample_seed)
 
                 conv_check = check_conv_reasons(os.path.join(current_dir, "flow123.0.log"))
                 if not conv_check:
@@ -3588,7 +3609,7 @@ class DFMSim3D(Simulation):
                     shutil.move("voxel_fracture_sizes.npy", "fine_voxel_fracture_sizes.npy")
                 pass
             else:
-                fine_res, fr_cond, fr_region_map = DFMSim3D.get_equivalent_cond_tn(fr_media, config, current_dir, bulk_cond_values, bulk_cond_points, dimensions, mesh_step=config["fine"]["step"])
+                fine_res, fr_cond, fr_region_map = DFMSim3D.get_equivalent_cond_tn(fr_media, config, current_dir, bulk_cond_values, bulk_cond_points, dimensions, mesh_step=config["fine"]["step"], sample_seed=sample_seed)
                 conv_check = check_conv_reasons(os.path.join(current_dir, "flow123.0.log"))
                 if not conv_check:
                     raise Exception("fine sample not converged")
@@ -3934,7 +3955,7 @@ class DFMSim3D(Simulation):
         return fine_res, coarse_res
 
     @staticmethod
-    def generate_grid_cond(fem_grid, config, seed):
+    def generate_grid_cond(barycenters, config, seed):
         bulk_conductivity = config["sim_config"]['bulk_conductivity']
         if "marginal_distr" in bulk_conductivity and bulk_conductivity["marginal_distr"] is not False:
             means, cov = DFMSim3D.calculate_cov(bulk_conductivity["marginal_distr"])
@@ -3949,7 +3970,7 @@ class DFMSim3D(Simulation):
         else:
             raise NotImplementedError
 
-        return bulk_model.generate_field(fem_grid)
+        return bulk_model.generate_field(barycenters)
 
     @staticmethod
     def calculate_cov(marginal_distrs):
@@ -4084,7 +4105,7 @@ class DFMSim3D(Simulation):
 
     @staticmethod
     def _run_sample_flow(bc_pressure_gradient, fr_media, config, sample_dir, bulk_cond_values, bulk_cond_points, dimensions,
-                    mesh_step, cond_file=None, center=[0, 0, 0], fr_region_map=None):
+                    mesh_step, cond_file=None, center=[0, 0, 0], fr_region_map=None, sample_seed=None):
 
         fr_cond = None
         if cond_file is None:
@@ -4092,7 +4113,7 @@ class DFMSim3D(Simulation):
                                                              mesh_step=mesh_step,
                                                              sample_dir=sample_dir,
                                                              work_dir=config["sim_config"]["work_dir"],
-                                                             center=center, outflow_problem=True, fr_region_map=fr_region_map
+                                                             center=center, outflow_problem=True, fr_region_map=fr_region_map, config=config, sample_seed=sample_seed
                                                              )
 
         if "run_local" in config["sim_config"] and config["sim_config"]["run_local"]:
@@ -4149,14 +4170,14 @@ class DFMSim3D(Simulation):
         return cond_file, fr_cond, fr_region_map
 
     @staticmethod
-    def _run_sample(bc_pressure_gradient, fr_media, config, sample_dir, bulk_cond_values, bulk_cond_points, dimensions, mesh_step, cond_file=None, center=[0,0,0], fr_region_map=None):
+    def _run_sample(bc_pressure_gradient, fr_media, config, sample_dir, bulk_cond_values, bulk_cond_points, dimensions, mesh_step, cond_file=None, center=[0,0,0], fr_region_map=None, sample_seed=None):
 
         fr_cond = None
         if cond_file is None:
             cond_file, fr_cond, fr_region_map, mesh_regions = DFMSim3D.create_mesh_fields(fr_media, bulk_cond_values, bulk_cond_points, dimensions,
                                     mesh_step=mesh_step,
                                     sample_dir=sample_dir,
-                                    work_dir=config["sim_config"]["work_dir"], center=center, fr_region_map=fr_region_map)
+                                    work_dir=config["sim_config"]["work_dir"], center=center,fr_region_map=fr_region_map, config=config, sample_seed=sample_seed)
 
         if "run_local" in config["sim_config"] and config["sim_config"]["run_local"]:
             flow_cfg = dotdict(

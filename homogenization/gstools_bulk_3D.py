@@ -83,6 +83,8 @@ class GSToolsBulk3D:
         eigen_values, eigen_vectors = np.linalg.eig(covariance_matrix)
         self._projection_matrix = (eigen_vectors.T[:][:]).T
 
+        #print("cov_matrix_k_xx_yy_zz ", cov_matrix_k_xx_yy_zz)
+
         eigen_values, eigen_vectors = np.linalg.eig(cov_matrix_k_xx_yy_zz)
         self._projection_matrix = (eigen_vectors.T[:][:]).T
         p_components = samples.dot(self._projection_matrix)
@@ -102,6 +104,7 @@ class GSToolsBulk3D:
             len_scale = [self.corr_lengths_x[0], self.corr_lengths_y[0], self.corr_lengths_z[0]]
 
         self._model_k_xx = gstools.Exponential(dim=3, var=pc_vars[0], len_scale=len_scale, angles=self.anis_angles[0])
+        # self._model_k_xx_new = gstools.Exponential(dim=3, var=1, len_scale=len_scale, angles=self.anis_angles[0])
 
         ##########
         ## K_yy ##
@@ -114,6 +117,8 @@ class GSToolsBulk3D:
         #print("len scale ", len_scale)
 
         self._model_k_yy = gstools.Exponential(dim=3, var=pc_vars[1], len_scale=len_scale, angles=self.anis_angles[1])
+        # self._model_k_yy_new = gstools.Exponential(dim=3, var=1, len_scale=len_scale,
+        #                                            angles=self.anis_angles[1])
 
         ##########
         ## K_zz ##
@@ -125,6 +130,8 @@ class GSToolsBulk3D:
         # print("len scale ", len_scale)
 
         self._model_k_zz = gstools.Exponential(dim=3, var=pc_vars[2], len_scale=len_scale, angles=self.anis_angles[2])
+        # self._model_k_zz_new = gstools.Exponential(dim=3, var=1, len_scale=len_scale,
+        #                                            angles=self.anis_angles[2])
 
 
         ###########
@@ -138,6 +145,9 @@ class GSToolsBulk3D:
         #model_angle = gstools.Gaussian(dim=2, var=self.angle_var, len_scale=len_scale, angles=self.anis_angles[2])
         self._R_x = gstools.Exponential(dim=3, var=self.angle_var, len_scale=len_scale, angles=self.anis_angles[2])
         self._R_y = gstools.Exponential(dim=3, var=self.angle_var, len_scale=len_scale, angles=self.anis_angles[2])
+
+        #self._R_x = gstools.Gaussian(dim=3, var=self.angle_var, len_scale=len_scale, angles=self.anis_angles[2])
+        #self._R_y = gstools.Gaussian(dim=3, var=self.angle_var, len_scale=len_scale, angles=self.anis_angles[2])
 
         self._N_x = gstools.Exponential(dim=3, var=self.angle_var, len_scale=len_scale, angles=self.anis_angles[2])
         self._N_y = gstools.Exponential(dim=3, var=self.angle_var, len_scale=len_scale, angles=self.anis_angles[2])
@@ -173,6 +183,27 @@ class GSToolsBulk3D:
                                                                        seed=self.seed + 300
                                                                        ))
 
+        # field_k_xx_new = cf.Field('k_xx_new', cf.GSToolsSpatialCorrelatedField(self._model_k_xx_new, log=self.log,
+        #                                                                # sigma=np.sqrt(self.cov_log_conductivity[0,0]),
+        #                                                                mode_no=self.mode_no,
+        #                                                                # mu=pca_means[0]
+        #                                                                seed=self.seed + 1100
+        #                                                                ))
+        #
+        # field_k_yy_new = cf.Field('k_yy_new', cf.GSToolsSpatialCorrelatedField(self._model_k_yy_new, log=self.log,
+        #                                                                # sigma=np.sqrt(self.cov_log_conductivity[1,1]),
+        #                                                                mode_no=self.mode_no,
+        #                                                                # mu=pca_means[1]
+        #                                                                seed=self.seed + 1200
+        #                                                                ))
+        #
+        # field_k_zz_new = cf.Field('k_zz_new', cf.GSToolsSpatialCorrelatedField(self._model_k_zz_new, log=self.log,
+        #                                                                # sigma=np.sqrt(self.cov_log_conductivity[1,1]),
+        #                                                                mode_no=self.mode_no,
+        #                                                                # mu=pca_means[1]
+        #                                                                seed=self.seed + 1300
+        #                                                                ))
+
         field_R_x = cf.Field('R_x', cf.GSToolsSpatialCorrelatedField(self._R_x,
                                                                          sigma=np.sqrt(self.angle_var),
                                                                          mode_no=self.mode_no,
@@ -206,13 +237,14 @@ class GSToolsBulk3D:
         self._fields = cf.Fields([field_k_xx, field_k_yy, field_k_zz, field_R_x, field_R_y, field_N_x, field_N_y, field_N_z])
         #print("self._fields ", self._fields)
 
-    def generate_field(self, fem_grid):
+    def generate_field(self, barycenters):
         if self._rf_sample is None:
             #if self.model_k_xx is None:
             self._create_field(self.mean_log_conductivity, self.cov_log_conductivity)
 
+            #grid_barycenters = fem_grid.grid.barycenters()
 
-            grid_barycenters = fem_grid.grid.barycenters()
+            print("barycenters ", barycenters.shape)
 
             #self._mesh_data = BulkFieldsGSTools.extract_mesh(mesh)
             #print("mesh data ", list(self._mesh_data.keys()))
@@ -220,18 +252,21 @@ class GSToolsBulk3D:
             # print("mesh_data['points'] ", self._mesh_data['points'])
             #self._fields.set_points(self._mesh_data['points'], self._mesh_data['point_region_ids'], self._mesh_data['region_map'])
 
-            self._fields.set_points(grid_barycenters)
-
+            self._fields.set_points(barycenters)
             self._rf_sample = self._fields.sample()
 
-
-            # print("self._pc_mean ", self._pc_means)
+            # # print("self._pc_mean ", self._pc_means)
             # print("mean k xx ", np.mean(self._rf_sample["k_xx"]))
             # print("mean k yy ", np.mean(self._rf_sample["k_yy"]))
+            # print("mean k zz ", np.mean(self._rf_sample["k_zz"]))
 
             self._rf_sample["k_xx"] += self._pc_means[0]
             self._rf_sample["k_yy"] += self._pc_means[1]
             self._rf_sample["k_zz"] += self._pc_means[2]
+
+            # print("mean k xx ", np.mean(self._rf_sample["k_xx"]))
+            # print("mean k yy ", np.mean(self._rf_sample["k_yy"]))
+            # print("mean k zz ", np.mean(self._rf_sample["k_zz"]))
 
             srf_data = np.array([self._rf_sample["k_xx"], self._rf_sample["k_yy"], self._rf_sample["k_zz"]])
 
@@ -241,17 +276,126 @@ class GSToolsBulk3D:
             self._rf_sample["k_yy"] = inv_srf_data[1, :]
             self._rf_sample["k_zz"] = inv_srf_data[2, :]
 
-
         k_xx = self._rf_sample["k_xx"]
         k_yy = self._rf_sample["k_yy"]
         k_zz = self._rf_sample["k_zz"]
+
+        # print("mean k xx ", np.mean(self._rf_sample["k_xx"]))
+        # print("mean k yy ", np.mean(self._rf_sample["k_yy"]))
+        # print("mean k zz ", np.mean(self._rf_sample["k_zz"]))
+        #
+        # print("var k xx ", np.var(self._rf_sample["k_xx"]))
+        # print("var k yy ", np.var(self._rf_sample["k_yy"]))
+        # print("var k zz ", np.var(self._rf_sample["k_zz"]))
+
+        # data = np.vstack([self._rf_sample["k_xx"], self._rf_sample["k_yy"], self._rf_sample["k_zz"]])
+        #
+        # # Calculate the covariance matrix
+        # cov_matrix = np.cov(data)
+        # # print("cov matrix ", cov_matrix)
+        # # exit()
+
+        # print("R_x ", self._rf_sample["R_x"])
+        #
+        # plt.figure(figsize=(8, 6))
+        # plt.hist(self._rf_sample["R_x"], bins=50, density=True, alpha=0.6, edgecolor='black')
+        # plt.title("Histogram of R_x")
+        # plt.xlabel("Value")
+        # plt.ylabel("Density")
+        # plt.show()
+        #
+        # print("R_y ", self._rf_sample["R_y"])
+        #
+        # plt.figure(figsize=(8, 6))
+        # plt.hist(self._rf_sample["R_y"], bins=50, density=True, alpha=0.6, edgecolor='black')
+        # plt.title("Histogram of R_y")
+        # plt.xlabel("Value")
+        # plt.ylabel("Density")
+        # plt.show()
 
 
         R_vectors = np.stack([self._rf_sample["R_x"],  self._rf_sample["R_y"]])
         R_vectors = R_vectors / np.linalg.norm(R_vectors, axis=0)
 
+
+        #print("R vectors ", R_vectors)
+
+        angle_radians = np.arctan2(R_vectors[0, :], R_vectors[1, :])
+
+        # print("angle radians ", angle_radians)
+        #
+        # plt.figure(figsize=(8, 6))
+        # plt.hist(angle_radians, bins=50, density=True, alpha=0.6, edgecolor='black')
+        # plt.title("Histogram of angle_radians")
+        # plt.xlabel("Value")
+        # plt.ylabel("Density")
+        # plt.show()
+        #
+        #
+        # print("barycenters ", grid_barycenters.shape)
+        # print("angle_radians shape ", angle_radians.shape)
+
+        # fig = plt.figure(figsize=(10, 8))
+        # ax = fig.add_subplot(111, projection='3d')
+
+        # # Scatter plot with color mapping
+        # scatter = ax.scatter(grid_barycenters[:, 0], grid_barycenters[:, 1], grid_barycenters[:, 2],
+        #                      c=angle_radians, cmap='viridis', marker='o')
+        #
+        # # Add a color bar
+        # cbar = plt.colorbar(scatter, ax=ax, pad=0.1)
+        # cbar.set_label('Scalar Values', rotation=270, labelpad=15)
+
+        # # Set axis labels
+        # ax.set_xlabel('X')
+        # ax.set_ylabel('Y')
+        # ax.set_zlabel('Z')
+
+        # Extract X, Y, Z coordinates
+        x, y, z = barycenters[:, 0], barycenters[:, 1], barycenters[:, 2]
+
+        # from mayavi import mlab
+        #
+        # # Create a 3D scatter plot
+        # mlab.figure(size=(800, 600), bgcolor=(1, 1, 1))  # White background
+        # scatter = mlab.points3d(x, y, z, angle_radians,
+        #                         scale_mode='none',  # Fix point size
+        #                         scale_factor=0.02,  # Adjust size
+        #                         colormap='viridis')  # Choose colormap
+        #
+        # # Add color bar
+        # mlab.colorbar(scatter, title="Scalar Values", orientation="vertical")
+        #
+        # # Set axis labels
+        # mlab.xlabel("X")
+        # mlab.ylabel("Y")
+        # mlab.zlabel("Z")
+
         N_vectors = np.stack([self._rf_sample["N_x"],  self._rf_sample["N_y"], self._rf_sample["N_z"]])
         N_vectors = N_vectors / np.linalg.norm(N_vectors, axis=0)
+
+        #phi = np.arctan2(N_vectors[1, :], N_vectors[0, :])
+
+        #magnitude = np.sqrt(N_vectors[0, :] ** 2 + N_vectors[1, :] ** 2 + N_vectors[2, :] ** 2)
+
+        #print("magnitude ", magnitude)
+
+        # Compute the polar angle (theta) in radians
+        #theta = np.arccos(N_vectors[2,:] / magnitude)
+
+        # plt.figure(figsize=(8, 6))
+        # plt.hist(theta, bins=50, density=True, alpha=0.6, edgecolor='black')
+        # plt.title("Histogram of theta")
+        # plt.xlabel("Value")
+        # plt.ylabel("Density")
+        # plt.show()
+        #
+        # plt.figure(figsize=(8, 6))
+        # plt.hist(phi, bins=50, density=True, alpha=0.6, edgecolor='black')
+        # plt.title("Histogram of phi")
+        # plt.xlabel("Value")
+        # plt.ylabel("Density")
+        # plt.show()
 
         N_vectors = N_vectors.T
         R_vectors = R_vectors.T
@@ -266,11 +410,48 @@ class GSToolsBulk3D:
         diagonal_matrices[:, indices, indices] = stacked_arrays
 
         radius = np.ones((N_vectors.shape[0], 2))
+
         transform_matrices = FractureSet.transform_mat_static(normal=N_vectors, shape_axis=R_vectors, radius=radius)
 
         cond_3d = transform_matrices @ diagonal_matrices @ np.transpose(transform_matrices, axes=(0, 2, 1))
 
+        n_tensors = cond_3d.shape[0]
+
+        # Step 1: Compute eigenvalues and eigenvectors for all tensors
+        eigenvalues, eigenvectors = np.linalg.eigh(cond_3d)
+
+        # eigenvalues: Shape (4096, 3)
+        # eigenvectors: Shape (4096, 3, 3) where each row contains one eigenvector set
+
+        dominant_eigenvectors = eigenvectors[np.arange(n_tensors), :, np.argmax(eigenvalues, axis=1)]
+
+        # Step 3: Compute azimuth and elevation
+        # Azimuth: Angle in the XY-plane
+        azimuths = np.arctan2(dominant_eigenvectors[:, 1], dominant_eigenvectors[:, 0])  # Shape (4096,)
+
+        # Elevation: Angle from the Z-axis
+        elevations = np.arccos(
+            dominant_eigenvectors[:, 2] / np.linalg.norm(dominant_eigenvectors, axis=1))  # Shape (4096,)
+
+        #print("azimuths shape ", azimuths.shape)
+
+        #single_angles = np.sqrt(azimuths_deg ** 2 + elevations_deg ** 2)
+
+        # plt.figure(figsize=(8, 6))
+        # plt.hist(azimuths, bins=50, density=True, alpha=0.6, edgecolor='black')
+        # plt.title("Histogram of azimuths")
+        # plt.xlabel("Value")
+        # plt.ylabel("Density")
+        # plt.show()
+        #
+        # plt.figure(figsize=(8, 6))
+        # plt.hist(elevations, bins=50, density=True, alpha=0.6, edgecolor='black')
+        # plt.title("Histogram of elevations")
+        # plt.xlabel("Value")
+        # plt.ylabel("Density")
+        # plt.show()
+        #print("cond_3d.shape ", cond_3d.shape)
         eigenvalues = np.linalg.eigvals(cond_3d)
         assert np.all(eigenvalues > 0)
-        return cond_3d, grid_barycenters
+        return cond_3d, barycenters
 
