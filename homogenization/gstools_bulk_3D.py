@@ -63,6 +63,7 @@ class GSToolsBulk3D:
     _mesh_data= None
     log = False
     seed= None
+    mode: Optional[str] = None
 
     def _pca(self, mean_k_xx_yy_zz, cov_matrix_k_xx_yy_zz):
         n_samples = 10000
@@ -166,21 +167,21 @@ class GSToolsBulk3D:
                                                                        #sigma=np.sqrt(self.cov_log_conductivity[0,0]),
                                                                        mode_no=self.mode_no,
                                                                        #mu=pca_means[0]
-                                                                       seed=self.seed + 100
+                                                                       seed=self.seed + 100, mode=self.mode
                                                                        ))
 
         field_k_yy = cf.Field('k_yy', cf.GSToolsSpatialCorrelatedField(self._model_k_yy, log=self.log,
                                                                        #sigma=np.sqrt(self.cov_log_conductivity[1,1]),
                                                                        mode_no=self.mode_no,
                                                                        #mu=pca_means[1]
-                                                                       seed=self.seed + 200
+                                                                       seed=self.seed + 200, mode=self.mode
                                                                        ))
 
         field_k_zz = cf.Field('k_zz', cf.GSToolsSpatialCorrelatedField(self._model_k_zz, log=self.log,
                                                                        # sigma=np.sqrt(self.cov_log_conductivity[1,1]),
                                                                        mode_no=self.mode_no,
                                                                        # mu=pca_means[1]
-                                                                       seed=self.seed + 300
+                                                                       seed=self.seed + 300, mode=self.mode
                                                                        ))
 
         # field_k_xx_new = cf.Field('k_xx_new', cf.GSToolsSpatialCorrelatedField(self._model_k_xx_new, log=self.log,
@@ -207,31 +208,31 @@ class GSToolsBulk3D:
         field_R_x = cf.Field('R_x', cf.GSToolsSpatialCorrelatedField(self._R_x,
                                                                          sigma=np.sqrt(self.angle_var),
                                                                          mode_no=self.mode_no,
-                                                                         seed=self.seed + 400
+                                                                         seed=self.seed + 400, mode=self.mode
                                                                          ))
 
         field_R_y = cf.Field('R_y', cf.GSToolsSpatialCorrelatedField(self._R_x,
                                                                          sigma=np.sqrt(self.angle_var),
                                                                          mode_no=self.mode_no,
-                                                                         seed=self.seed + 500
+                                                                         seed=self.seed + 500, mode=self.mode
                                                                          ))
 
         field_N_x = cf.Field('N_x', cf.GSToolsSpatialCorrelatedField(self._N_x,
                                                                      sigma=np.sqrt(self.angle_var),
                                                                      mode_no=self.mode_no,
-                                                                     seed=self.seed + 600
+                                                                     seed=self.seed + 600, mode=self.mode
                                                                      ))
 
         field_N_y = cf.Field('N_y', cf.GSToolsSpatialCorrelatedField(self._N_y,
                                                                      sigma=np.sqrt(self.angle_var),
                                                                      mode_no=self.mode_no,
-                                                                     seed=self.seed + 700
+                                                                     seed=self.seed + 700, mode=self.mode
                                                                      ))
 
         field_N_z = cf.Field('N_z', cf.GSToolsSpatialCorrelatedField(self._N_z,
                                                                      sigma=np.sqrt(self.angle_var),
                                                                      mode_no=self.mode_no,
-                                                                     seed=self.seed + 800
+                                                                     seed=self.seed + 800, mode=self.mode
                                                                      ))
 
         self._fields = cf.Fields([field_k_xx, field_k_yy, field_k_zz, field_R_x, field_R_y, field_N_x, field_N_y, field_N_z])

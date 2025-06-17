@@ -42,6 +42,8 @@ from bgem.stochastic import FractureSet, EllipseShape, PolygonShape
 from bgem.upscale import *
 import scipy.interpolate as sc_interpolate
 from bgem.gmsh.gmsh import ObjectSet
+import cProfile
+import pstats
 
 #os.environ["CUDA_VISIBLE_DEVICES"]=""
 
@@ -2652,9 +2654,23 @@ class DFMSim3D(Simulation):
 
     @staticmethod
     def _bulk_cond_to_rast_grid(bulk_cond_values, bulk_cond_points, grid_rast):
-        from scipy.interpolate import griddata
+        #from scipy.interpolate import griddata
         # Interpolate the scattered data onto the regular grid
-        resized_data = griddata(bulk_cond_points, bulk_cond_values, grid_rast.barycenters(), method='nearest')
+        #resized_data = griddata(bulk_cond_points, bulk_cond_values, grid_rast.barycenters(), method='nearest')
+
+        x_unique = np.unique(bulk_cond_points[:, 0])
+        y_unique = np.unique(bulk_cond_points[:, 1])
+        z_unique = np.unique(bulk_cond_points[:, 2])
+        nx, ny, nz = len(x_unique), len(y_unique), len(z_unique)
+
+        sort_idx = np.lexsort((bulk_cond_points[:, 2], bulk_cond_points[:, 1], bulk_cond_points[:, 0]))
+        # points_sorted = subdomain_bulk_cond_points[sort_idx]
+        values_sorted = bulk_cond_values[sort_idx]
+        values_grid = values_sorted.reshape((nx, ny, nz, 3, 3))
+
+        interp = sc_interpolate.RegularGridInterpolator((x_unique, y_unique, z_unique), values_grid, method='nearest')
+        target_points = grid_rast.barycenters()  # shape: (M, 3)
+        resized_data = interp(target_points)
         return resized_data
 
     @staticmethod
@@ -3363,7 +3379,7 @@ class DFMSim3D(Simulation):
 
                 print("FEM GRID COND ", fem_grid_cond)
 
-                bulk_cond_values, bulk_cond_points = DFMSim3D.generate_grid_cond(fem_grid_cond.grid.barycenters(), config, seed=sample_seed)
+                bulk_cond_values, bulk_cond_points = DFMSim3D.generate_grid_cond(fem_grid_cond.grid.barycenters(), config, seed=sample_seed, mode="fft")
 
             ##############
             # Upscaling  #
@@ -3536,12 +3552,18 @@ class DFMSim3D(Simulation):
                                              origin=-fem_grid_cond_domain_size / 2)
                 print("fem grid cond ", fem_grid_cond)
                 generate_grid_cond_start_time = time.time()
-                bulk_cond_values, bulk_cond_points = DFMSim3D.generate_grid_cond(fem_grid_cond.grid.barycenters(), config, seed=sample_seed)
+                bulk_cond_values, bulk_cond_points = DFMSim3D.generate_grid_cond(fem_grid_cond.grid.barycenters(), config, seed=sample_seed, mode="fft")
                 print("time_generate_grid_cond ", time.time() - generate_grid_cond_start_time)
                 print("bulk cond values shape ", bulk_cond_values.shape)
                 print("bulk cond points shape ", bulk_cond_points.shape)
         else:
+            pr = cProfile.Profile()
+            pr.enable()
             fr_media, bulk_cond_values, bulk_cond_points = DFMSim3D.fine_SRF_from_homogenization(dfn, config, sample_seed)
+            print("fine_SRF_from_homogenization time ")
+            pr.disable()
+            ps = pstats.Stats(pr).sort_stats('cumtime')
+            ps.print_stats(30)
 
         print("bulk cond values time ", time.time() - bulk_cond_values_start_time)
 
@@ -3571,8 +3593,17 @@ class DFMSim3D(Simulation):
         fine_res = [0, 0, 0, 0, 0, 0]
         print("fine sample dimensions ", dimensions)
 
-        import cProfile
-        import pstats
+        # dfn_to_fine_list = []
+        # for fr in dfn:
+        #     print("fr.center ", fr.center)
+        #     if -dimensions[0]/2 <= fr.center[0] <= dimensions[0]/2 and -dimensions[1]/2 <= fr.center[1] <= dimensions[1]/2 and -dimensions[2]/2 <= fr.center[2] <= dimensions[2]/2:
+        #         print("fr.center within domain ", fr.center)
+        #     if fr.r >= fine_step:
+        #         dfn_to_fine_list.append(fr)
+        # fine_dfn = stochastic.FractureSet.from_list(dfn_to_fine_list)
+        # fine_fr_media = FracturedMedia.fracture_cond_params(fine_dfn, 1e-4, 0.00001)
+        # exit()
+
         pr = cProfile.Profile()
         pr.enable()
         if not gen_hom_samples:
@@ -3705,8 +3736,7 @@ class DFMSim3D(Simulation):
 
                     #print("domain size ", domain_size)
 
-                    import cProfile
-                    import pstats
+
                     pr = cProfile.Profile()
                     pr.enable()
 
@@ -3755,8 +3785,7 @@ class DFMSim3D(Simulation):
                         config["sim_config"]["geometry"]["fractures_box"] = hom_domain_box
                         # print("config geometry ", config["sim_config"]["geometry"])
 
-                    import cProfile
-                    import pstats
+
                     pr = cProfile.Profile()
                     pr.enable()
 
@@ -3790,7 +3819,6 @@ class DFMSim3D(Simulation):
             DFMSim3D._save_tensors(cond_tensors, file=os.path.join(current_dir, DFMSim3D.COND_TN_FILE))
 
             hom_bulk_cond_values, hom_bulk_cond_points = np.squeeze(np.array(list(cond_tensors.values()))), np.array(list(cond_tensors.keys()))
-
 
             coarse_sim_start_time = time.time()
             file_prefix = "coarse_"
@@ -3955,8 +3983,10 @@ class DFMSim3D(Simulation):
         return fine_res, coarse_res
 
     @staticmethod
-    def generate_grid_cond(barycenters, config, seed):
+    def generate_grid_cond(barycenters, config, seed, mode=None):
         bulk_conductivity = config["sim_config"]['bulk_conductivity']
+        if mode is not None:
+            bulk_conductivity['mode'] = mode
         if "marginal_distr" in bulk_conductivity and bulk_conductivity["marginal_distr"] is not False:
             means, cov = DFMSim3D.calculate_cov(bulk_conductivity["marginal_distr"])
             bulk_conductivity["mean_log_conductivity"] = means
@@ -3987,12 +4017,10 @@ class DFMSim3D(Simulation):
         cov[1, 0] = cov[0, 1] = corr_coeff * np.sqrt(cov[0, 0] * cov[1, 1])
         return means, cov
 
-
     @staticmethod
     def _save_tensors(cond_tensors, file):
         with open(file, "w") as f:
             yaml.dump(cond_tensors, f)
-
 
     # @staticmethod
     # def _run_homogenization_sample(flow_problem, config, format="gmsh"):
