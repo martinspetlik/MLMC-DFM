@@ -2224,13 +2224,13 @@ class DFMSim3D(Simulation):
 
     @staticmethod
     def create_mesh_fields(fr_media, bulk_cond_values, bulk_cond_points, dimensions, mesh_step, sample_dir, work_dir,
-                           center=[0, 0, 0], outflow_problem=False, file_prefix="", fr_region_map=None, regular_grid_interp=False, config={}, sample_seed=None):
+                           center=[0, 0, 0], outflow_problem=False, file_prefix="", fr_region_map=None, regular_grid_interp=True, config={}, sample_seed=None):
         dfn = fr_media.dfn
         bulk_conductivity = fr_media.conductivity
 
         if len(bulk_cond_values) > 0 and len(bulk_cond_points) > 0:
             cond_field_step = np.abs(bulk_cond_points[0][-1]) - np.abs(bulk_cond_points[1][-1])
-            subdomain_to_extract = np.array(dimensions) * 1.1 + (cond_field_step)
+            subdomain_to_extract = np.array(dimensions) * 1.1 + cond_field_step
             #print("subdomain to extract ", subdomain_to_extract)
             #print("bulk cond points ", bulk_cond_points)
             subdomain_bulk_cond_values, subdomain_bulk_cond_points = DFMSim3D.extract_subdomain(bulk_cond_values,
