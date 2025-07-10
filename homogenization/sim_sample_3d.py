@@ -26,7 +26,7 @@ from metamodel.cnn3D.datasets.dfm3d_dataset import DFM3DDataset
 import numpy.random as rnd
 from pathlib import Path
 import pyvista as pv
-from homogenization.gstools_bulk_3D import GSToolsBulk3D
+from homogenization.gstools_bulk_3D import GSToolsBulk3D, GSToolsBulk3DEffective
 from bgem import stochastic
 from bgem import stochastic
 from bgem.gmsh import gmsh, options
@@ -1287,7 +1287,7 @@ class DFMSim3D(Simulation):
         #script_dir = Path(__file__).absolute().parent
         rmin, rmax = size_range
         box_dimensions = (rmax, rmax, rmax)
-        fr_cfg_path = os.path.join(work_dir, "fractures_conf.yaml")
+        fr_cfg_path = os.path.join(work_dir, "fractures_conf_6.yaml")
 
         # with open() as f:
         #    pop_cfg = yaml.load(f, Loader=yaml.SafeLoader)
@@ -3377,9 +3377,23 @@ class DFMSim3D(Simulation):
                 fem_grid_cond = fem.fem_grid(n_steps_cond_grid_size, n_steps_cond_grid, fem.Fe.Q(dim=3),
                                              origin=-n_steps_cond_grid_size / 2)
 
-                print("FEM GRID COND ", fem_grid_cond)
+                print("fine SRF FEM GRID COND ", fem_grid_cond)
 
-                bulk_cond_values, bulk_cond_points = DFMSim3D.generate_grid_cond(fem_grid_cond.grid.barycenters(), config, seed=sample_seed, mode="fft")
+                if "gstools_effective" in config["sim_config"] and config["sim_config"]["gstools_effective"]:
+                    print("gstools effective ")
+                    femgrid_barycenters = fem_grid_cond.grid.barycenters()
+                    # x_unique = np.unique(femgrid_barycenters[:, 0])
+                    # y_unique = np.unique(femgrid_barycenters[:, 1])
+                    # z_unique = np.unique(femgrid_barycenters[:, 2])
+
+                    bulk_cond_values, bulk_cond_points = DFMSim3D.generate_grid_cond((femgrid_barycenters[:, 0], femgrid_barycenters[:, 1], femgrid_barycenters[:, 2]),
+                                                                                     config, seed=sample_seed,
+                                                                                     mode="fft")
+                    bulk_cond_points = femgrid_barycenters
+                else:
+                    bulk_cond_values, bulk_cond_points = DFMSim3D.generate_grid_cond(fem_grid_cond.grid.barycenters(), config, seed=sample_seed)
+                print("bulk cond values ", bulk_cond_values.shape)
+                print("bulk cond points ", bulk_cond_points.shape)
 
             ##############
             # Upscaling  #
@@ -3552,10 +3566,26 @@ class DFMSim3D(Simulation):
                                              origin=-fem_grid_cond_domain_size / 2)
                 print("fem grid cond ", fem_grid_cond)
                 generate_grid_cond_start_time = time.time()
-                bulk_cond_values, bulk_cond_points = DFMSim3D.generate_grid_cond(fem_grid_cond.grid.barycenters(), config, seed=sample_seed, mode="fft")
+
+                if "gstools_effective" in sim_config and sim_config["gstools_effective"]:
+                    print("gstools effective")
+                    femgrid_barycenters = fem_grid_cond.grid.barycenters()
+                    # x_unique = np.unique(femgrid_barycenters[:, 0])
+                    # y_unique = np.unique(femgrid_barycenters[:, 1])
+                    # z_unique = np.unique(femgrid_barycenters[:, 2])
+
+                    bulk_cond_values, bulk_cond_points = DFMSim3D.generate_grid_cond((femgrid_barycenters[:, 0], femgrid_barycenters[:, 1], femgrid_barycenters[:, 2]),
+                                                                                     config, seed=sample_seed,
+                                                                                     mode="fft")
+                    bulk_cond_points = femgrid_barycenters
+
+                else:
+                    bulk_cond_values, bulk_cond_points = DFMSim3D.generate_grid_cond(fem_grid_cond.grid.barycenters(), config, seed=sample_seed)
                 print("time_generate_grid_cond ", time.time() - generate_grid_cond_start_time)
-                print("bulk cond values shape ", bulk_cond_values.shape)
-                print("bulk cond points shape ", bulk_cond_points.shape)
+                print("bulk cond values ", bulk_cond_values.shape)
+                print("bulk cond points ", bulk_cond_points.shape)
+                #print("bulk cond values shape ", bulk_cond_values.shape)
+                #print("bulk cond points shape ", bulk_cond_points.shape)
         else:
             pr = cProfile.Profile()
             pr.enable()
@@ -3993,14 +4023,34 @@ class DFMSim3D(Simulation):
             bulk_conductivity["cov_log_conductivity"] = cov
             del bulk_conductivity["marginal_distr"]
 
+        print("bulk_conductivity ", bulk_conductivity)
+
         if "gstools" in config["sim_config"] and config["sim_config"]["gstools"]:
             bulk_model = GSToolsBulk3D(**bulk_conductivity)
             bulk_model.seed = seed
             print("bulkfieldsgstools")
+        # elif "gstools_vector" in config["sim_config"] and config["sim_config"]["gstools_vector"]:
+        #     bulk_model = GSToolsBulk3DVectorField(**bulk_conductivity)
+        #     bulk_model.seed = seed
+        #     print("bulkfieldsgstools vector")
+        elif "gstools_effective" in config["sim_config"] and config["sim_config"]["gstools_effective"]:
+            bulk_model = GSToolsBulk3DEffective(**bulk_conductivity)
+            bulk_model.structured = True
+            bulk_model.seed = seed
+            print("bulkfieldsgstools effective")
         else:
             raise NotImplementedError
 
-        return bulk_model.generate_field(barycenters)
+        pr = cProfile.Profile()
+        pr.enable()
+
+        generated_field = bulk_model.generate_field(barycenters)
+
+        pr.disable()
+        ps = pstats.Stats(pr).sort_stats('cumtime')
+        ps.print_stats(15)
+
+        return generated_field
 
     @staticmethod
     def calculate_cov(marginal_distrs):
