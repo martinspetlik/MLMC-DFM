@@ -134,12 +134,20 @@ class Net(nn.Module):
     def forward(self, x):
         verbose = False
 
+        def count_conv_params_per_layer(module):
+            conv_params = {}
+            for name, layer in module.named_modules():
+                if isinstance(layer, (torch.nn.Conv2d, torch.nn.Conv3d, torch.nn.Linear)):
+                    conv_params[name] = sum(p.numel() for p in layer.parameters() if p.requires_grad)
+            return conv_params
+
         for i, conv_i in enumerate(self._convs):  # For each convolutional layer
             if verbose:
                 print("i: {}, x shape: {}".format(i, x.shape))
                 #print("x.shape " ,x.shape)
                 print("conv_i.weights ", np.prod(conv_i.weight.shape))
                 print("conv_i.bias ", conv_i.bias.shape)
+                print("total conv layer params ", count_conv_params_per_layer(conv_i))
 
             if self._use_batch_norm:
                 if i in list(self._pool_indices.keys()):
@@ -215,6 +223,8 @@ class Net(nn.Module):
             print("x flatten shape ", x.shape)
 
         for i, hidden_i in enumerate(self._hidden_layers):
+            if verbose:
+                print("total hidden layer params ", count_conv_params_per_layer(hidden_i))
             x = self._hidden_activation(hidden_i(x))
             if self._use_fc_dropout and '{}'.format(i) in self._fc_dropouts:
                 #print("fc droppout ", self._fc_dropouts['{}'.format(i)])
@@ -231,6 +241,8 @@ class Net(nn.Module):
                 if verbose:
                     print("bias red layer output shape", x.shape)
 
+        if verbose:
+            print("total output layer params ", count_conv_params_per_layer(self._output_layer))
         x = self._output_layer(x)
 
         if verbose:

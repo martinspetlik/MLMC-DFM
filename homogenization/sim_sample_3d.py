@@ -1287,7 +1287,7 @@ class DFMSim3D(Simulation):
         #script_dir = Path(__file__).absolute().parent
         rmin, rmax = size_range
         box_dimensions = (rmax, rmax, rmax)
-        fr_cfg_path = os.path.join(work_dir, "fractures_conf_6.yaml")
+        fr_cfg_path = os.path.join(work_dir, "fractures_conf.yaml")
 
         # with open() as f:
         #    pop_cfg = yaml.load(f, Loader=yaml.SafeLoader)
