@@ -24,11 +24,11 @@ def plot_tensors(cond_tn_prediction, cond_tn_target, label="tensors", plot_separ
         plot_evecs(ax, cond_tn_target, label="target", color="red")
         plot_evecs(ax, cond_tn_prediction, label="prediction", color="blue")
         fig.suptitle(label)
-
+        fig.legend()
         # ax_polar.grid(True)
         fig.savefig("{}.pdf".format(label))
         # plt.close(fig)
-        plt.legend()
+
         plt.show()
 
 
@@ -39,9 +39,8 @@ def plot_cond_tn(cond_tn, label, color):
 
     plot_evecs(ax, cond_tn, label=label, color=color)
     fig.suptitle(label)
-
-    fig.savefig("{}.pdf".format(label))
     plt.legend()
+    fig.savefig("{}.pdf".format(label))
     plt.show()
 
 
@@ -49,8 +48,8 @@ def plot_cond_tn(cond_tn, label, color):
 
 def plot_evecs(ax, tn, color, label):
     e_val, e_vec = np.linalg.eigh(tn)
-    labeled_arrow(ax, [0, 0], 0.9 * e_val[0] * e_vec[:, 0], "{:5.2g}".format(e_val[0]), color=color)
-    labeled_arrow(ax, [0, 0], 0.9 * e_val[1] * e_vec[:, 1], "{:5.2g}".format(e_val[1]), color=color)
+    labeled_arrow(ax, [0, 0], 0.9 * e_val[0] * e_vec[:, 0], "{:5.3g}".format(e_val[0]), color=color)
+    labeled_arrow(ax, [0, 0], 0.9 * e_val[1] * e_vec[:, 1], "{:5.3g}".format(e_val[1]), color=color)
 
 
 

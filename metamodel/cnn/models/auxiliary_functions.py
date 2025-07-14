@@ -476,55 +476,101 @@ def get_eigendecomp(flatten_values, dim=2):
     return np.linalg.eigh(tensor)
 
 
-def check_shapes(n_conv_layers, kernel_size, stride, pool_size, pool_stride, pool_indices, input_size=256, padding=0):
-    #n_layers = 0
+def check_shapes(n_conv_layers, kernel_size, stride, pool_size, pool_stride, pool_indices, input_size=256, padding=0, debug=False):
+    """
+    Compute the output size after a sequence of conv and optional pooling layers.
+
+    Parameters:
+    - n_conv_layers (int): number of convolutional layers
+    - kernel_size (int): convolution kernel size (assumed square)
+    - stride (int): convolution stride
+    - pool_size (int): pooling window size (assumed square)
+    - pool_stride (int): pooling stride
+    - pool_indices (dict or None): keys are conv layer indices after which pooling is applied
+    - input_size (int): spatial input size (height/width)
+    - padding (int): padding size applied on each side of conv input
+    - debug (bool): whether to print intermediate sizes
+
+    Returns:
+    - tuple: (status, final_output_size)
+      status: 0 if successful, -1 if input size is smaller than kernel size at any layer
+    """
 
     for i in range(n_conv_layers):
-        #print("input size ", input_size)
-        #print("kernel size ", kernel_size)
+        if debug:
+            print(f"Layer {i}: input_size = {input_size}")
 
         if input_size < kernel_size:
+            if debug:
+                print(f"Input size {input_size} smaller than kernel size {kernel_size} at layer {i}")
             return -1, input_size
 
-        input_size = int(((input_size - kernel_size + 2* padding) / stride)) + 1
+        # Calculate output size after convolution
+        input_size = int(((input_size - kernel_size + 2 * padding) / stride)) + 1
 
-        if pool_indices is not None:
-            if i in list(pool_indices.keys()):
-                if pool_size > 0 and pool_stride > 0:
-                    input_size = int(((input_size - pool_size) / pool_stride)) + 1
+        # Check if pooling applies after this conv layer
+        if pool_indices is not None and i in pool_indices:
+            if pool_size > 0 and pool_stride > 0:
+                input_size = int(((input_size - pool_size) / pool_stride)) + 1
+                if debug:
+                    print(f"After pooling at layer {i}: size = {input_size}")
 
-        #print("input size ", input_size)
+    if debug:
+        print(f"Final output size after {n_conv_layers} conv layers: {input_size}")
 
     return 0, input_size
 
 
 def get_mse_nrmse_r2(targets, predictions):
+    """
+    :param targets: Ground truth values, shape (samples, outputs, ...)
+    :param predictions: Predicted values, same shape as targets
+    :return: Lists of MSE, RMSE, NRMSE, and R² values for each output dimension
+    """
     targets_arr = np.array(targets)
     predictions_arr = np.array(predictions)
 
-    squared_err_k = []
-    std_tar_k = []
-    r2_k = []
     mse_k = []
     rmse_k = []
     nrmse_k = []
+    r2_k = []
 
     for i in range(targets_arr.shape[1]):
-        targets = np.squeeze(targets_arr[:, i, ...])
-        predictions = np.squeeze(predictions_arr[:, i, ...])
-        squared_err_k.append((targets - predictions) ** 2)
-        std_tar_k.append(np.std(targets))
-        r2_k.append(1 - (np.sum(squared_err_k[i]) /
-                         np.sum((targets - np.mean(targets)) ** 2)))
-        mse_k.append(np.mean(squared_err_k[i]))
-        rmse_k.append(np.sqrt(mse_k[i]))
-        nrmse_k.append(rmse_k[i] / std_tar_k[i])
+        # Extract i-th output across all samples
+        tar_i = np.squeeze(targets_arr[:, i, ...])
+        pred_i = np.squeeze(predictions_arr[:, i, ...])
+
+        # Compute squared error
+        squared_errors = (tar_i - pred_i) ** 2
+
+        # Mean squared error
+        mse = np.mean(squared_errors)
+
+        # Root mean squared error
+        rmse = np.sqrt(mse)
+
+        # Standard deviation of targets
+        std_tar = np.std(tar_i)
+
+        # Normalized RMSE
+        nrmse = rmse / std_tar if std_tar != 0 else np.nan
+
+        # Total variance of targets
+        ss_tot = np.sum((tar_i - np.mean(tar_i)) ** 2)
+
+        # Residual sum of squares
+        ss_res = np.sum(squared_errors)
+
+        # Coefficient of determination (R²)
+        r2 = 1 - ss_res / ss_tot if ss_tot != 0 else np.nan
+
+        # Append results
+        mse_k.append(mse)
+        rmse_k.append(rmse)
+        nrmse_k.append(nrmse)
+        r2_k.append(r2)
 
     return mse_k, rmse_k, nrmse_k, r2_k
-
-
-import sympy as sp
-
 
 def calculate_eigen(matrix):
     trace = np.trace(matrix)
@@ -1923,49 +1969,52 @@ class CorrelatedOutputLoss(nn.Module):
 
 
 def get_loss_fn(loss_function):
-    loss_fn_name = loss_function[0]
-    loss_fn_params = loss_function[1]
+    loss_fn_name = loss_function[0]  # Extract the loss function name
+    loss_fn_params = loss_function[1]  # Extract the parameters for the loss function
+
+    # Return the corresponding loss function object based on the name
     if loss_fn_name == "MSE" or loss_fn_name == "L2":
-        return nn.MSELoss()
+        return nn.MSELoss()  # Mean Squared Error loss
     elif loss_fn_name == "L1":
-        return nn.L1Loss()
+        return nn.L1Loss()  # L1 loss (mean absolute error)
     elif loss_fn_name == "L1WeightedMean":
-        return WeightedL1Loss(loss_fn_params)
+        return WeightedL1Loss(loss_fn_params)  # Weighted L1 loss with mean reduction
     elif loss_fn_name == "L1WeightedSum":
-        return WeightedL1LossSum(loss_fn_params)
+        return WeightedL1LossSum(loss_fn_params)  # Weighted L1 loss with sum reduction
     elif loss_fn_name == "Frobenius":
-        return FrobeniusNorm()
+        return FrobeniusNorm()  # Frobenius norm loss
     elif loss_fn_name == "Frobenius2":
-        return FrobeniusNorm2()
+        return FrobeniusNorm2()  # Alternative Frobenius norm loss
     elif loss_fn_name == "MSEweighted":
-        return WeightedMSELoss(loss_fn_params)
+        return WeightedMSELoss(loss_fn_params)  # Weighted MSE loss
     elif loss_fn_name == "RelMSELoss":
-        return RelMSELoss(loss_fn_params)
+        return RelMSELoss(loss_fn_params)  # Relative MSE loss variant
     elif loss_fn_name == "MASELoss":
-        return MASELoss(loss_fn_params)
+        return MASELoss(loss_fn_params)  # Mean Absolute Scaled Error loss
     elif loss_fn_name == "RelMSELoss2":
-        return RelMSELoss2(loss_fn_params)
+        return RelMSELoss2(loss_fn_params)  # Another variant of relative MSE loss
     elif loss_fn_name == "RelXYMSELoss":
-        return RelXYMSELoss(loss_fn_params)
+        return RelXYMSELoss(loss_fn_params)  # Relative MSE loss for XY components
     elif loss_fn_name == "MSEweightedSum":
-        return WeightedMSELossSum(loss_fn_params)
+        return WeightedMSELossSum(loss_fn_params)  # Weighted MSE loss with sum reduction
     elif loss_fn_name == "EighMSE":
-        return EighMSE(loss_fn_params)
+        return EighMSE(loss_fn_params)  # Eigenvalue-based MSE loss
     elif loss_fn_name == "EighMSE_2":
-        return EighMSE_2(loss_fn_params)
+        return EighMSE_2(loss_fn_params)  # Variant 2 of Eigenvalue MSE loss
     elif loss_fn_name == "EighMSE_MSE":
-        return EighMSE_MSE(loss_fn_params)
+        return EighMSE_MSE(loss_fn_params)  # Combined Eigenvalue and MSE loss
     elif loss_fn_name == "EighMSE_2_MSE":
-        return EighMSE_2_MSE(loss_fn_params)
+        return EighMSE_2_MSE(loss_fn_params)  # Variant 2 combined Eigenvalue and MSE loss
     elif loss_fn_name == "MSELossLargeEmph":
-        return MSELossLargeEmph(loss_fn_params)
+        return MSELossLargeEmph(loss_fn_params)  # MSE loss with larger emphasis on some components
     elif loss_fn_name == "MSELossLargeEmphAvg":
-        return MSELossLargeEmphAvg(loss_fn_params)
+        return MSELossLargeEmphAvg(loss_fn_params)  # Average version of large emphasis MSE loss
     elif loss_fn_name == "CorrelatedOutputLoss":
-        return CorrelatedOutputLoss(loss_fn_params)
+        return CorrelatedOutputLoss(loss_fn_params)  # Loss accounting for correlated outputs
+    # The following are commented out and thus not currently used:
     # elif loss_fn_name == "MaxEigenValue":
-    #     return MaxEigenValue(loss_fn_params)
+    #     return MaxEigenValue(loss_fn_params)  # Loss related to max eigenvalue
     # elif loss_fn_name == "CosineSimilarity":
-    #     return CosineSimilarity
+    #     return CosineSimilarity  # Cosine similarity loss
 
 

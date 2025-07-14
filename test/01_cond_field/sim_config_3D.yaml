@@ -1,0 +1,85 @@
+
+seed: 12345
+
+run_local: true
+
+flow_executable:
+  - /home/martin/flow123d/bin/fterm
+  - --no-term
+  - rel
+  - run
+finish_sleep: 0
+metacentrum: false
+gmsh_executable: /home/martin/Documents/gmsh4/bin/gmsh
+#gmsh_executable: /home/martin/gmsh/bin/gmsh
+n_finer_level_samples: 2
+
+mesh_window: false
+
+
+flow_model: "01_conductivity.yaml"
+subscale_model: "flow_templ.yaml"
+
+
+# case 1
+fracture_model:
+    aperture_per_size: 1e-4 #1e-6
+    water_viscosity: 1.3e-3 #[Pa s] decrease from 1.8mPa.s at 0deg to 1.3mPa.s at 10deg,
+    water_density: 1000
+    gravity_accel: 9.8
+
+
+bulk_conductivity:
+    corr_lengths_x: [0, 0, 0]
+    corr_lengths_y: [0, 0, 0]
+    corr_lengths_z: [0, 0, 0]
+    anis_angles: [0, 0, 0]
+ 
+    mean_log_conductivity: [-6, -5.8, -5.9]
+
+    cov_log_conductivity: [[0.25, 0.2, 0.2],
+                           [0.2, 0.25, 0.2],
+                           [0.2, 0.2, 0.25]]
+    # Von Mises for the rotation.
+    # Rotation angle of the first eigen vector. Counter clockwise from the axis X.
+    # dispersion == 'inf' -> uniform distribution on interval (0, 2pi)
+    # dispersion == 0 -> used constant value `angle_mean`.
+    angle_mean: 0
+    angle_concentration: 0
+
+
+copy_files: []
+n_pressure_loads: 2
+gstools: true #false
+use_larger_domain: true
+generate_hom_samples: true
+flow_sim: true
+create_dataset_script: "/home/martin/Documents/MLMC-DFM/create_dataset.sh"
+bulk_fine_sample_model: "srf_gstools" #"svd" #"gmm" #"choice" #"srf_gstools"
+rasterize_at_once: false #true
+#run_only_hom: true
+
+
+steps:
+ 50:
+
+geometry: 
+  fractures_box: [ 15, 15, 15 ]
+  domain_box: [ 15, 15, 15]
+  orig_domain_box: [ 15, 15, 15 ]
+  n_voxels: [64, 64, 64]
+  subdomain_box: [ 15, 15, 15 ]
+  pixel_stride_div: 2
+  fr_max_size: 100
+  rho_2D: false 
+  pow_law_size_exp: 3 # 3d exponent
+  p_32: 2.5
+  n_frac_limit: 1500 
+  pow_law_sample_range: [5, 100] 
+  
+# base of the mesh file name
+mesh_name: random_fractures
+
+
+dfn_flow_params:
+  mesh: None

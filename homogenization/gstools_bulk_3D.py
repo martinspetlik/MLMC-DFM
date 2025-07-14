@@ -1,94 +1,11 @@
-from typing import *
-from abc import *
-
-import warnings
-import logging
-
-import joblib
 import os
-import sys
-import glob
-import numpy as np
-import threading
-import subprocess
-import yaml
-import ruamel.yaml
-import attr
-import collections
-import traceback
-import time
-#import pandas
-import scipy.spatial as sc_spatial
-import scipy.interpolate as sc_interpolate
-import atexit
-import scipy as sc
-from scipy import stats
-from scipy.spatial import distance
-from sklearn.utils.extmath import randomized_svd
-
 src_path = os.path.dirname(os.path.abspath(__file__))
-
-from bgem.gmsh import gmsh_io
-from bgem.polygons import polygons
-from homogenization import fracture
-from homogenization import sim_sample
-import matplotlib.pyplot as plt
-import copy
-#from plots_skg import matplotlib_variogram_plot
-import shutil
-#import compute_effective_cond
+from typing import *
+import os
+import numpy as np
+import attr
 import gstools
 from mlmc.random import correlated_field as cf
-from sklearn.mixture import GaussianMixture
-from sklearn.preprocessing import QuantileTransformer
-#import seaborn as sns
-from bgem.stochastic.fr_set import FractureSet
-
-
-from typing import *
-from abc import *
-
-import warnings
-import logging
-
-import joblib
-import os
-import sys
-import glob
-import numpy as np
-import threading
-import subprocess
-import yaml
-import ruamel.yaml
-import attr
-import collections
-import traceback
-import time
-#import pandas
-import scipy.spatial as sc_spatial
-import scipy.interpolate as sc_interpolate
-import atexit
-import scipy as sc
-from scipy import stats
-from scipy.spatial import distance
-from sklearn.utils.extmath import randomized_svd
-
-src_path = os.path.dirname(os.path.abspath(__file__))
-
-from bgem.gmsh import gmsh_io
-from bgem.polygons import polygons
-from homogenization import fracture
-from homogenization import sim_sample
-import matplotlib.pyplot as plt
-import copy
-#from plots_skg import matplotlib_variogram_plot
-import shutil
-#import compute_effective_cond
-import gstools
-from mlmc.random import correlated_field as cf
-from sklearn.mixture import GaussianMixture
-from sklearn.preprocessing import QuantileTransformer
-#import seaborn as sns
 from bgem.stochastic.fr_set import FractureSet
 
 
@@ -652,21 +569,21 @@ class GSToolsBulk3D:
                                                                        #sigma=np.sqrt(self.cov_log_conductivity[0,0]),
                                                                        mode_no=self.mode_no,
                                                                        #mu=pca_means[0]
-                                                                       seed=self.seed + 100, mode=self.mode
+                                                                       seed=self.seed + 100
                                                                        ))
 
         field_k_yy = cf.Field('k_yy', cf.GSToolsSpatialCorrelatedField(self._model_k_yy, log=self.log,
                                                                        #sigma=np.sqrt(self.cov_log_conductivity[1,1]),
                                                                        mode_no=self.mode_no,
                                                                        #mu=pca_means[1]
-                                                                       seed=self.seed + 200, mode=self.mode
+                                                                       seed=self.seed + 200
                                                                        ))
 
         field_k_zz = cf.Field('k_zz', cf.GSToolsSpatialCorrelatedField(self._model_k_zz, log=self.log,
                                                                        # sigma=np.sqrt(self.cov_log_conductivity[1,1]),
                                                                        mode_no=self.mode_no,
                                                                        # mu=pca_means[1]
-                                                                       seed=self.seed + 300, mode=self.mode
+                                                                       seed=self.seed + 300
                                                                        ))
 
         # field_k_xx_new = cf.Field('k_xx_new', cf.GSToolsSpatialCorrelatedField(self._model_k_xx_new, log=self.log,
@@ -693,31 +610,31 @@ class GSToolsBulk3D:
         field_R_x = cf.Field('R_x', cf.GSToolsSpatialCorrelatedField(self._R_x,
                                                                          sigma=np.sqrt(self.angle_var),
                                                                          mode_no=self.mode_no,
-                                                                         seed=self.seed + 400, mode=self.mode
+                                                                         seed=self.seed + 400
                                                                          ))
 
         field_R_y = cf.Field('R_y', cf.GSToolsSpatialCorrelatedField(self._R_x,
                                                                          sigma=np.sqrt(self.angle_var),
                                                                          mode_no=self.mode_no,
-                                                                         seed=self.seed + 500, mode=self.mode
+                                                                         seed=self.seed + 500
                                                                          ))
 
         field_N_x = cf.Field('N_x', cf.GSToolsSpatialCorrelatedField(self._N_x,
                                                                      sigma=np.sqrt(self.angle_var),
                                                                      mode_no=self.mode_no,
-                                                                     seed=self.seed + 600, mode=self.mode
+                                                                     seed=self.seed + 600
                                                                      ))
 
         field_N_y = cf.Field('N_y', cf.GSToolsSpatialCorrelatedField(self._N_y,
                                                                      sigma=np.sqrt(self.angle_var),
                                                                      mode_no=self.mode_no,
-                                                                     seed=self.seed + 700, mode=self.mode
+                                                                     seed=self.seed + 700
                                                                      ))
 
         field_N_z = cf.Field('N_z', cf.GSToolsSpatialCorrelatedField(self._N_z,
                                                                      sigma=np.sqrt(self.angle_var),
                                                                      mode_no=self.mode_no,
-                                                                     seed=self.seed + 800, mode=self.mode
+                                                                     seed=self.seed + 800
                                                                      ))
 
         self._fields = cf.Fields([field_k_xx, field_k_yy, field_k_zz, field_R_x, field_R_y, field_N_x, field_N_y, field_N_z])
@@ -730,7 +647,7 @@ class GSToolsBulk3D:
 
             #grid_barycenters = fem_grid.grid.barycenters()
 
-            print("barycenters ", barycenters.shape)
+            #print("barycenters ", barycenters.shape)
 
             #self._mesh_data = BulkFieldsGSTools.extract_mesh(mesh)
             #print("mesh data ", list(self._mesh_data.keys()))

@@ -1,9 +1,7 @@
-import copy
 import os
 import sys
 import numpy as np
 import argparse
-#import mlmc.tool.simple_distribution
 import mlmc
 from mlmc.sampler import Sampler
 from mlmc.sample_storage_hdf import SampleStorageHDF
@@ -19,15 +17,12 @@ from mlmc.quantity.quantity_estimate import estimate_mean, moments
 from mlmc import estimator
 from mlmc.plot import diagnostic_plots as dp
 import yaml
-import ruamel.yaml
 import scipy.stats as stats
 import matplotlib.pyplot as plt
 import zarr
 
 
 class ProcessSimple:
-    # @TODO: generate more samples, with new seed
-
     def __init__(self):
         parser = argparse.ArgumentParser()
 
@@ -58,6 +53,8 @@ class ProcessSimple:
         # Number of MLMC levels
 
         step_range = [10, 5]
+        #step_range = [40, 5]
+        #step_range = [40, 20]
 
         # step_range [simulation step at the coarsest level, simulation step at the finest level]
 
@@ -67,7 +64,7 @@ class ProcessSimple:
 
         #self.level_parameters = [12.3607, 5.3459, 2.3121, 1, 0.4325]
         #self.n_levels = 1
-        print("self.level_parameters ", self.level_parameters)
+        #print("self.level_parameters ", self.level_parameters)
 
         # Determine number of samples at each level
         self.n_samples = estimator.determine_n_samples(self.n_levels)
@@ -101,13 +98,12 @@ class ProcessSimple:
 
         # Schedule samples
         # self.generate_jobs(sampler, n_samples=[5], renew=renew)
-
         # self.generate_jobs(sampler, n_samples=None, renew=renew, target_var=1e-3)
         # self.generate_jobs(sampler, n_samples=[500, 500], renew=renew, target_var=1e-5)
         if recollect:
             raise NotImplementedError("Not supported in released version")
         else:
-            self.generate_jobs(sampler, n_samples=[2], renew=renew)#[1, 1, 1, 3, 3, 3, 3], renew=renew)
+            self.generate_jobs(sampler, n_samples=[10], renew=renew)#[1, 1, 1, 3, 3, 3, 3], renew=renew)
             #self.generate_jobs(sampler, n_samples=[100, 2],renew=renew, target_var=1e-5)
             self.all_collect(sampler)  # Check if all samples are finished
 
@@ -125,7 +121,6 @@ class ProcessSimple:
 
         with open(os.path.join(self.work_dir, "sim_config_3D.yaml"), "r") as f:
             sim_config_dict = yaml.load(f, Loader=yaml.FullLoader)
-            print("sim_config_dict ", sim_config_dict)
 
         sim_config_dict['fields_params'] = dict(model='exp', corr_length=0.1, sigma=1, mode_no=10000)
         sim_config_dict['field_template'] = "!FieldFE {mesh_data_file: \"$INPUT_DIR$/%s\", field_name: %s}"
@@ -137,16 +132,6 @@ class ProcessSimple:
         sim_config_dict['yaml_file_homogenization_vtk'] = os.path.join(self.work_dir, 'flow_templ_vtk.yaml')
         sim_config_dict['level_parameters'] = self.level_parameters
 
-        print("yaml file hom ", os.path.join(self.work_dir, 'flow_templ.yaml'))
-
-        # simulation_config = {
-        #     'work_dir': self.work_dir,
-        #     'env': dict(flow123d=self.flow123d, gmsh=self.gmsh, gmsh_version=1),  # The Environment.
-        #     'yaml_file': os.path.join(self.work_dir, '01_conductivity.yaml'),
-        #     'geo_file': os.path.join(self.work_dir, 'square_1x1.geo'),
-        #     'fields_params': dict(model='exp', corr_length=0.1, sigma=1, mode_no=10000),
-        #     'field_template': "!FieldFE {mesh_data_file: \"$INPUT_DIR$/%s\", field_name: %s}"
-        # }
 
         # Create simulation factory
         simulation_factory = DFMSim3D(config=sim_config_dict, clean=clean)
@@ -281,7 +266,6 @@ class ProcessSimple:
         n_cond_tn_channels = 6  # 1 channel for cross_section
         #n_cross_section_channels = 1
         output_shape = (6,)
-
         n_samples = n_samples[0]
 
         zarr_file_path = os.path.join(config_dict["fine"]["common_files_dir"], DFMSim3D.ZARR_FILE)
@@ -295,20 +279,17 @@ class ProcessSimple:
                                               dtype='float32',
                                               chunks=(1, n_cond_tn_channels, *input_shape_n_voxels),
                                               fill_value=0)
-            #inputs[:, :, :, :, :] = np.zeros((n_samples, n_cond_tn_channels, *input_shape_n_voxels,
-            #                                                         ))  # Populate the first 6 channels
-            # inputs[:, :, :, :, n_cond_tn_channels] = np.random.rand(n_samples,
-            #                                                         *input_shape_n_voxels)  # Populate the last channel
 
             # Create the 'outputs' dataset with the specified shape
             outputs = zarr_file.create_dataset('outputs', shape=(n_samples,) + output_shape, dtype='float32',
                                                chunks=(1,  n_cond_tn_channels), fill_value=0)
-            #outputs[:, :] = np.zeros((n_samples, n_cond_tn_channels))  # Populate the first 6 channels
-            # outputs[:, n_cond_tn_channels] = np.random.rand(n_samples)  # Populate the last channel
+            bulk_avg = zarr_file.create_dataset('bulk_avg', shape=(n_samples,) + output_shape, dtype='float32',
+                                               chunks=(1, n_cond_tn_channels), fill_value=0)
 
             # Assign metadata to indicate channel names
             inputs.attrs['channel_names'] = ['cond_tn_0', 'cond_tn_1', 'cond_tn_2', 'cond_tn_3', 'cond_tn_4', 'cond_tn_5']
             outputs.attrs['channel_names'] = ['cond_tn_0', 'cond_tn_1', 'cond_tn_2', 'cond_tn_3', 'cond_tn_4', 'cond_tn_5']
+            bulk_avg.attrs['channel_names'] = ['cond_tn_0', 'cond_tn_1', 'cond_tn_2', 'cond_tn_3', 'cond_tn_4', 'cond_tn_5']
 
     def generate_jobs(self, sampler, n_samples=None, renew=False, target_var=None):
         """
@@ -317,34 +298,74 @@ class ProcessSimple:
         :param renew: rerun failed samples with same random seed (= same sample id)
         :return: None
         """
-
         # Create zarr dir only for homogenization samples generation
         if len(n_samples) == 1:
             ProcessSimple.create_zarr_file(n_samples, sampler)
-
 
         if renew:
             sampler.ask_sampling_pool_for_samples()
             sampler.renew_failed_samples()
             sampler.ask_sampling_pool_for_samples(sleep=self.sample_sleep, timeout=self.sample_timeout)
         else:
+            print("n_samples ", n_samples)
             if n_samples is not None:
                 if self.use_pbs or self.generate_samples_per_level:
 
-                    for level_id in reversed(range(self.n_levels)):
-                        #level_instance_obj = sampler._level_sim_objects[level_id]
+                    #for level_id in reversed(range(self.n_levels)):
+                    for level_id in range(self.n_levels):
+                        level_instance_obj = sampler._level_sim_objects[level_id]
+
+                        # # Prepare objects and other necessary data for further sampling
+                        # if level_id < (self.n_levels - 1):
+                        #     print("level id prepare distr data ", level_id)
+                        #     ProcessSimple.prepare_distr_data(level_instance_obj)
 
                         sampler.schedule_samples(level_id=level_id, n_samples=n_samples[level_id])
-                        #l_n_scheduled = sampler._n_scheduled_samples[level_id]
-                        running = 1
-                        while running > 0:
-                            running = 0
-                            running += sampler.ask_sampling_pool_for_samples(sleep=self.sample_sleep, timeout=1e-5)
-                            print("N running: ", running)
-                            #print("l_n_scheduled - running ", l_n_scheduled - running)
-                            # if l_n_scheduled - running > 20:
-                            #     break
-                        exit()
+                        # l_n_scheduled = sampler._n_scheduled_samples[level_id]
+                    running = 1
+                    while running > 0:
+                        running = 0
+                        running += sampler.ask_sampling_pool_for_samples(sleep=self.sample_sleep, timeout=1e-5)
+                        print("N running: ", running)
+                        # print("l_n_scheduled - running ", l_n_scheduled - running)
+                        # if l_n_scheduled - running > 20:
+                        #     break
+
+                        # if level_id > 0:
+                        #     cond_tn_pop_file = os.path.join(level_instance_obj.config_dict["coarse"]["common_files_dir"],
+                        #                                     DFMSim3D.COND_TN_POP_FILE)
+                        #     pred_cond_tn_pop_file = os.path.join(
+                        #         level_instance_obj.config_dict["coarse"]["common_files_dir"],
+                        #         DFMSim3D.PRED_COND_TN_POP_FILE)
+                        #
+                        #     if cond_tn_pop_file is not None:
+                        #         sample_cond_tns = []
+                        #         sample_pred_cond_tns = []
+                        #         for s in range(int(sampler.n_finished_samples[level_id])):
+                        #             sample_dir_name = "L{:02d}_S{:07d}".format(level_id, s)
+                        #             sample_dir = os.path.join(os.path.join(self.work_dir, "output"), sample_dir_name)
+                        #
+                        #             if not os.path.exists(sample_dir):
+                        #                 continue
+                        #
+                        #             sample_cond_tns_file = os.path.join(sample_dir, DFMSim3D.COND_TN_FILE)
+                        #             sample_pred_cond_tns_file = os.path.join(sample_dir, DFMSim3D.PRED_COND_TN_FILE)
+                        #
+                        #             if os.path.exists(sample_cond_tns_file):
+                        #                 with open(sample_cond_tns_file, "r") as f:
+                        #                     cond_tns = ruamel.yaml.load(f)
+                        #                 if len(sample_cond_tns) < 15000:
+                        #                     sample_cond_tns.extend(list(cond_tns.values()))
+                        #
+                        #             if os.path.exists(sample_pred_cond_tns_file):
+                        #                 with open(sample_pred_cond_tns_file, "r") as f:
+                        #                     pred_cond_tns = ruamel.yaml.load(f)
+                        #                 if len(sample_pred_cond_tns) < 15000:
+                        #                     sample_pred_cond_tns.extend(list(pred_cond_tns.values()))
+                        #
+                        #         np.save(cond_tn_pop_file, sample_cond_tns)
+                        #         np.save(pred_cond_tn_pop_file, sample_pred_cond_tns)
+
                 else:
                     sampler.set_initial_n_samples(n_samples)
                     sampler.schedule_samples()
@@ -354,6 +375,8 @@ class ProcessSimple:
 
             sampler.ask_sampling_pool_for_samples(sleep=self.sample_sleep, timeout=self.sample_timeout)
             self.all_collect(sampler)
+
+            exit()
 
             if target_var is not None:
                 root_quantity = make_root_quantity(storage=sampler.sample_storage,
@@ -371,7 +394,7 @@ class ProcessSimple:
                 print("variances ", variances)
                 print("n ops ", n_ops)
                 print("n estimated ", n_estimated)
-                exit()
+
 
                 # Loop until number of estimated samples is greater than the number of scheduled samples
                 while not sampler.process_adding_samples(n_estimated, self.sample_sleep, self.adding_samples_coef,
@@ -380,7 +403,6 @@ class ProcessSimple:
                     variances, n_ops = estimate_obj.estimate_diff_vars_regression(sampler._n_scheduled_samples)
                     n_estimated = estimator.estimate_n_samples_for_target_variance(target_var, variances, n_ops,
                                                                                    n_levels=sampler.n_levels)
-
     def set_moments(self, quantity, sample_storage, n_moments=5, quantile=0.01):
         true_domain = estimator.estimate_domain(quantity, sample_storage, quantile=quantile)
         return Legendre(n_moments, true_domain)
@@ -478,8 +500,6 @@ class ProcessSimple:
         # time = conductivity[1]  # times: [1]
         # location = time['0']  # locations: ['0']
         # q_value = location[0, 0]
-
-
         #l_0_samples = estimate_obj.get_level_samples(level_id=0)
         #l_1_samples = estimate_obj.get_level_samples(level_id=1)
 
@@ -518,6 +538,7 @@ class ProcessSimple:
         cond_tn_quantity = root_quantity["cond_tn"]
         time_mean = cond_tn_quantity[1]  # times: [1]
         location_mean = time_mean['0']  # locations: ['0']
+        #print("location mean ", location_mean)
         k_xx = location_mean[2]
         q_value = k_xx #cond_tn_quantity#k_xx
         #q_value = np.array([location_mean[0], location_mean[1], location_mean[2]])
@@ -564,7 +585,6 @@ class ProcessSimple:
         print("vars ", vars)
         print('means ', means)
 
-
         # moments_fn = self.set_moments(q_value, sample_storage, n_moments=self.n_moments, quantile=quantile)
         # estimate_obj = estimator.Estimate(q_value, sample_storage=sample_storage,
         #                                   moments_fn=moments_fn)
@@ -594,9 +614,6 @@ class ProcessSimple:
         print("n estimated ", n_estimated)
 
         #n_ops = [2.1530759945526734, 424.25148745817296, 2510.9868827356786]
-
-
-
         #n_ops = [10, 25, 120]
         #n_ops = [130, 150]
         print("total cost ", np.sum(n_ops * n_estimated)) #np.array(sample_storage.get_n_collected())))
@@ -621,6 +638,9 @@ class ProcessSimple:
             l_1_samples = estimate_obj.get_level_samples(level_id=1, n_samples=sample_storage.get_n_collected()[1])
             l_1_samples = np.squeeze(l_1_samples)  # / div_coef
 
+            print("mean l_1_samples fine ", np.mean(l_1_samples[:, 0]))
+            print("mean l_1_samples coarse ", np.mean(l_1_samples[:, 1]))
+
             l_0_samples_moments = estimate_obj_moments_quantity.get_level_samples(level_id=0, n_samples=
             sample_storage.get_n_collected()[0])
 
@@ -640,15 +660,13 @@ class ProcessSimple:
             l1_fine_moments = l_1_samples_moments[1:, :, 0]
             l1_coarse_moments = l_1_samples_moments[1:, :, 1]
 
-            print("l1 fine moments ", l1_fine_moments.shape)
-            print("l1 coarse moments ", l1_coarse_moments)
-
+            #print("l1 fine moments ", l1_fine_moments.shape)
+            #print("l1 coarse moments ", l1_coarse_moments)
 
             l1_fine_samples = l_1_samples[:, 0]
             l1_coarse_samples = l_1_samples[:, 1]
 
-
-            log = True
+            log = False
             if log:
                 l1_fine_samples = np.log10(l1_fine_samples)
                 l1_fine_samples = l1_fine_samples[~np.isinf(l1_fine_samples)]
