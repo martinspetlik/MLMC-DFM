@@ -96,8 +96,7 @@ For full-scale training on 60,000 samples (22GB+), see:
 Trained surrogates can be used to make predictions on new datasets or analyze its performance:
 
 ```bash
-python metamodel/cnn3D/postprocess/optuna_results.py \
-  results_dir data_dir
+python metamodel/cnn3D/postprocess/optuna_results.py results_dir data_dir
 ```
 
 - `results_dir`: Directory containing trained model (e.g., `optuna_runs/3D_cnn/lumi/cond_frac_1_3/trained_surrogate`)
