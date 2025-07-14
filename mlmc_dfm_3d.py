@@ -136,13 +136,13 @@ class ProcessSimple:
         # Create simulation factory
         simulation_factory = DFMSim3D(config=sim_config_dict, clean=clean)
 
-        # Create HDF sample storage
-        sample_storage = SampleStorageHDF(
-            file_path=os.path.join(self.work_dir, "mlmc_{}.hdf5".format(self.n_levels)),
-            # append=self.append
-        )
+        # # Create HDF sample storage
+        # sample_storage = SampleStorageHDF(
+        #     file_path=os.path.join(self.work_dir, "mlmc_{}.hdf5".format(self.n_levels)),
+        #     # append=self.append
+        # )
 
-        #sample_storage = Memory()
+        sample_storage = Memory()
 
         # Create sampler, it manages sample scheduling and so on
         sampler = Sampler(sample_storage=sample_storage, sampling_pool=sampling_pool, sim_factory=simulation_factory,
