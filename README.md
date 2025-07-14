@@ -102,9 +102,9 @@ python metamodel/cnn3D/postprocess/optuna_results.py results_dir data_dir
 - `results_dir`: Directory containing trained model (e.g., `optuna_runs/3D_cnn/lumi/cond_frac_1_3/trained_surrogate`)
 - `data_dir`: Path to the evaluation dataset (in Zarr format - e.g. `data/samples_data_to_test.zarr`)
 
-Provided trained surrogates for fracture-to-matrix hydraulic conductivity ratios `Kₓ/Kₘ ∈ {10³, 10⁵, 10⁷}`:
-- `optuna_runs/3D_cnn/lumi/cond_frac_1_3/trained_surrogate/` for `Kₓ/Kₘ = 10³`
-- `optuna_runs/3D_cnn/lumi/cond_frac_1_5/trained_surrogate/` for `Kₓ/Kₘ = 10⁵`
-- `optuna_runs/3D_cnn/lumi/cond_frac_1_7/trained_surrogate/` for `Kₓ/Kₘ = 10⁷`
+We provide compressed trained surrogates for fracture-to-matrix hydraulic conductivity ratios `Kₓ/Kₘ ∈ {10³, 10⁵, 10⁷}`:
+- `optuna_runs/3D_cnn/lumi/cond_frac_1_3/trained_surrogate.zip` for `Kₓ/Kₘ = 10³`
+- `optuna_runs/3D_cnn/lumi/cond_frac_1_5/trained_surrogate.zip` for `Kₓ/Kₘ = 10⁵`
+- `optuna_runs/3D_cnn/lumi/cond_frac_1_7/trained_surrogate.zip` for `Kₓ/Kₘ = 10⁷`
 
 **Note:** Due to limited consecutive training time on our devices, the model was trained in multiple sessions by resuming from saved checkpoints to reach the desired number of epochs. As a result, the training metrics (e.g., loss curves) may not represent complete history over all epochs for presented trained surrogates.
