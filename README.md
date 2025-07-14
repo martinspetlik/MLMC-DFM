@@ -101,7 +101,7 @@ python metamodel/cnn3D/postprocess/optuna_results.py \
 - `results_dir`: Directory containing trained model (e.g., `optuna_runs/3D_cnn/lumi/cond_frac_1_3/trained_surrogate`)
 - `data_dir`: Path to the evaluation dataset (in Zarr format - e.g. `data/samples_data_to_test.zarr`)
 
-Provided trained surrogates for fracture-to-matrix hydraulic conductivity ratios `K_f / K_m ∈ {10³, 10⁵, 10⁷}`:
-- `optuna_runs/3D_cnn/lumi/cond_frac_1_3/trained_surrogate/` for `K_f / K_m = 10³`
-- `optuna_runs/3D_cnn/lumi/cond_frac_1_5/trained_surrogate/` for `K_f / K_m = 10⁵`
-- `optuna_runs/3D_cnn/lumi/cond_frac_1_7/trained_surrogate/` for `K_f / K_m = 10⁷`
+Provided trained surrogates for fracture-to-matrix hydraulic conductivity ratios `Kₓ/Kₘ ∈ {10³, 10⁵, 10⁷}`:
+- `optuna_runs/3D_cnn/lumi/cond_frac_1_3/trained_surrogate/` for `Kₓ/Kₘ = 10³`
+- `optuna_runs/3D_cnn/lumi/cond_frac_1_5/trained_surrogate/` for `Kₓ/Kₘ = 10⁵`
+- `optuna_runs/3D_cnn/lumi/cond_frac_1_7/trained_surrogate/` for `Kₓ/Kₘ = 10⁷`
