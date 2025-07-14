@@ -1,0 +1,57 @@
+#################
+# Author: Jan Brezina
+
+flow123d_version: 3.9.0
+problem: !Coupling_Sequential
+  description: |
+      Single scale reference field 3D Darcy flow.
+      Driven by unit pressure gradient.
+  mesh:
+    # Input mesh with 'outer' and 'borehole' regions.
+    mesh_file: <mesh_file>
+  flow_equation: !Flow_Darcy_LMH
+    output_specific:
+    nonlinear_solver:
+      linear_solver: !Petsc
+        a_tol: 1e-6
+        r_tol: 1e-3
+        # options: <flow_solver__options>
+        options: -ksp_type cg -pc_type hypre -pc_hypre_type boomeramg  -pc_hypre_boomeramg_coarsen_type HMIS -pc_hypre_boomeramg_strong_threshold 0.5
+    n_schurs: 2
+    input_fields:
+      - region: ALL
+        conductivity: 1.0
+        sigma: 0.001
+        anisotropy: !FieldFE
+          #input_discretization: element_data
+          #interpolation: identic_mesh
+          mesh_data_file: <mesh_file>
+          field_name: conductivity
+          default_value: 1e-15
+        cross_section: !FieldFE
+          #input_discretization: element_data
+          #interpolation: identic_mesh
+          mesh_data_file: <mesh_file>
+          field_name: cross_section
+          default_value: 1.0
+      - region: .BOUNDARY
+        bc_type: dirichlet
+        bc_piezo_head: !FieldFormula
+          value: "<pressure_grad> @ [x,y,z]"
+    output:
+      fields:
+        - piezo_head_p0
+        #- pressure_p0
+        #- pressure_p1
+        - cross_section
+        - velocity_p0
+        - region_id
+        - conductivity
+    balance: {}
+    output_stream:      
+      format: !gmsh 
+      #format: !vtk
+      #  variant: ascii
+
+
+      
