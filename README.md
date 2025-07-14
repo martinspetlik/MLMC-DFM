@@ -50,15 +50,17 @@ export PYTHONPATH=.
 
 ## 📦 Dataset Generation
 
-> **Prerequisite:** [Flow123d](https://flow123d.github.io/) must be installed and accessible from the command line.
+> **Prerequisite:** Ensure that both [Flow123d](https://flow123d.github.io/) and [GMSH](https://gmsh.info/) are installed and accessible from the command line.
 
-To generate datasets as we did for our experiments (numerical homogenization, rasterization, Zarr formatting), we run
+To generate datasets as we did for our experiments (numerical homogenization, rasterization, Zarr formatting), run
 
 ```bash
 python mlmc_dfm_3d.py run work_dir scratch_dir
 ```
 - `work_dir`: Working directory (e.g. `test/01_cond_field` - has to contains simulation config)
-- `scratch_dir`: Fast scratch directory (set to `""` - if not available)
+- `scratch_dir`: Fast scratch directory (set to `""` - if not applicable or available)
+
+> The paths to Flow123d and GMSH executables are configured inside the `set_environment_variables()` method in `mlmc_dfm_3d.py`.
 
 ---
 
