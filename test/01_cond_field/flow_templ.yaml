@@ -1,0 +1,61 @@
+
+flow123d_version: 3.1.0
+problem: !Coupling_Sequential
+  description: Darcy flow through a fractured square domain. Two staedy states for X and Y pressure gradient BC are computed.
+  mesh:
+    mesh_file: <mesh_file>
+    regions:
+      - !Union
+        name: outer_boundary
+        regions: <outer_regions>
+
+  flow_equation: !Flow_Darcy_LMH
+    nonlinear_solver:
+      tolerance: 1e-12
+      linear_solver: !Petsc
+        r_tol: 1.0e-12
+        a_tol: 1.0e-12
+        options: -ksp_type cg -pc_type hypre -pc_hypre_type boomeramg  -pc_hypre_boomeramg_coarsen_type HMIS -pc_hypre_boomeramg_strong_threshold 0.5
+    input_fields:
+      - region: ALL
+        conductivity: 1.0
+        anisotropy: !FieldFE
+          #input_discretization: element_data
+          #interpolation: identic_mesh
+          mesh_data_file: <fields_file>
+          field_name: conductivity_tensor
+          default_value: 1e-15
+        cross_section: !FieldFE
+          #input_discretization: element_data
+          #interpolation: identic_mesh
+          mesh_data_file: <fields_file>
+          field_name: cross_section
+          default_value: 1.0
+        #storativity: 0.0
+
+      - region: outer_boundary
+        bc_type: dirichlet
+        bc_pressure: !FieldFormula
+          value: cos(pi * t / <n_steps>)*x + sin(pi * t / <n_steps>)*y
+
+    time:
+      end_time: <n_steps>
+      init_dt: 1.0
+    output:
+      times:
+        start: 0.0
+        step: 1.0
+        end: <n_steps>
+      add_input_times: True
+      fields:
+        - pressure_p0
+        - velocity_p0
+        #- anisotropy
+        - cross_section
+    #output_stream:
+    #  format: !vtk
+        #variant: binary
+    output_stream:
+      format: !gmsh
+    balance:
+      cumulative: true
