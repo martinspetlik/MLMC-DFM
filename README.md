@@ -57,7 +57,7 @@ To generate datasets as we did for our experiments (numerical homogenization, ra
 ```bash
 python mlmc_dfm_3d.py run work_dir scratch_dir
 ```
-- `work_dir`: Working directory (e.g. `test/01_cond_field` - has to contains simulation config)
+- `work_dir`: Working directory (e.g. `test/01_cond_field` - has to contain simulation config)
 - `scratch_dir`: Fast scratch directory (set to `""` - if not applicable or available)
 
 > The paths to Flow123d and GMSH executables are configured inside the `set_environment_variables()` method in `mlmc_dfm_3d.py`.
@@ -73,7 +73,7 @@ python metamodel/cnn3D/models/train_cnn_optuna_3d.py configuration data_dir resu
 ```
 
 - `configuration` (e.g. [`configs/cnn_3D/final_test_config.yaml`](configs/cnn_3D/final_test_config.yaml))
-- `data_dir`: Path to the dataset (Zarr format - e.g. `data/samples_data_to_test.zarr` - small dataset (~1,000 samples))  
+- `data_dir`: Path to the dataset (Zarr format - e.g., `data/samples_data_to_test.zarr` - small dataset (~1,000 samples))  
 - `results_dir`: Where results and logs will be saved
 - `-c`: Use GPU (CUDA or AMD ROCm) if available
 
@@ -93,18 +93,18 @@ For full-scale training on 60,000 samples (22GB+), see:
 
 ## 🔍 Surrogate Postprocessing
 
-Trained surrogates can be used to make predictions on new datasets or analyze its performance:
+Trained surrogates can be used to make predictions on new datasets or analyze their performance:
 
 ```bash
 python metamodel/cnn3D/postprocess/optuna_results.py results_dir data_dir
 ```
 
 - `results_dir`: Directory containing trained model (e.g., `optuna_runs/3D_cnn/lumi/cond_frac_1_3/trained_surrogate`)
-- `data_dir`: Path to the evaluation dataset (in Zarr format - e.g. `data/samples_data_to_test.zarr`)
+- `data_dir`: Path to the evaluation dataset (in Zarr format - e.g., `data/samples_data_to_test.zarr`)
 
 We provide compressed trained surrogates for fracture-to-matrix hydraulic conductivity ratios `Kₓ/Kₘ ∈ {10³, 10⁵, 10⁷}`:
 - `optuna_runs/3D_cnn/lumi/cond_frac_1_3/trained_surrogate.zip` for `Kₓ/Kₘ = 10³`
 - `optuna_runs/3D_cnn/lumi/cond_frac_1_5/trained_surrogate.zip` for `Kₓ/Kₘ = 10⁵`
 - `optuna_runs/3D_cnn/lumi/cond_frac_1_7/trained_surrogate.zip` for `Kₓ/Kₘ = 10⁷`
 
-**Note:** Due to limited consecutive training time on our devices, the model was trained in multiple sessions by resuming from saved checkpoints to reach the desired number of epochs. As a result, the training metrics (e.g., loss curves) may not represent complete history over all epochs for presented trained surrogates.
+**Note:** Due to limited consecutive training time on our devices, the model was trained in multiple sessions by resuming from saved checkpoints to reach the desired number of epochs. As a result, the training metrics (e.g., loss curves) may not represent the complete history over all epochs for the presented trained surrogates.
