@@ -5,7 +5,7 @@ attrs
 pybind11
 bih==1.0.2
 pyvista
-git+https://github.com/GeoMop/bgem.git@JB_homo
+git+https://github.com/GeoMop/bgem.git@MS_homo
 git+https://github.com/GeoMop/MLMC.git@MS_dfm_experiments
 matplotlib
 zarr
