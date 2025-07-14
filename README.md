@@ -107,3 +107,5 @@ Provided trained surrogates for fracture-to-matrix hydraulic conductivity ratios
 - `optuna_runs/3D_cnn/lumi/cond_frac_1_3/trained_surrogate/` for `Kₓ/Kₘ = 10³`
 - `optuna_runs/3D_cnn/lumi/cond_frac_1_5/trained_surrogate/` for `Kₓ/Kₘ = 10⁵`
 - `optuna_runs/3D_cnn/lumi/cond_frac_1_7/trained_surrogate/` for `Kₓ/Kₘ = 10⁷`
+
+**Note:** Due to limited consecutive training time on our devices, the model was trained in multiple sessions by resuming from saved checkpoints to reach the desired number of epochs. As a result, the training metrics (e.g., loss curves) may not represent complete history over all epochs for presented trained surrogates.
