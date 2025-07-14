@@ -465,7 +465,7 @@ def load_models(args, study):
 
         # Print best validation loss and corresponding epoch
         print("best val loss: {}".format(np.min(valid_loss)))
-        print("best epoch: {}".format(np.argmin(valid_loss)))
+        #print("best epoch: {}".format(np.argmin(valid_loss)))
 
         # Load the best model state from checkpoint and set model to evaluation mode
         model.load_state_dict(checkpoint['best_model_state_dict'])
