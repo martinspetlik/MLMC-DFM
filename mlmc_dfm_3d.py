@@ -48,7 +48,7 @@ class ProcessSimple:
         self.use_pbs = False
         self.generate_samples_per_level = True
         # Use PBS sampling pool
-        self.n_levels = 1
+        self.n_levels = 2
         self.n_moments = 3
         # Number of MLMC levels
 
