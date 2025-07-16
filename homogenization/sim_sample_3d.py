@@ -5,7 +5,7 @@ import numpy as np
 import shutil
 import time
 import copy
-#import torch
+import torch
 import itertools
 import joblib
 #import ruamel.yaml as yaml
@@ -20,13 +20,14 @@ from mlmc.quantity.quantity_spec import QuantitySpec
 import homogenization.fracture as fracture
 #from homogenization.both_sample import FlowProblem, BothSample
 #from metamodel.cnn.datasets import create_dataset
-#from metamodel.cnn.postprocess.optuna_results import load_study, load_models, get_saved_model_path, get_inverse_transform, get_transform
-#from metamodel.cnn3D.datasets.dfm3d_dataset import DFM3DDataset
+from metamodel.cnn.postprocess.optuna_results import load_study, load_models, get_saved_model_path, get_inverse_transform, get_transform
+from metamodel.cnn3D.datasets.dfm3d_dataset import DFM3DDataset
 #from npy_append_array import NpyAppendArray
 import numpy.random as rnd
 from pathlib import Path
 #import pyvista as pv
 from homogenization.gstools_bulk_3D import GSToolsBulk3D, GSToolsBulk3DEffective
+from homogenization.srf_from_population import SRFFromTensorPopulation
 from bgem import stochastic
 from bgem import stochastic
 from bgem.gmsh import gmsh, options
@@ -141,6 +142,8 @@ class DFMSim3D(Simulation):
     COND_TN_POP_FILE = 'cond_tn_pop.npy'
     PRED_COND_TN_POP_FILE = 'pred_cond_tn_pop.npy'
     COND_TN_FILE = "cond_tensors.yaml"
+    COND_TN_VALUES_FILE = "cond_tensors_values.npz"
+    COND_TN_COORDS_FILE = "cond_tensors_coords.npz"
     PRED_COND_TN_FILE = "pred_cond_tensors.yaml"
     COMMON_FILES = "l_step_{}_common_files"
     SAMPLES_COND_TNS_DIR = "samples_cond_tns"
@@ -367,6 +370,391 @@ class DFMSim3D(Simulation):
         subdomain_dfn = stochastic.FractureSet.from_list(subdomain_dfn_list)
         return subdomain_dfn
 
+    @staticmethod
+    def homogenization(config, dfn_to_homogenize, dfn_to_homogenize_list, bulk_cond_values, bulk_cond_points, seed=None,
+                       hom_dir_name="homogenization"):
+        sample_dir = os.getcwd()
+
+        print("homogenization method")
+        print("os.getcwd() ", os.getcwd())
+        # print("config[scratch_dir] ", config["sim_config"]["scratch_dir"])
+        print("os environ get SCRATCHDIR ", os.environ.get("SCRATCHDIR"))
+
+        # hom_dir_abs_path = os.path.join(sample_dir, hom_dir_name)
+        # hom_dir_name = "homogenization"
+        if os.environ.get("SCRATCHDIR") is not None:
+            hom_dir_abs_path = os.path.join(os.environ.get("SCRATCHDIR"), hom_dir_name)
+        else:
+            hom_dir_abs_path = os.path.join(sample_dir, hom_dir_name)
+
+        print("hom_dir_abs_path ", hom_dir_abs_path)
+
+        # dfn_to_homogenization = []
+        # #fr_rad_values = []
+        # for fr in dfn:
+        #     if fr.r <= config["coarse"]["step"]:
+        #         #print("fr.radius ", fr.radius)
+        #         #fr_rad_values.append(fr.radius[0]* fr.radius[1]**2 + fr.radius[0]**2*fr.radius[1])
+        #         dfn_to_homogenization.append(fr)
+        # if len(dfn_to_homogenization) > 0:
+        #     dfn = stochastic.FractureSet.from_list(dfn_to_homogenization)
+        # else:
+        #     dfn = []
+        # #print("len dfn_to_homogenization ", len(dfn_to_homogenization))
+        #
+        # #print("mean fr rad values ", np.mean(fr_rad_values))
+
+        # fr_media = FracturedMedia.fracture_cond_params(dfn_to_homogenize, 1e-4, 0.00001)
+
+        # for fr in dfn:
+        #     print("hom fr.r ", fr.r)
+
+        # hom_dir_name = "homogenization"
+        # if "scratch_dir" in config["sim_config"] and config["sim_config"]["scratch_dir"] is not None:
+        #     #hom_dir_abs_path = os.path.join(config["sim_config"]["scratch_dir"], hom_dir_name)
+        #     hom_dir_abs_path = os.path.join(os.environ.get("SCRATCHDIR"), hom_dir_name)
+        # else:
+        # hom_dir_abs_path = os.path.join(sample_dir, hom_dir_name)
+
+        # print("hom_dir_abs_path ", hom_dir_abs_path)
+
+        # os.chdir(config["scratch_dir"])
+        if os.path.exists(hom_dir_abs_path):
+            shutil.rmtree(hom_dir_abs_path)
+
+        os.mkdir(hom_dir_abs_path)
+        os.chdir(hom_dir_abs_path)
+
+        h_dir = os.getcwd()
+        print("h_dir os.getcwd() ", os.getcwd())
+        # exit()
+
+        os.mkdir("dataset")
+        dataset_path = os.path.join(h_dir, "dataset")
+        sim_config = config["sim_config"]
+
+        # print("sim config ", sim_config)
+        # print("rasterize at once ", config["sim_config"]["rasterize_at_once"])
+
+        domain_box = sim_config["geometry"]["domain_box"]
+        subdomain_box = sim_config["geometry"]["subdomain_box"]
+        subdomain_overlap = np.array([0, 0])  # np.array([50, 50])
+
+        # print("sample dict ", sim_config)
+        # print(sim_config["seed"])
+
+        # work_dir = "seed_{}".format(sample_dict["seed"])
+
+        # work_dir = os.path.join(
+        #     "/home/martin/Documents/Endorse/ms-homogenization/seed_26339/aperture_10_4/test_density",
+        #     "n_10_s_100_100_step_5_2")
+
+        # work_dir = "/home/martin/Documents/Endorse/ms-homogenization/test_summary"
+
+        work_dir = sim_config["work_dir"]
+
+        # print("work dir ", work_dir)
+        lx, ly, lz = domain_box
+        print("lx: {}, lz: {}, ly: {} ".format(lx, lz, ly))
+
+        # bottom_left_corner = [-lx / 2, -ly / 2, -lz / 2]
+        # bottom_right_corner = [+lx / 2, -ly / 2]
+        # top_right_corner = [+lx / 2, +ly / 2]
+        # top_left_corner = [-lx / 2, +ly / 2]
+        # #               bottom-left corner  bottom-right corner  top-right corner    top-left corner
+        # complete_polygon = [bottom_left_corner, bottom_right_corner, top_right_corner, top_left_corner]
+
+        # plt.scatter(*zip(*complete_polygon))
+        n_subdomains_per_axes = sim_config["geometry"].get("n_subdomains_per_axes", 4)
+        domain_box = sim_config["geometry"]["domain_box"]
+        subdomain_box = sim_config["geometry"]["subdomain_box"]
+        # lx, ly = domain_box
+
+        print("n_subdomains_per_axes ", n_subdomains_per_axes)
+        # exit()
+        # n_subdomains = int(np.floor(np.sqrt(n_subdomains)))
+
+        cond_tensors = {}
+        pred_cond_tensors = {}
+        percentage_sym_tn_diff = []
+        time_measurements = []
+        sample_center = {}
+
+        # bulk_cond_values = []
+        # bulk_cond_points = []
+
+        fine_flow = None
+
+        # if "nn_path" in sim_config["nn_path"]:
+        #     zarr_file_path = DFMSim3D.create_zarr_file(os.getcwd(), n_samples=int(n_subdomains_per_axes ** 3), config_dict=config)
+        #
+        #     n_steps = config["sim_config"]["geometry"]["n_voxels"]
+
+        k = -1
+        # if "rasterize_at_once" in config["sim_config"] and config["sim_config"]["rasterize_at_once"]:
+        #     fields_file = config["sim_config"]["fields_file_to_rast"] if "fields_file_to_rast" in config["sim_config"] else "fields_fine_to_rast.msh"
+        #     mesh_file = config["sim_config"]["mesh_file_to_rast"] if "mesh_file_to_rast" in config["sim_config"] else "mesh_fine_to_rast.msh"
+        #
+        #     pred_cond_tensors = DFMSim3D.rasterize_at_once(sample_dir, dataset_path, config, n_subdomains, fractures,
+        #                                                  h_dir, seed=seed, fields_file=fields_file, mesh_file=mesh_file)
+        #     # print("pred cond tensors ", pred_cond_tensors)
+        # else:
+        # create_hom_samples_start_time = time.time()
+        for i in range(n_subdomains_per_axes):
+            center_x = subdomain_box[0] / 2 + (lx - subdomain_box[0]) / (n_subdomains_per_axes - 1) * i - lx / 2
+
+            for j in range(n_subdomains_per_axes):
+                # start_time = time.time()
+
+                center_y = subdomain_box[1] / 2 + (ly - subdomain_box[1]) / (n_subdomains_per_axes - 1) * j - ly / 2
+
+                for l in range(n_subdomains_per_axes):
+                    k += 1
+                    subdir_name = "i_{}_j_{}_l_{}_k_{}".format(i, j, l, k)
+                    os.mkdir(subdir_name)
+                    os.chdir(subdir_name)
+
+                    hom_sample_dir = Path(os.getcwd()).absolute()
+
+                    center_z = subdomain_box[1] / 2 + (lz - subdomain_box[1]) / (n_subdomains_per_axes - 1) * l - lz / 2
+
+                    # center_z_2 = subdomain_box[1] / 2 + (lz - subdomain_box[1]) / (
+                    #             n_subdomains_per_axes - 1) * (l+1) - lz / 2
+
+                    # center_x = 0.0
+                    # center_y = -7.5
+                    # center_z = -7.5
+                    # k = 10
+                    #
+                    print("center x:{} y:{}, z:{}, k: {}".format(center_x, center_y, center_z, k))
+
+                    # box_size_x = subdomain_box[0]
+                    # box_size_y = subdomain_box[1]
+                    # box_size_z = subdomain_box[2]
+
+                    # outer_cube = DFMSim3D.get_outer_cube(center_x, center_y, center_z, box_size_x, box_size_y, box_size_z)
+                    # sim_config["geometry"]["outer_cube"] = outer_cube
+                    # print("work_dir ", work_dir)
+
+                    # print("outer polygon ", outer_polygon)
+                    # print("center x:{} y:{}".format(center_x, center_y))
+
+                    # sim_config["work_dir"] = work_dir
+                    # config["homogenization"] = True
+
+                    subdomain_box_run_samples = copy.deepcopy(subdomain_box)
+
+                    # print("subdomain box run samples ", subdomain_box_run_samples)
+                    # print("np.array(subdomain_box_run_samples)*1.1 ", np.array(subdomain_box_run_samples)*1.1)
+
+                    cond_field_step = np.abs(bulk_cond_points[0][-1]) - np.abs(bulk_cond_points[1][-1])
+                    subdomain_to_extract = np.array(subdomain_box_run_samples) * 1.1 + (2 * cond_field_step)
+                    subdomain_bulk_cond_values, subdomain_bulk_cond_points = DFMSim3D.extract_subdomain(
+                        bulk_cond_values, bulk_cond_points, (center_x, center_y, center_z), subdomain_to_extract)
+
+                    try:
+                        subdomain_dfn_to_homogenize = DFMSim3D.extract_dfn(dfn_to_homogenize, dfn_to_homogenize_list,
+                                                                           (center_x, center_y, center_z),
+                                                                           np.array(subdomain_box_run_samples) * 1.5)
+                    except:
+                        subdomain_dfn_to_homogenize = dfn_to_homogenize
+                    subdomain_fr_media = FracturedMedia.fracture_cond_params(subdomain_dfn_to_homogenize, 1e-4, 0.00001)
+
+                    # subdomain_bulk_cond_values, subdomain_bulk_cond_points = bulk_cond_values, bulk_cond_points
+                    # subdomain_dfn_to_homogenize = dfn_to_homogenize
+                    # subdomain_fr_media = FracturedMedia.fracture_cond_params(subdomain_dfn_to_homogenize, 1e-4, 0.00001)
+
+                    # print("subdomain_bulk_cond_values.shape ", subdomain_bulk_cond_values.shape)
+                    # print("subdomain_bulk_cond_points.shape ", subdomain_bulk_cond_points.shape)
+
+                    orig_center_x = center_x
+                    orig_center_y = center_y
+                    orig_center_z = center_z
+
+                    num_iterations = 0
+                    while True:
+                        try:
+                            # subdomain_box_run_samples[0] += subdomain_box_run_samples[0] * 0.1
+                            # subdomain_box_run_samples[1] += subdomain_box_run_samples[1] * 0.1
+                            # subdomain_box_run_samples[2] += subdomain_box_run_samples[2] * 0.1
+                            print("center x:{} y:{}, z:{}, k: {}".format(center_x, center_y, center_z, k))
+                            # print("subdomain_box_run_samples ", subdomain_box_run_samples)
+
+                            bc_pressure_gradient = [1, 0, 0]
+                            cond_file, fr_cond, fr_region_map = DFMSim3D._run_sample(bc_pressure_gradient,
+                                                                                     subdomain_fr_media, config,
+                                                                                     hom_sample_dir,
+                                                                                     subdomain_bulk_cond_values,
+                                                                                     subdomain_bulk_cond_points,
+                                                                                     subdomain_box_run_samples,
+                                                                                     mesh_step=config["fine"]["step"],
+                                                                                     center=[center_x, center_y,
+                                                                                             center_z])
+                            flux_response_0 = DFMSim3D.get_flux_response()  # bc_pressure_gradient, fr_media, fem_grid, config, sample_dir,
+                            # sim_config)
+
+                            bc_pressure_gradient = [0, 1, 0]
+                            DFMSim3D._run_sample(bc_pressure_gradient, subdomain_fr_media, config, hom_sample_dir,
+                                                 subdomain_bulk_cond_values,
+                                                 subdomain_bulk_cond_points,
+                                                 subdomain_box_run_samples, mesh_step=config["fine"]["step"],
+                                                 cond_file=cond_file, center=[center_x, center_y, center_z])
+                            flux_response_1 = DFMSim3D.get_flux_response()  # bc_pressure_gradient, fr_media, fem_grid, config, sample_dir,
+                            # sim_config)
+
+                            bc_pressure_gradient = [0, 0, 1]
+                            DFMSim3D._run_sample(bc_pressure_gradient, subdomain_fr_media, config, hom_sample_dir,
+                                                 subdomain_bulk_cond_values,
+                                                 subdomain_bulk_cond_points,
+                                                 subdomain_box_run_samples, mesh_step=config["fine"]["step"],
+                                                 cond_file=cond_file, center=[center_x, center_y, center_z])
+
+                            flux_response_2 = DFMSim3D.get_flux_response()  # bc_pressure_gradient, fr_media, fem_grid, config, sample_dir,
+                            # sim_config)
+
+                            bc_pressure_gradients = np.stack(([1, 0, 0], [0, 1, 0], [0, 0, 1]), axis=0)
+                            flux_responses = np.squeeze(
+                                np.stack((flux_response_0, flux_response_1, flux_response_2), axis=0))
+
+                            # exit()
+                            break
+
+                        except Exception as msg:
+                            print(msg)
+                            num_iterations += 1
+                            # subdomain_box_run_samples[0] += subdomain_box_run_samples[0] * 0.05
+                            # subdomain_box_run_samples[1] += subdomain_box_run_samples[1] * 0.05
+                            # subdomain_box_run_samples[2] += subdomain_box_run_samples[2] * 0.05
+                            #
+                            current_dir = os.getcwd()
+                            # center_x += center_x * 0.05
+                            # center_y += center_y * 0.05
+                            # center_z += center_z * 0.05
+
+                            delta = 1.0
+
+                            domain_center = np.array([0, 0, 0])
+                            p = np.array([center_x, center_y, center_z])
+                            direction = p - domain_center
+                            unit_dir = direction / np.linalg.norm(direction)
+
+                            # Move slightly toward the center
+                            p_nudged = p - delta * unit_dir
+
+                            # Check if nudged point is still within domain
+                            # within_domain = np.all(np.abs(p_nudged) <= domain_half)
+                            center_x, center_y, center_z = p_nudged[0], p_nudged[1], p_nudged[2]
+
+                            if num_iterations > 10:
+                                break
+
+                            # Loop through the files in the directory and delete them
+                            # for filename in os.listdir(current_dir):
+                            #     file_path = os.path.join(current_dir, filename)
+                            #
+                            #     # Check if it's a file and delete it
+                            #     if os.path.isfile(file_path):
+                            #         os.remove(file_path)
+                            #         print(f"Deleted: {file_path}")
+
+                    new_center_x = center_x
+                    new_center_y = center_y
+                    new_center_z = center_z
+
+                    center_x = orig_center_x
+                    center_y = orig_center_y
+                    center_z = orig_center_z
+
+                    if num_iterations > 10:
+                        print("subdir_name {} num iterations 10".format(subdir_name))
+                        # DFMSim3D._remove_files()
+                        os.chdir(h_dir)
+                        continue
+
+                    equivalent_cond_tn_voigt = equivalent_posdef_tensor(np.array(bc_pressure_gradients),
+                                                                        flux_responses)
+
+                    print("equivalent_cond_tn_voigt ", equivalent_cond_tn_voigt)
+
+                    equivalent_cond_tn = voigt_to_tn(np.array([equivalent_cond_tn_voigt]))  # np.zeros((3, 3))
+                    # print("equivalent cond tn ", equivalent_cond_tn)
+                    # evals, evecs = np.linalg.eigh(equivalent_cond_tn)
+                    # print("evals equivalent cond tn ", evals)
+                    # assert np.all(evals) > 0
+
+                    cond_tensors[(new_center_x, new_center_y, new_center_z)] = equivalent_cond_tn
+
+                    if "nn_path_for_block_hom" in config["sim_config"]:
+                        # try:
+                        fem_grid_rast = fem.fem_grid(subdomain_box[0], config["sim_config"]["geometry"]["n_voxels"],
+                                                     fem.Fe.Q(dim=3),
+                                                     origin=[new_center_x - subdomain_box[0] / 2,
+                                                             new_center_y - subdomain_box[0] / 2,
+                                                             new_center_z - subdomain_box[0] / 2])
+
+                        equivalent_cond_tn_predictions = DFMSim3D.predict_on_hom_sample(config,
+                                                                                        subdomain_bulk_cond_values,
+                                                                                        subdomain_bulk_cond_points,
+                                                                                        subdomain_dfn_to_homogenize,
+                                                                                        fr_cond,
+                                                                                        fem_grid_rast, (
+                                                                                            new_center_x, new_center_y,
+                                                                                            new_center_z))
+
+                        print("equivalent_cond_tn_predictions ", equivalent_cond_tn_predictions)
+
+                        equivalent_cond_tn_predictions = voigt_to_tn(np.array([equivalent_cond_tn_predictions]))
+
+                        pred_cond_tensors[(new_center_x, new_center_y, new_center_z)] = equivalent_cond_tn_predictions
+                        # except:
+                        #    DFMSim3D._remove_files()
+                        #    os.chdir(h_dir)
+                        #    continue
+
+                    # print("equivalent_cond_tn ", tn_to_voigt(equivalent_cond_tn))
+                    # print("equivalent_cond_tn_predictions ", equivalent_cond_tn_predictions)
+                    # exit()
+
+                    # print("fem_grid_rast.grid ", fem_grid_rast.grid)
+                    # print("fem_grid_rast.grid center ", fem_grid_rast.grid.grid_center())
+
+                    # bulk_cond_fem_rast = DFMSim3D._bulk_cond_to_rast_grid(bulk_cond_values, bulk_cond_points,
+                    #                                                       fem_grid_rast.grid)
+
+                    # rasterized_input = DFMSim3D.rasterize(fem_grid_rast, dfn, bulk_cond=bulk_cond_fem_rast,
+                    #                                      fr_cond=fr_cond)
+
+                    # rasterized_input_voigt = tn_to_voigt(rasterized_input)
+                    # rasterized_input_voigt = rasterized_input_voigt.reshape(*config["sim_config"]["geometry"]["n_voxels"],
+                    #                                                        rasterized_input_voigt.shape[-1]).T
+
+                    # fine_res = np.squeeze(equivalent_cond_tn_voigt)
+                    #
+                    # DFMSim3D.rasterize_save_to_zarr(zarr_file_path, config, k, fine_res, bulk_cond_values,
+                    #                                 bulk_cond_points, dfn, fr_cond,
+                    #                                 fem_grid_rast, n_steps=config["sim_config"]["geometry"]["n_voxels"])
+
+                    # np.save("equivalent_cond_tn", equivalent_cond_tn)
+                    # np.savez_compressed("rasterized_input_voigt ", rasterized_input_voigt)
+
+                    # if os.path.exists(zarr_file_path):
+                    #     zarr_file = zarr.open(zarr_file_path, mode='r+')
+                    #
+                    #     zarr_file["inputs"][k, ...] = rasterized_input_voigt
+                    #     zarr_file["outputs"][k, :] = fine_res
+
+                    DFMSim3D._remove_files()
+
+                    os.chdir(h_dir)
+
+        try:
+            shutil.move(h_dir, sample_dir)
+        except:
+            pass
+
+        os.chdir(sample_dir)
+
+        return cond_tensors, pred_cond_tensors
     @staticmethod
     def _remove_files():
         if os.path.exists("fields_fine.msh"):
@@ -1666,6 +2054,7 @@ class DFMSim3D(Simulation):
 
     @staticmethod
     def _calculate_subdomains(coarse_step, geometry):
+        print("coarse step ", coarse_step)
         #print("geometry ", geometry)
         if coarse_step > 0:
             hom_box_size = coarse_step * 1.5
@@ -2420,7 +2809,6 @@ class DFMSim3D(Simulation):
         fr_media = FracturedMedia.fracture_cond_params(dfn_fine, 1e-4, 0.00001)
         return fr_media, bulk_cond_values, bulk_cond_points
 
-
     @staticmethod
     def calculate(config, seed):
         """
@@ -2433,6 +2821,20 @@ class DFMSim3D(Simulation):
         sample_dir = Path(os.getcwd()).absolute()
         basename = os.path.basename(sample_dir)
         sample_idx = int(basename.split('S')[1])
+
+        # Update config with tensor population file paths if they exist
+        cond_tn_pop = os.path.join(config["fine"]["common_files_dir"], DFMSim3D.COND_TN_POP_FILE)
+        if os.path.exists(cond_tn_pop):
+            config["fine"]["cond_tn_pop_file"] = cond_tn_pop
+
+        if "nn_path" in config["sim_config"]:
+            pred_cond_tn_pop = os.path.join(config["fine"]["common_files_dir"], DFMSim3D.PRED_COND_TN_POP_FILE)
+            if os.path.exists(pred_cond_tn_pop):
+                config["fine"]["pred_cond_tn_pop_file"] = pred_cond_tn_pop
+
+        sample_cond_tns = os.path.join(config["fine"]["common_files_dir"], DFMSim3D.SAMPLES_COND_TNS_DIR)
+        if os.path.exists(sample_cond_tns):
+            config["fine"]["sample_cond_tns"] = sample_cond_tns
 
         scratch_sample_path = None
         if os.environ.get("SCRATCHDIR") is not None:
@@ -2452,8 +2854,6 @@ class DFMSim3D(Simulation):
 
         if gen_hom_samples:
             return DFMSim3D.calculate_hom_sample(config, current_dir, sample_idx, sample_seed)
-        else:
-            raise NotImplementedError("Standard MLMC call is not implemeted yet")
 
         fine_step = config["fine"]["step"]
         coarse_step = config["coarse"]["step"]
@@ -2477,9 +2877,7 @@ class DFMSim3D(Simulation):
 
         #@TODO: use larger domain to calculate hom samples
         orig_domain_box = config["sim_config"]["geometry"]["orig_domain_box"]
-        if coarse_step > 0 and "use_larger_domain" in config["sim_config"] and config["sim_config"][
-            "use_larger_domain"]:
-
+        if coarse_step > 0 and "use_larger_domain" in config["sim_config"] and config["sim_config"]["use_larger_domain"]:
             sub_domain_box = config["sim_config"]["geometry"]["subdomain_box"]
             orig_frac_box = config["sim_config"]["geometry"]["fractures_box"]
 
@@ -2836,7 +3234,12 @@ class DFMSim3D(Simulation):
 
             print("homogenization time ", time.time() - homogenization_start_time)
 
+            print("cond tensors ", cond_tensors)
+
             DFMSim3D._save_tensors(cond_tensors, file=os.path.join(current_dir, DFMSim3D.COND_TN_FILE))
+
+            DFMSim3D._save_tensor_values(cond_tensors, file=os.path.join(current_dir, DFMSim3D.COND_TN_VALUES_FILE))
+            DFMSim3D._save_tensor_coords(cond_tensors, file=os.path.join(current_dir, DFMSim3D.COND_TN_COORDS_FILE))
 
             hom_bulk_cond_values, hom_bulk_cond_points = np.squeeze(np.array(list(cond_tensors.values()))), np.array(list(cond_tensors.keys()))
 
@@ -3019,6 +3422,15 @@ class DFMSim3D(Simulation):
         if mode is not None:
             bulk_conductivity['mode'] = mode
 
+        if "cond_tn_pop_file" in config["fine"] or "pred_cond_tn_pop_file" in config["fine"]:
+            #@TODO: sample from saved population of conductivity tensors
+            bulk_conductivity = config["sim_config"]['bulk_conductivity']
+            #config_dict["mean_log_conductivity"] = bulk_conductivity["mean_log_conductivity"]
+            bulk_model = SRFFromTensorPopulation(config)
+            # bulk_cond_tn_pop_file = config_dict["fine"]["cond_tn_pop_file"]
+            #bulk_model = BulkChoose(finer_level_path)
+
+
         # Handle marginal distribution if provided
         if "marginal_distr" in bulk_conductivity and bulk_conductivity["marginal_distr"] is not False:
             means, cov = DFMSim3D.calculate_cov(bulk_conductivity["marginal_distr"])
@@ -3066,6 +3478,16 @@ class DFMSim3D(Simulation):
     def _save_tensors(cond_tensors, file):
         with open(file, "w") as f:
             yaml.dump(cond_tensors, f)
+
+    @staticmethod
+    def _save_tensor_values(cond_tensors, file):
+        values_to_save = np.array([v[0] for v in cond_tensors.values()])
+        np.savez_compressed(file, data=values_to_save)
+
+    @staticmethod
+    def _save_tensor_coords(cond_tensors, file):
+        coords_to_save = np.array(list(cond_tensors.keys()))
+        np.savez_compressed(file, data=coords_to_save)
 
     # @staticmethod
     # def _run_homogenization_sample(flow_problem, config, format="gmsh"):
