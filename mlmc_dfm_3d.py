@@ -17,9 +17,13 @@ from mlmc.quantity.quantity_estimate import estimate_mean, moments
 from mlmc import estimator
 from mlmc.plot import diagnostic_plots as dp
 import yaml
+import ruamel.yaml
 import scipy.stats as stats
 import matplotlib.pyplot as plt
 import zarr
+
+from scipy.spatial.distance import pdist, squareform
+from scipy.optimize import curve_fit
 
 
 class ProcessSimple:
@@ -49,12 +53,13 @@ class ProcessSimple:
         self.generate_samples_per_level = True
         # Use PBS sampling pool
         self.n_levels = 2
+        self._levels_fine_srf_from_population = [0]
         self.n_moments = 3
         # Number of MLMC levels
 
         step_range = [10, 5]
         #step_range = [40, 5]
-        #step_range = [40, 20]
+        #step_range = [20, 10]
 
         # step_range [simulation step at the coarsest level, simulation step at the finest level]
 
@@ -103,7 +108,7 @@ class ProcessSimple:
         if recollect:
             raise NotImplementedError("Not supported in released version")
         else:
-            self.generate_jobs(sampler, n_samples=[10], renew=renew)#[1, 1, 1, 3, 3, 3, 3], renew=renew)
+            self.generate_jobs(sampler, n_samples=[1, 1, 1], renew=renew)#[1, 1, 1, 3, 3, 3, 3], renew=renew)
             #self.generate_jobs(sampler, n_samples=[100, 2],renew=renew, target_var=1e-5)
             self.all_collect(sampler)  # Check if all samples are finished
 
@@ -131,18 +136,19 @@ class ProcessSimple:
         sim_config_dict['yaml_file_homogenization'] = os.path.join(self.work_dir, 'flow_templ.yaml')
         sim_config_dict['yaml_file_homogenization_vtk'] = os.path.join(self.work_dir, 'flow_templ_vtk.yaml')
         sim_config_dict['level_parameters'] = self.level_parameters
+        sim_config_dict['levels_fine_srf_from_population'] = self._levels_fine_srf_from_population
 
 
         # Create simulation factory
         simulation_factory = DFMSim3D(config=sim_config_dict, clean=clean)
 
-        # # Create HDF sample storage
-        # sample_storage = SampleStorageHDF(
-        #     file_path=os.path.join(self.work_dir, "mlmc_{}.hdf5".format(self.n_levels)),
-        #     # append=self.append
-        # )
+        # Create HDF sample storage
+        sample_storage = SampleStorageHDF(
+            file_path=os.path.join(self.work_dir, "mlmc_{}.hdf5".format(self.n_levels)),
+            # append=self.append
+        )
 
-        sample_storage = Memory()
+        #sample_storage = Memory()
 
         # Create sampler, it manages sample scheduling and so on
         sampler = Sampler(sample_storage=sample_storage, sampling_pool=sampling_pool, sim_factory=simulation_factory,
@@ -291,6 +297,7 @@ class ProcessSimple:
             outputs.attrs['channel_names'] = ['cond_tn_0', 'cond_tn_1', 'cond_tn_2', 'cond_tn_3', 'cond_tn_4', 'cond_tn_5']
             bulk_avg.attrs['channel_names'] = ['cond_tn_0', 'cond_tn_1', 'cond_tn_2', 'cond_tn_3', 'cond_tn_4', 'cond_tn_5']
 
+
     def generate_jobs(self, sampler, n_samples=None, renew=False, target_var=None):
         """
         Generate level samples
@@ -310,9 +317,8 @@ class ProcessSimple:
             print("n_samples ", n_samples)
             if n_samples is not None:
                 if self.use_pbs or self.generate_samples_per_level:
-
-                    #for level_id in reversed(range(self.n_levels)):
-                    for level_id in range(self.n_levels):
+                    for level_id in reversed(range(self.n_levels)):
+                    #for level_id in range(self.n_levels):
                         level_instance_obj = sampler._level_sim_objects[level_id]
 
                         # # Prepare objects and other necessary data for further sampling
@@ -322,49 +328,65 @@ class ProcessSimple:
 
                         sampler.schedule_samples(level_id=level_id, n_samples=n_samples[level_id])
                         # l_n_scheduled = sampler._n_scheduled_samples[level_id]
-                    running = 1
-                    while running > 0:
-                        running = 0
-                        running += sampler.ask_sampling_pool_for_samples(sleep=self.sample_sleep, timeout=1e-5)
-                        print("N running: ", running)
-                        # print("l_n_scheduled - running ", l_n_scheduled - running)
-                        # if l_n_scheduled - running > 20:
-                        #     break
+                        running = 1
+                        while running > 0:
+                            running = 0
+                            running += sampler.ask_sampling_pool_for_samples(sleep=self.sample_sleep, timeout=1e-5)
+                            print("N running: ", running)
+                            # print("l_n_scheduled - running ", l_n_scheduled - running)
+                            # if l_n_scheduled - running > 20:
+                            #     break
+                        print("level_id ", level_id)
+                        if level_id > 0:
+                            cond_tn_pop_file = os.path.join(level_instance_obj.config_dict["coarse"]["common_files_dir"],
+                                                             DFMSim3D.COND_TN_POP_FILE)
+                            cond_tn_pop_coords_file = os.path.join(level_instance_obj.config_dict["coarse"]["common_files_dir"],
+                                DFMSim3D.COND_TN_POP_COORDS_FILE)
 
-                        # if level_id > 0:
-                        #     cond_tn_pop_file = os.path.join(level_instance_obj.config_dict["coarse"]["common_files_dir"],
-                        #                                     DFMSim3D.COND_TN_POP_FILE)
-                        #     pred_cond_tn_pop_file = os.path.join(
-                        #         level_instance_obj.config_dict["coarse"]["common_files_dir"],
-                        #         DFMSim3D.PRED_COND_TN_POP_FILE)
-                        #
-                        #     if cond_tn_pop_file is not None:
-                        #         sample_cond_tns = []
-                        #         sample_pred_cond_tns = []
-                        #         for s in range(int(sampler.n_finished_samples[level_id])):
-                        #             sample_dir_name = "L{:02d}_S{:07d}".format(level_id, s)
-                        #             sample_dir = os.path.join(os.path.join(self.work_dir, "output"), sample_dir_name)
-                        #
-                        #             if not os.path.exists(sample_dir):
-                        #                 continue
-                        #
-                        #             sample_cond_tns_file = os.path.join(sample_dir, DFMSim3D.COND_TN_FILE)
-                        #             sample_pred_cond_tns_file = os.path.join(sample_dir, DFMSim3D.PRED_COND_TN_FILE)
-                        #
-                        #             if os.path.exists(sample_cond_tns_file):
-                        #                 with open(sample_cond_tns_file, "r") as f:
-                        #                     cond_tns = ruamel.yaml.load(f)
-                        #                 if len(sample_cond_tns) < 15000:
-                        #                     sample_cond_tns.extend(list(cond_tns.values()))
-                        #
-                        #             if os.path.exists(sample_pred_cond_tns_file):
-                        #                 with open(sample_pred_cond_tns_file, "r") as f:
-                        #                     pred_cond_tns = ruamel.yaml.load(f)
-                        #                 if len(sample_pred_cond_tns) < 15000:
-                        #                     sample_pred_cond_tns.extend(list(pred_cond_tns.values()))
-                        #
-                        #         np.save(cond_tn_pop_file, sample_cond_tns)
-                        #         np.save(pred_cond_tn_pop_file, sample_pred_cond_tns)
+                            print("cond_tn_pop_file ", cond_tn_pop_file)
+                            if cond_tn_pop_file is not None:
+                                sample_cond_tns = []
+                                sample_pred_cond_tns = []
+                                for s in range(int(sampler.n_finished_samples[level_id])):
+                                    sample_dir_name = "L{:02d}_S{:07d}".format(level_id, s)
+                                    sample_dir = os.path.join(os.path.join(self.work_dir, "output"), sample_dir_name)
+
+                                    print('sample_dir ', sample_dir)
+
+                                    if not os.path.exists(sample_dir):
+                                        continue
+
+                                    sample_cond_tns_values_file = os.path.join(sample_dir, DFMSim3D.COND_TN_VALUES_FILE)
+                                    sample_cond_tns_coords_file = os.path.join(sample_dir, DFMSim3D.COND_TN_COORDS_FILE)
+
+                                    # Load file
+                                    loaded_cond_tns = np.load(sample_cond_tns_values_file)['data']
+                                    loaded_coords = np.load(sample_cond_tns_coords_file)['data']
+
+                                    #ProcessSimple.get_corr_lengths(loaded_coords, loaded_cond_tns, use_log=True)
+
+                                    if len(sample_cond_tns) < 15000:
+                                         sample_cond_tns.extend(list(loaded_cond_tns))
+
+                                    # sample_pred_cond_tns_file = os.path.join(sample_dir, DFMSim3D.PRED_COND_TN_FILE)
+                                    #
+                                    # if os.path.exists(sample_cond_tns_file):
+                                    #     print("sample_cond_tns_file ", sample_cond_tns_file)
+                                    #     with open(sample_cond_tns_file, "r") as f:
+                                    #         cond_tns = yaml.load(f, Loader=yaml.FullLoader)
+                                    #     print("cond tnd ", cond_tns)
+                                    #     if len(sample_cond_tns) < 15000:
+                                    #         sample_cond_tns.extend(list(cond_tns.values()))
+                                    #
+                                    # if os.path.exists(sample_pred_cond_tns_file):
+                                    #     with open(sample_pred_cond_tns_file, "r") as f:
+                                    #         pred_cond_tns = ruamel.yaml.load(f)
+                                    #     if len(sample_pred_cond_tns) < 15000:
+                                    #         sample_pred_cond_tns.extend(list(pred_cond_tns.values()))
+
+                                print("samples_cond_tns ", sample_cond_tns)
+                                np.save(cond_tn_pop_file, sample_cond_tns)
+                                np.save(cond_tn_pop_coords_file, loaded_coords)
 
                 else:
                     sampler.set_initial_n_samples(n_samples)
@@ -919,6 +941,73 @@ class ProcessSimple:
         # #print("samples ", samples)
         # distr_plot.add_raw_samples(np.squeeze(samples))  # add histogram
         # distr_plot.show()
+
+
+    @staticmethod
+    def empirical_variogram(pos, values, nbins=30):
+
+        D = squareform(pdist(pos))
+        print("D ", D)
+        V = squareform(pdist(values[:, None], metric='sqeuclidean')) / 2
+        bins = np.linspace(0, D.max(), nbins + 1)
+        bin_centers = (bins[:-1] + bins[1:]) / 2
+        variogram = []
+
+        print("bin centers ", bin_centers)
+
+        for i in range(nbins):
+            mask = (D >= bins[i]) & (D < bins[i + 1])
+            if np.any(mask):
+                variogram.append(np.mean(V[mask]))
+            else:
+                variogram.append(np.nan)
+        return bin_centers, np.array(variogram)
+
+    @staticmethod
+    def variogram_model(h, C, L):
+        return C * (1 - np.exp(-h / L))  # Exponential model
+
+    @staticmethod
+    def fit_variogram_model(distances, gamma_vals):
+        mask = ~np.isnan(gamma_vals)
+        popt, _ = curve_fit(ProcessSimple.variogram_model, distances[mask], gamma_vals[mask], bounds=(0, np.inf))
+        return popt  # C (sill), L (correlation length)
+
+    @staticmethod
+    def get_corr_lengths(coords, cond_tns, use_log=False):
+        from bgem.upscale import fem_plot, fem, voigt_to_tn, tn_to_voigt
+
+        components = tn_to_voigt(cond_tns)
+        print("components.shape ", components.shape)
+
+        if use_log:
+            components[..., 0] = np.log(components[..., 0])
+            components[..., 1] = np.log(components[..., 1])
+            components[..., 2] = np.log(components[..., 2])
+
+        results = {}
+        for i in range(components.shape[-1]):
+            values = np.squeeze(components[..., i])
+            print("values.shape ", values.shape)
+            print("coords.shape ", coords.shape)
+            dists, gamma = ProcessSimple.empirical_variogram(coords, values)
+            C, L = ProcessSimple.fit_variogram_model(dists, gamma)
+
+            print("Component {}, still: {}, correlation_length: {}".format(i, C, L))
+            results[i] = {'sill': C, 'correlation_length': L}
+
+            # Optional plot
+            plt.figure()
+            plt.plot(dists, gamma, 'o', label='Empirical')
+            plt.plot(dists, ProcessSimple.variogram_model(dists, C, L), '-', label=f'Model: L={L:.2f}')
+            plt.xlabel("Distance")
+            plt.ylabel("Semivariance")
+            plt.title(f"Variogram of $T_{{{i}}}$")
+            plt.grid()
+            plt.legend()
+            plt.tight_layout()
+            plt.show()
+
 
 
 if __name__ == "__main__":

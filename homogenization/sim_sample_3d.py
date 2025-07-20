@@ -140,6 +140,7 @@ class DFMSim3D(Simulation):
     YAML_FILE = 'flow_input.yaml'
     FIELDS_FILE = "flow_fields.msh"
     COND_TN_POP_FILE = 'cond_tn_pop.npy'
+    COND_TN_POP_COORDS_FILE = 'cond_tn_pop_coords.npy'
     PRED_COND_TN_POP_FILE = 'pred_cond_tn_pop.npy'
     COND_TN_FILE = "cond_tensors.yaml"
     COND_TN_VALUES_FILE = "cond_tensors_values.npz"
@@ -1700,15 +1701,21 @@ class DFMSim3D(Simulation):
         dfn = fr_media.dfn
         bulk_conductivity = fr_media.conductivity
 
+        print("bulk cond points ", bulk_cond_points)
+
         # Prepare bulk conductivity interpolation if bulk data is provided
         if len(bulk_cond_values) > 0 and len(bulk_cond_points) > 0:
             cond_field_step = np.abs(bulk_cond_points[0][-1]) - np.abs(bulk_cond_points[1][-1])
             subdomain_to_extract = np.array(dimensions) * 1.1 + cond_field_step
 
-            # Extract subdomain of bulk conductivity field
-            subdomain_bulk_cond_values, subdomain_bulk_cond_points = DFMSim3D.extract_subdomain(
-                bulk_cond_values, bulk_cond_points, (center[0], center[1], center[2]), subdomain_to_extract
-            )
+            print("subdomain to extract ", subdomain_to_extract)
+
+            # # Extract subdomain of bulk conductivity field
+            # subdomain_bulk_cond_values, subdomain_bulk_cond_points = DFMSim3D.extract_subdomain(
+            #     bulk_cond_values, bulk_cond_points, (center[0], center[1], center[2]), subdomain_to_extract
+            # )
+            subdomain_bulk_cond_values = bulk_cond_values
+            subdomain_bulk_cond_points = bulk_cond_points
 
             # Choose interpolation method for bulk field
             if regular_grid_interp:
@@ -1722,6 +1729,8 @@ class DFMSim3D(Simulation):
                                        subdomain_bulk_cond_points[:, 0]))
                 values_sorted = subdomain_bulk_cond_values[sort_idx]
                 values_grid = values_sorted.reshape((nx, ny, nz, 3, 3))
+
+                print("values_grid.shape ", values_grid.shape)
 
                 interp = sc_interpolate.RegularGridInterpolator((x_unique, y_unique, z_unique), values_grid)
             else:
@@ -1776,6 +1785,47 @@ class DFMSim3D(Simulation):
         ## Interpolate SRF to mesh elements  ##
         #######################################
         bulk_elements_barycenters = full_mesh.el_barycenters(elements=full_mesh._bulk_elements)
+
+        # print("bulk_elements_barycenters.shape ", bulk_elements_barycenters.shape)
+        # print("bulk_elements_barycenters[0] min: {}, max: {}".format(np.min(bulk_elements_barycenters[:, 0]),
+        #                                                              np.max(bulk_elements_barycenters[:, 0])))
+
+        # from scipy.spatial import Delaunay
+        # # Create Delaunay triangulation of known points
+        # tri = Delaunay(bulk_cond_points)
+        # # Check if barycenters are inside the convex hull
+        # inside_mask = tri.find_simplex(bulk_elements_barycenters) >= 0
+        # # inside_mask is a boolean array, True if inside hull, False if outside
+        # outside_mask = ~inside_mask
+        #
+        # print(f"Points inside convex hull: {np.sum(inside_mask)}")
+        # print(f"Points outside convex hull: {np.sum(outside_mask)}")
+        #
+        # # Given unique grid axes (1D arrays)
+        # x_unique = np.unique(subdomain_bulk_cond_points[:, 0])
+        # y_unique = np.unique(subdomain_bulk_cond_points[:, 1])
+        # z_unique = np.unique(subdomain_bulk_cond_points[:, 2])
+        #
+        # print("x_unique ", x_unique)
+        # print("y_unique ", y_unique)
+        # print("z_unique ", z_unique)
+        #
+        # # Compute bounding box corners
+        # bbox_min = np.array([x_unique.min(), y_unique.min(), z_unique.min()])
+        # bbox_max = np.array([x_unique.max(), y_unique.max(), z_unique.max()])
+        #
+        # # Your points to check (M x 3)
+        # points = bulk_elements_barycenters
+        #
+        # # Test if points lie inside bounding box (inclusive)
+        # inside_bbox_mask = np.all((points >= bbox_min) & (points <= bbox_max), axis=1)
+        #
+        # # Summary
+        # print(f"Points inside bounding box: {np.sum(inside_bbox_mask)} / {len(points)}")
+        # print(f"Points outside bounding box: {len(points) - np.sum(inside_bbox_mask)}")
+        #
+        # outside_points = points[~inside_bbox_mask]
+        # print("outside points ", outside_points)
 
         # Interpolate bulk conductivity to barycenters
         if len(bulk_cond_values) > 0 and len(bulk_cond_points) > 0:
@@ -1936,19 +1986,19 @@ class DFMSim3D(Simulation):
 
         fine_res = np.squeeze(equivalent_cond_tn_voigt)
 
-        # Update config with tensor population file paths if they exist
-        cond_tn_pop = os.path.join(config["fine"]["common_files_dir"], DFMSim3D.COND_TN_POP_FILE)
-        if os.path.exists(cond_tn_pop):
-            config["fine"]["cond_tn_pop_file"] = cond_tn_pop
-
-        if "nn_path" in config["sim_config"]:
-            pred_cond_tn_pop = os.path.join(config["fine"]["common_files_dir"], DFMSim3D.PRED_COND_TN_POP_FILE)
-            if os.path.exists(pred_cond_tn_pop):
-                config["fine"]["pred_cond_tn_pop_file"] = pred_cond_tn_pop
-
-        sample_cond_tns = os.path.join(config["fine"]["common_files_dir"], DFMSim3D.SAMPLES_COND_TNS_DIR)
-        if os.path.exists(sample_cond_tns):
-            config["fine"]["sample_cond_tns"] = sample_cond_tns
+        # # Update config with tensor population file paths if they exist
+        # cond_tn_pop = os.path.join(config["fine"]["common_files_dir"], DFMSim3D.COND_TN_POP_FILE)
+        # if os.path.exists(cond_tn_pop):
+        #     config["fine"]["cond_tn_pop_file"] = cond_tn_pop
+        #
+        # if "nn_path" in config["sim_config"]:
+        #     pred_cond_tn_pop = os.path.join(config["fine"]["common_files_dir"], DFMSim3D.PRED_COND_TN_POP_FILE)
+        #     if os.path.exists(pred_cond_tn_pop):
+        #         config["fine"]["pred_cond_tn_pop_file"] = pred_cond_tn_pop
+        #
+        # sample_cond_tns = os.path.join(config["fine"]["common_files_dir"], DFMSim3D.SAMPLES_COND_TNS_DIR)
+        # if os.path.exists(sample_cond_tns):
+        #     config["fine"]["sample_cond_tns"] = sample_cond_tns
 
         coarse_res = [0, 0, 0, 0, 0, 0]  # Placeholder for coarse resolution result
 
@@ -2540,7 +2590,6 @@ class DFMSim3D(Simulation):
         dict_centers = []
         dict_cond_tn_values = []
 
-
         x_size, y_size, z_size = rasterized_input_voigt.shape[1:]  # Assuming (channels, X, Y, Z)
 
         x_starts = DFMSim3D.get_sliding_indices(x_size, subdomain_pixel_size, pixel_stride)
@@ -2679,6 +2728,7 @@ class DFMSim3D(Simulation):
         # print("subdomain box ", subdomain_box)
         # print("orig domain box ", orig_domain_box)
         # print("n_nonoverlap_subdomains ", n_nonoverlap_subdomains)
+        print("levels_fine_srf_from_population ", config["sim_config"]["levels_fine_srf_from_population"])
 
         reversed_level_params = list(np.squeeze(config["sim_config"]["level_parameters"]))[::-1]
         print("reversed level params ", reversed_level_params)
@@ -2790,10 +2840,15 @@ class DFMSim3D(Simulation):
                                                                               bulk_cond_values, bulk_cond_points,
                                                                               hom_box_size, larger_domain_size,
                                                                               fem_grid_rast)
-                #points = np.array(list(cond_tensors.keys()))
-                #values = np.squeeze(np.array(list(cond_tensors.values())))
-                #print("points ", points)
-                #print("values ", values)
+
+                points = np.array(list(cond_tensors.keys()))
+                values = np.squeeze(np.array(list(cond_tensors.values())))
+                print("points ", points)
+                print("points.shape ", points.shape)
+                print("values ", values.shape)
+
+                exit()
+
 
             else:
                 if config["sim_config"]["use_larger_domain"]:
@@ -2805,6 +2860,8 @@ class DFMSim3D(Simulation):
                                                                                bulk_cond_values, bulk_cond_points)
             bulk_cond_values, bulk_cond_points = np.squeeze(
                 np.array(list(cond_tensors.values()))), np.array(list(cond_tensors.keys()))
+
+        print("bulk cond values to return shape ", bulk_cond_values.shape)
 
         fr_media = FracturedMedia.fracture_cond_params(dfn_fine, 1e-4, 0.00001)
         return fr_media, bulk_cond_values, bulk_cond_points
@@ -2826,11 +2883,14 @@ class DFMSim3D(Simulation):
         cond_tn_pop = os.path.join(config["fine"]["common_files_dir"], DFMSim3D.COND_TN_POP_FILE)
         if os.path.exists(cond_tn_pop):
             config["fine"]["cond_tn_pop_file"] = cond_tn_pop
+        cond_tn_coords_pop = os.path.join(config["fine"]["common_files_dir"], DFMSim3D.COND_TN_POP_COORDS_FILE)
+        if os.path.exists(cond_tn_coords_pop):
+            config["fine"]["cond_tn_pop_coords_file"] = cond_tn_coords_pop
 
-        if "nn_path" in config["sim_config"]:
-            pred_cond_tn_pop = os.path.join(config["fine"]["common_files_dir"], DFMSim3D.PRED_COND_TN_POP_FILE)
-            if os.path.exists(pred_cond_tn_pop):
-                config["fine"]["pred_cond_tn_pop_file"] = pred_cond_tn_pop
+        # if "nn_path" in config["sim_config"]:
+        #     pred_cond_tn_pop = os.path.join(config["fine"]["common_files_dir"], DFMSim3D.PRED_COND_TN_POP_FILE)
+        #     if os.path.exists(pred_cond_tn_pop):
+        #         config["fine"]["pred_cond_tn_pop_file"] = pred_cond_tn_pop
 
         sample_cond_tns = os.path.join(config["fine"]["common_files_dir"], DFMSim3D.SAMPLES_COND_TNS_DIR)
         if os.path.exists(sample_cond_tns):
@@ -2974,6 +3034,22 @@ class DFMSim3D(Simulation):
                 print("bulk cond points ", bulk_cond_points.shape)
                 #print("bulk cond values shape ", bulk_cond_values.shape)
                 #print("bulk cond points shape ", bulk_cond_points.shape)
+
+        # Generate fine SRF based on population of tensors
+        elif list(np.squeeze(config["sim_config"]["level_parameters"], axis=1)).index(config["fine"]["step"]) in config["sim_config"]["levels_fine_srf_from_population"]:
+            dfn_to_fine_list = []
+            for fr in dfn:
+                if fr.r >= fine_step:
+                    dfn_to_fine_list.append(fr)
+            dfn = stochastic.FractureSet.from_list(dfn_to_fine_list)
+            # Cubic law transmisivity
+            fr_media = FracturedMedia.fracture_cond_params(dfn, 1e-4, 0.00001)
+
+            if "cond_tn_pop_file" in config["fine"] or "pred_cond_tn_pop_file" in config["fine"]:
+                bulk_conductivity = config["sim_config"]['bulk_conductivity']
+                bulk_model = SRFFromTensorPopulation(config)
+                bulk_cond_values, bulk_cond_points = bulk_model.generate_field()
+
         else:
             pr = cProfile.Profile()
             pr.enable()
@@ -3234,7 +3310,8 @@ class DFMSim3D(Simulation):
 
             print("homogenization time ", time.time() - homogenization_start_time)
 
-            print("cond tensors ", cond_tensors)
+            print("homogenized cond tensors ", np.array(list(cond_tensors.values())).shape)
+
 
             DFMSim3D._save_tensors(cond_tensors, file=os.path.join(current_dir, DFMSim3D.COND_TN_FILE))
 
@@ -3422,15 +3499,14 @@ class DFMSim3D(Simulation):
         if mode is not None:
             bulk_conductivity['mode'] = mode
 
-        if "cond_tn_pop_file" in config["fine"] or "pred_cond_tn_pop_file" in config["fine"]:
-            #@TODO: sample from saved population of conductivity tensors
-            bulk_conductivity = config["sim_config"]['bulk_conductivity']
-            #config_dict["mean_log_conductivity"] = bulk_conductivity["mean_log_conductivity"]
-            bulk_model = SRFFromTensorPopulation(config)
-            # bulk_cond_tn_pop_file = config_dict["fine"]["cond_tn_pop_file"]
-            #bulk_model = BulkChoose(finer_level_path)
-
-
+        # if "cond_tn_pop_file" in config["fine"] or "pred_cond_tn_pop_file" in config["fine"]:
+        #     #@TODO: sample from saved population of conductivity tensors
+        #     bulk_conductivity = config["sim_config"]['bulk_conductivity']
+        #     #config_dict["mean_log_conductivity"] = bulk_conductivity["mean_log_conductivity"]
+        #     bulk_model = SRFFromTensorPopulation(config)
+        #     # bulk_cond_tn_pop_file = config_dict["fine"]["cond_tn_pop_file"]
+        #     #bulk_model = BulkChoose(finer_level_path)
+        # else:
         # Handle marginal distribution if provided
         if "marginal_distr" in bulk_conductivity and bulk_conductivity["marginal_distr"] is not False:
             means, cov = DFMSim3D.calculate_cov(bulk_conductivity["marginal_distr"])

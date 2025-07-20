@@ -1,5 +1,7 @@
-import numpy as np
 import os
+import numpy as np
+from itertools import product
+
 
 class SRFFromTensorPopulation:
     def __init__(self, config_dict):
@@ -14,6 +16,27 @@ class SRFFromTensorPopulation:
             self.mean_log_conductivity = config_dict["mean_log_conductivity"]
 
         self._rf_sample = None
+
+        fine_step = config_dict["fine"]["step"]
+        reversed_level_params = list(np.squeeze(config_dict["sim_config"]["level_parameters"]))[::-1]
+        hom_block_sizes = np.array(reversed_level_params[1:reversed_level_params.index(fine_step) + 1]) * 1.5
+
+        orig_domain_box = config_dict["sim_config"]["geometry"]["orig_domain_box"]
+
+        print("reversed level params ", reversed_level_params)
+
+        larger_domain_size = orig_domain_box[0] + np.sum(hom_block_sizes) + np.sum(reversed_level_params[
+                                                                                   :reversed_level_params.index(
+                                                                                       fine_step)])  # Add fine samples to ensure larger domains for interpolations
+        larger_domain_reduced_by_homogenization = larger_domain_size
+        for hb_size in hom_block_sizes:
+            larger_domain_reduced_by_homogenization -= hb_size
+
+        print("new larger_domain_size ", larger_domain_size)
+        print("larger_domain_reduced_by_homogenization ", larger_domain_reduced_by_homogenization)
+        print("hom block size ", hom_block_sizes)
+
+        self.centers_3d = SRFFromTensorPopulation.calculate_all_centers(larger_domain_size, hom_block_sizes, overlap=hom_block_sizes[0]/2)
 
         # if config_dict["sim_config"]["bulk_fine_sample_model"] == "choice":
         #     srf_model = SpatialCorrelatedFieldHomChoice()
@@ -44,6 +67,32 @@ class SRFFromTensorPopulation:
         #     self._fields = cf.Fields([field_cond_tn])
         #     print("SRF MODEL corr length: {}, sigma: {}".format(srf_model._corr_length, srf_model.sigma))
 
+    @staticmethod
+    def calculate_all_centers(domain_size, block_size, overlap):
+        start = -domain_size / 2 + block_size / 2
+        end = domain_size / 2 - block_size / 2
+
+        length = end - start
+        stride = block_size - overlap
+
+        # Calculate number of intervals, rounding up to cover full domain
+        num_intervals = int(np.ceil(length / stride))
+        n_centers = num_intervals + 1  # total centers
+
+        # Recalculate exact stride to cover full domain exactly
+        exact_stride = length / (n_centers - 1)
+
+        centers_1d = start + exact_stride * np.arange(n_centers)
+        print("centers_1d ", centers_1d)
+
+        # Generate 3D centers meshgrid
+        z, y, x = np.meshgrid(centers_1d, centers_1d, centers_1d, indexing='ij')
+        centers_3d = np.stack([x.ravel(), y.ravel(), z.ravel()], axis=1)
+        print("centers_3d.shape ", centers_3d.shape)
+
+        print("centers 3d ", centers_3d)
+
+        return centers_3d
 
     @staticmethod
     def symmetrize_cond_tns(cond_tns):
@@ -53,18 +102,27 @@ class SRFFromTensorPopulation:
         return cond_tns
 
     def _get_tensors(self, config_dict):
-        if "pred_cond_tn_pop_file" in config_dict["fine"]:
-            cond_pop_file = config_dict["fine"]["pred_cond_tn_pop_file"]
-        else:
-            cond_pop_file = config_dict["fine"]["cond_tn_pop_file"]
+        cond_pop_file = config_dict["fine"]['cond_tn_pop_file']
+        cond_pop_coords_file = config_dict["fine"]['cond_tn_pop_coords_file']
         self._cond_tns = np.load(cond_pop_file)
+        self._cond_tns_coords = np.load(cond_pop_coords_file)
 
-    def generate_field(self, barycenters):
-        print("barycenters ", barycenters)
-        print("self._cond_tns shape ", self._cond_tns.shape)
+    def generate_field(self):
+        # print("barycenters ", barycenters)
+        # print("self._cond_tns shape ", self._cond_tns.shape)
+        #
+        # print("self._cond_tns_coords.shape ", self._cond_tns_coords.shape)
+        #
+        # barycenters = np.array([barycenters[0], barycenters[1], barycenters[2]]).T
 
-        barycenters = np.array([barycenters[0], barycenters[1], barycenters[2]]).T
+        #print("barycenters shape ", barycenters.shape)
 
-        print("barycenters shape ", barycenters.shape)
+        # Sample N indices independently with replacement from the M tensor samples
+        indices = np.random.choice(self._cond_tns.shape[0], size=self.centers_3d.shape[0], replace=True)
 
-        return cond_3d, barycenters
+        # Select sampled tensors
+        sampled_tensors = self._cond_tns[indices]  # shape: (N, 3, 3)
+
+        print("sampled_tensors ", sampled_tensors.shape)
+
+        return sampled_tensors, self.centers_3d
