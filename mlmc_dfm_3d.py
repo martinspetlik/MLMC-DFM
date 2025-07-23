@@ -1,4 +1,5 @@
 import os
+import shutil
 import sys
 import numpy as np
 import argparse
@@ -21,6 +22,7 @@ import ruamel.yaml
 import scipy.stats as stats
 import matplotlib.pyplot as plt
 import zarr
+import glob
 
 from scipy.spatial.distance import pdist, squareform
 from scipy.optimize import curve_fit
@@ -347,26 +349,52 @@ class ProcessSimple:
                             if cond_tn_pop_file is not None:
                                 sample_cond_tns = []
                                 sample_pred_cond_tns = []
-                                for s in range(int(sampler.n_finished_samples[level_id])):
-                                    sample_dir_name = "L{:02d}_S{:07d}".format(level_id, s)
-                                    sample_dir = os.path.join(os.path.join(self.work_dir, "output"), sample_dir_name)
 
-                                    print('sample_dir ', sample_dir)
+                                directory = level_instance_obj.config_dict["coarse"]["common_files_dir"]
+                                name, ext = os.path.splitext(DFMSim3D.COND_TN_VALUES_FILE)
+                                pattern = os.path.join(directory, f"{name}_*{ext}")
 
-                                    if not os.path.exists(sample_dir):
-                                        continue
-
-                                    sample_cond_tns_values_file = os.path.join(sample_dir, DFMSim3D.COND_TN_VALUES_FILE)
-                                    sample_cond_tns_coords_file = os.path.join(sample_dir, DFMSim3D.COND_TN_COORDS_FILE)
-
-                                    # Load file
-                                    loaded_cond_tns = np.load(sample_cond_tns_values_file)['data']
-                                    loaded_coords = np.load(sample_cond_tns_coords_file)['data']
-
-                                    #ProcessSimple.get_corr_lengths(loaded_coords, loaded_cond_tns, use_log=True)
-
+                                for file_path in glob.glob(pattern):
+                                    # Do something with file_path
+                                    print("Found file:", file_path)
+                                    loaded_cond_tns = np.load(file_path)['data']
                                     if len(sample_cond_tns) < 15000:
                                          sample_cond_tns.extend(list(loaded_cond_tns))
+
+                                name, ext = os.path.splitext(DFMSim3D.COND_TN_COORDS_FILE)
+                                pattern = os.path.join(directory, f"{name}_*{ext}")
+
+                                for file_path in glob.glob(pattern):
+                                    # Do something with file_path
+                                    print("Found file:", file_path)
+                                    loaded_coords = np.load(file_path)['data']
+                                    break
+
+
+                                # for s in range(int(sampler.n_finished_samples[level_id])):
+                                #     sample_dir_name = "L{:02d}_S{:07d}".format(level_id, s)
+                                #     sample_dir = os.path.join(os.path.join(self.work_dir, "output"), sample_dir_name)
+                                #
+                                #     print('sample_dir ', sample_dir)
+                                #
+                                #     if not os.path.exists(sample_dir):
+                                #         continue
+                                #
+                                #     sample_cond_tns_values_file = os.path.join(sample_dir, DFMSim3D.COND_TN_VALUES_FILE)
+                                #     sample_cond_tns_coords_file = os.path.join(sample_dir, DFMSim3D.COND_TN_COORDS_FILE)
+                                #
+                                #     # Load file
+                                #     loaded_cond_tns = np.load(sample_cond_tns_values_file)['data']
+                                #     loaded_coords = np.load(sample_cond_tns_coords_file)['data']
+                                #
+                                #     #ProcessSimple.get_corr_lengths(loaded_coords, loaded_cond_tns, use_log=True)
+                                #
+                                #     if len(sample_cond_tns) < 15000:
+                                #          sample_cond_tns.extend(list(loaded_cond_tns))
+
+                                    # if not self.debug:
+                                    #     shutil.rmtree(sample_dir)
+
 
                                     # sample_pred_cond_tns_file = os.path.join(sample_dir, DFMSim3D.PRED_COND_TN_FILE)
                                     #

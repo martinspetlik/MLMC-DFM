@@ -42,6 +42,7 @@ from bgem.upscale import *
 import scipy.interpolate as sc_interpolate
 import cProfile
 import pstats
+from datetime import datetime
 
 #os.environ["CUDA_VISIBLE_DEVICES"]=""
 
@@ -3315,8 +3316,8 @@ class DFMSim3D(Simulation):
 
             DFMSim3D._save_tensors(cond_tensors, file=os.path.join(current_dir, DFMSim3D.COND_TN_FILE))
 
-            DFMSim3D._save_tensor_values(cond_tensors, file=os.path.join(current_dir, DFMSim3D.COND_TN_VALUES_FILE))
-            DFMSim3D._save_tensor_coords(cond_tensors, file=os.path.join(current_dir, DFMSim3D.COND_TN_COORDS_FILE))
+            DFMSim3D._save_tensor_values(cond_tensors, file=os.path.join(config["coarse"]["common_files_dir"], DFMSim3D.COND_TN_VALUES_FILE))
+            DFMSim3D._save_tensor_coords(cond_tensors, file=os.path.join(config["coarse"]["common_files_dir"], DFMSim3D.COND_TN_COORDS_FILE))
 
             hom_bulk_cond_values, hom_bulk_cond_points = np.squeeze(np.array(list(cond_tensors.values()))), np.array(list(cond_tensors.keys()))
 
@@ -3556,14 +3557,29 @@ class DFMSim3D(Simulation):
             yaml.dump(cond_tensors, f)
 
     @staticmethod
+    def file_name_with_timestamp(file):
+        # Extract directory and base filename
+        directory, base_filename = os.path.split(file)
+        name, ext = os.path.splitext(base_filename)
+
+        # Create timestamped filename
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+        new_filename = f"{name}_{timestamp}{ext}"
+        return os.path.join(directory, new_filename)
+
+    @staticmethod
     def _save_tensor_values(cond_tensors, file):
+        full_path = DFMSim3D.file_name_with_timestamp(file)
+
         values_to_save = np.array([v[0] for v in cond_tensors.values()])
-        np.savez_compressed(file, data=values_to_save)
+        np.savez_compressed(full_path, data=values_to_save)
 
     @staticmethod
     def _save_tensor_coords(cond_tensors, file):
+        full_path = DFMSim3D.file_name_with_timestamp(file)
+
         coords_to_save = np.array(list(cond_tensors.keys()))
-        np.savez_compressed(file, data=coords_to_save)
+        np.savez_compressed(full_path, data=coords_to_save)
 
     # @staticmethod
     # def _run_homogenization_sample(flow_problem, config, format="gmsh"):
