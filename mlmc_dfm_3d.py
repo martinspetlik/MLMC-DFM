@@ -54,12 +54,12 @@ class ProcessSimple:
         self.use_pbs = False
         self.generate_samples_per_level = True
         # Use PBS sampling pool
-        self.n_levels = 2
-        self._levels_fine_srf_from_population = [0]
+        self.n_levels = 3
+        self._levels_fine_srf_from_population = [0, 1]
         self.n_moments = 3
         # Number of MLMC levels
 
-        step_range = [10, 5]
+        step_range = [20, 5]
         #step_range = [40, 5]
         #step_range = [20, 10]
 
@@ -68,6 +68,8 @@ class ProcessSimple:
         # Determine level parameters at each level (In this case, simulation step at each level) are set automatically
         self.level_parameters = estimator.determine_level_parameters(self.n_levels, step_range)
         #self.level_parameters = [self.level_parameters[4]]
+
+        print("self.level_parameters ", self.level_parameters)
 
         #self.level_parameters = [12.3607, 5.3459, 2.3121, 1, 0.4325]
         #self.n_levels = 1
@@ -110,7 +112,7 @@ class ProcessSimple:
         if recollect:
             raise NotImplementedError("Not supported in released version")
         else:
-            self.generate_jobs(sampler, n_samples=[1, 1, 1], renew=renew)#[1, 1, 1, 3, 3, 3, 3], renew=renew)
+            self.generate_jobs(sampler, n_samples=[1, 5, 1], renew=renew)#[1, 1, 1, 3, 3, 3, 3], renew=renew)
             #self.generate_jobs(sampler, n_samples=[100, 2],renew=renew, target_var=1e-5)
             self.all_collect(sampler)  # Check if all samples are finished
 
@@ -129,6 +131,23 @@ class ProcessSimple:
         with open(os.path.join(self.work_dir, "sim_config_3D.yaml"), "r") as f:
             sim_config_dict = yaml.load(f, Loader=yaml.FullLoader)
 
+        if "nn_path_levels" in sim_config_dict:
+            print("nn path levels dict ", sim_config_dict["nn_path_levels"])
+            expected_keys = set(range(self.n_levels - 1, 0, -1))
+            actual_keys = set(sim_config_dict["nn_path_levels"].keys())
+            assert expected_keys.issubset(actual_keys), "'nn_path_levels' keys do not correspond to the set number of levels"
+
+            # Create new mapping: param_value → path
+            new_dict = {}
+            # We skip level 0 — it has no entry in nn_path_levels
+            for level in range(1, self.n_levels):
+                param_value = self.level_parameters[level][0]  # index level → param
+                if level in sim_config_dict["nn_path_levels"]:
+                    path = sim_config_dict["nn_path_levels"][level]
+                    new_dict[param_value] = path
+            # Replace with new dict
+            sim_config_dict["nn_path_levels"] = new_dict
+
         sim_config_dict['fields_params'] = dict(model='exp', corr_length=0.1, sigma=1, mode_no=10000)
         sim_config_dict['field_template'] = "!FieldFE {mesh_data_file: \"$INPUT_DIR$/%s\", field_name: %s}"
         sim_config_dict['env'] = dict(flow123d=self.flow123d, gmsh=self.gmsh, gmsh_version=1)  # The Environment.
@@ -139,7 +158,6 @@ class ProcessSimple:
         sim_config_dict['yaml_file_homogenization_vtk'] = os.path.join(self.work_dir, 'flow_templ_vtk.yaml')
         sim_config_dict['level_parameters'] = self.level_parameters
         sim_config_dict['levels_fine_srf_from_population'] = self._levels_fine_srf_from_population
-
 
         # Create simulation factory
         simulation_factory = DFMSim3D(config=sim_config_dict, clean=clean)
@@ -298,7 +316,6 @@ class ProcessSimple:
             inputs.attrs['channel_names'] = ['cond_tn_0', 'cond_tn_1', 'cond_tn_2', 'cond_tn_3', 'cond_tn_4', 'cond_tn_5']
             outputs.attrs['channel_names'] = ['cond_tn_0', 'cond_tn_1', 'cond_tn_2', 'cond_tn_3', 'cond_tn_4', 'cond_tn_5']
             bulk_avg.attrs['channel_names'] = ['cond_tn_0', 'cond_tn_1', 'cond_tn_2', 'cond_tn_3', 'cond_tn_4', 'cond_tn_5']
-
 
     def generate_jobs(self, sampler, n_samples=None, renew=False, target_var=None):
         """
@@ -958,6 +975,7 @@ class ProcessSimple:
         dp.log_var_per_level(estimate_obj.moments_mean_obj.l_vars, moments=range(self.n_moments))
         dp.log_mean_per_level(estimate_obj.moments_mean_obj.l_means, moments=range(self.n_moments))
         dp.sample_cost_per_level(n_ops)
+        dp.variance_to_cost_ratio(estimate_obj.moments_mean_obj.l_vars, n_ops, moments=range(self.n_moments))
         dp.kurtosis_per_level(estimate_obj.moments_mean_obj.mean, estimate_obj.moments_mean_obj.l_means, moments=range(self.n_moments))
 
         # from mlmc.plot.plots import Distribution

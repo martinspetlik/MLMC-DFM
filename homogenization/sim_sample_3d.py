@@ -268,6 +268,8 @@ class DFMSim3D(Simulation):
         config["fine"]["step"] = fine_step
         config["coarse"]["step"] = coarse_step
         config["sim_config"] = self.config_dict
+        if "nn_path_levels" in self.config_dict and fine_step in self.config_dict["nn_path_levels"]:
+            config["sim_config"]["nn_path"] = self.config_dict["nn_path_levels"][fine_step]
         config["fine"]["common_files_dir"] = common_files_dir
 
         if coarse_step != 0:
@@ -2387,6 +2389,7 @@ class DFMSim3D(Simulation):
 
         if DFMSim3D.model is None:
             nn_path = config["sim_config"]["nn_path"]
+            print("nn_path ", nn_path)
             study = load_study(nn_path)
             model_path = get_saved_model_path(nn_path, study.best_trial)
             model_kwargs = study.best_trial.user_attrs["model_kwargs"]
@@ -2847,9 +2850,6 @@ class DFMSim3D(Simulation):
                 print("points ", points)
                 print("points.shape ", points.shape)
                 print("values ", values.shape)
-
-                exit()
-
 
             else:
                 if config["sim_config"]["use_larger_domain"]:
