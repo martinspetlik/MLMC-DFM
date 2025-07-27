@@ -18,25 +18,31 @@ class SRFFromTensorPopulation:
         self._rf_sample = None
 
         fine_step = config_dict["fine"]["step"]
-        reversed_level_params = list(np.squeeze(config_dict["sim_config"]["level_parameters"]))[::-1]
-        hom_block_sizes = np.array(reversed_level_params[1:reversed_level_params.index(fine_step) + 1]) * 1.5
+        print("fine step ", fine_step)
+        print("coarse step ", config_dict["coarse"]["step"])
 
-        orig_domain_box = config_dict["sim_config"]["geometry"]["orig_domain_box"]
+        coarse_step = config_dict["coarse"]["step"]
 
-        print("reversed level params ", reversed_level_params)
+        if coarse_step == 0:
+            hom_block_size = config_dict["fine"]["step"] * 1.5
+            orig_domain_box = config_dict["sim_config"]["geometry"]["orig_domain_box"]
+            print("orig_domain_box ", orig_domain_box)
+            larger_domain_size = orig_domain_box[0] + hom_block_size
+        else:
+            hom_block_size = config_dict["coarse"]["step"] * 1.5
+            orig_domain_box = config_dict["sim_config"]["geometry"]["orig_domain_box"]
+            print("orig_domain_box ", orig_domain_box)
+            larger_domain_size = orig_domain_box[0] + hom_block_size + fine_step
 
-        larger_domain_size = orig_domain_box[0] + np.sum(hom_block_sizes) + np.sum(reversed_level_params[
-                                                                                   :reversed_level_params.index(
-                                                                                       fine_step)])  # Add fine samples to ensure larger domains for interpolations
-        larger_domain_reduced_by_homogenization = larger_domain_size
-        for hb_size in hom_block_sizes:
-            larger_domain_reduced_by_homogenization -= hb_size
+        # larger_domain_reduced_by_homogenization = larger_domain_size
+        # for hb_size in hom_block_sizes:
+        #     larger_domain_reduced_by_homogenization -= hb_size
 
         print("new larger_domain_size ", larger_domain_size)
-        print("larger_domain_reduced_by_homogenization ", larger_domain_reduced_by_homogenization)
-        print("hom block size ", hom_block_sizes)
+        #print("larger_domain_reduced_by_homogenization ", larger_domain_reduced_by_homogenization)
+        print("hom block size ", hom_block_size)
 
-        self.centers_3d = SRFFromTensorPopulation.calculate_all_centers(larger_domain_size, hom_block_sizes, overlap=hom_block_sizes[0]/2)
+        self.centers_3d = SRFFromTensorPopulation.calculate_all_centers(larger_domain_size, hom_block_size, overlap=hom_block_size/2)
 
         # if config_dict["sim_config"]["bulk_fine_sample_model"] == "choice":
         #     srf_model = SpatialCorrelatedFieldHomChoice()

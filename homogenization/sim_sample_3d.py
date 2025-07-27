@@ -2102,6 +2102,44 @@ class DFMSim3D(Simulation):
 
         interp = sc_interpolate.RegularGridInterpolator((x_unique, y_unique, z_unique), values_grid, method='nearest')
         target_points = grid_rast.barycenters()  # shape: (M, 3)
+
+        from scipy.spatial import Delaunay
+        # Create Delaunay triangulation of known points
+        tri = Delaunay(bulk_cond_points)
+        # Check if barycenters are inside the convex hull
+        inside_mask = tri.find_simplex(target_points) >= 0
+        # inside_mask is a boolean array, True if inside hull, False if outside
+        outside_mask = ~inside_mask
+
+        print(f"Points inside convex hull: {np.sum(inside_mask)}")
+        print(f"Points outside convex hull: {np.sum(outside_mask)}")
+
+        # Given unique grid axes (1D arrays)
+        # x_unique = np.unique(bulk_cond_points[:, 0])
+        # y_unique = np.unique(subdomain_bulk_cond_points[:, 1])
+        # z_unique = np.unique(subdomain_bulk_cond_points[:, 2])
+
+        print("x_unique ", x_unique)
+        print("y_unique ", y_unique)
+        print("z_unique ", z_unique)
+
+        # Compute bounding box corners
+        bbox_min = np.array([x_unique.min(), y_unique.min(), z_unique.min()])
+        bbox_max = np.array([x_unique.max(), y_unique.max(), z_unique.max()])
+
+        # Your points to check (M x 3)
+        points = target_points
+
+        # Test if points lie inside bounding box (inclusive)
+        inside_bbox_mask = np.all((points >= bbox_min) & (points <= bbox_max), axis=1)
+
+        # Summary
+        print(f"Points inside bounding box: {np.sum(inside_bbox_mask)} / {len(points)}")
+        print(f"Points outside bounding box: {len(points) - np.sum(inside_bbox_mask)}")
+
+        outside_points = points[~inside_bbox_mask]
+        print("outside points ", outside_points)
+
         resized_data = interp(target_points)
         return resized_data
 
@@ -3038,6 +3076,7 @@ class DFMSim3D(Simulation):
 
         # Generate fine SRF based on population of tensors
         elif list(np.squeeze(config["sim_config"]["level_parameters"], axis=1)).index(config["fine"]["step"]) in config["sim_config"]["levels_fine_srf_from_population"]:
+
             dfn_to_fine_list = []
             for fr in dfn:
                 if fr.r >= fine_step:
@@ -3283,7 +3322,6 @@ class DFMSim3D(Simulation):
 
                     pr = cProfile.Profile()
                     pr.enable()
-
 
                     cond_tensors, pred_cond_tensors_homo = DFMSim3D.homogenization(config, dfn_to_homogenization,
                                                                                    dfn_to_homogenization_list,
