@@ -75,8 +75,8 @@ class SRFFromTensorPopulation:
 
     @staticmethod
     def calculate_all_centers(domain_size, block_size, overlap):
-        start = -domain_size / 2 + block_size / 2
-        end = domain_size / 2 - block_size / 2
+        start = -domain_size / 2 #+ block_size / 2
+        end = domain_size / 2 #- block_size / 2
 
         length = end - start
         stride = block_size - overlap
