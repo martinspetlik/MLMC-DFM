@@ -987,12 +987,15 @@ class DFMSim3D(Simulation):
         #box_fr, fractures_fr = factory.fragment(box, fractures_group)
         fr_dict, fr_bnd_dict = DFMSim3D.fragment(factory, vol_dict, bnd_dict)
 
+        #fr_dict.mesh_step(fr_step)
+
         #[print(k, v) for k, v in fr_dict.items()]
         #[print(k, v) for k, v in fr_bnd_dict.items()]
 
         geometry_set = list(fr_dict.values())
 
-        #print("box_sides_dict 2", box_sides_dict)
+        for geometry_obj in geometry_set:
+            geometry_obj.mesh_step(bulk_step)
 
         for side_name, side in box_sides.items():
             fr_bnd_dict[side_name + "_fr"] \
@@ -1113,7 +1116,6 @@ class DFMSim3D(Simulation):
         :param center: Center point (x, y, z) of the simulation domain
         :return: Tuple (mesh_file, fr_region_map) with the path to the .msh2 mesh file and region map of fractures
         """
-
         factory = gmsh.GeometryOCC("homo_cube", verbose=False)
         gopt = options.Geometry()
         gopt.Tolerance = 0.0001
@@ -1130,6 +1132,7 @@ class DFMSim3D(Simulation):
         objects = [box_fr, fractures_fr]
         factory.write_brep(str(factory.model_name))
 
+        #factory.mesh_options.CharacteristicLengthMin = bulk_step
         factory.mesh_options.CharacteristicLengthMax = bulk_step
         factory.mesh_options.Algorithm = options.Algorithm3d.Delaunay
 
@@ -1792,7 +1795,6 @@ class DFMSim3D(Simulation):
         # print("bulk_elements_barycenters.shape ", bulk_elements_barycenters.shape)
         # print("bulk_elements_barycenters[0] min: {}, max: {}".format(np.min(bulk_elements_barycenters[:, 0]),
         #                                                              np.max(bulk_elements_barycenters[:, 0])))
-
         # from scipy.spatial import Delaunay
         # # Create Delaunay triangulation of known points
         # tri = Delaunay(bulk_cond_points)
@@ -2192,6 +2194,45 @@ class DFMSim3D(Simulation):
         return equivalent_cond_tn_voigt, fr_cond, fr_region_map
 
     @staticmethod
+    def get_fracture_to_matrix_ratio(fr_cond, bulk_cond_fem_rast):
+        fracture_cond = fr_cond[:, 0, 0]  # shape (N,)
+        fracture_mean = np.mean(fracture_cond)
+        fracture_median = np.median(fracture_cond)
+        # 2. Extract matrix conductivity from the bulk (e.g. (1,1) component)
+        matrix_cond = bulk_cond_fem_rast[:, 1, 1]  # shape (N,)
+        matrix_cond = matrix_cond[matrix_cond > 0]  # avoid invalid values
+        matrix_mean = np.mean(matrix_cond)
+        matrix_median = np.median(matrix_cond)
+
+        print("fracture_cond.shape ", fracture_cond.shape)
+        print("matrix_cond.shape ", matrix_cond.shape)
+
+        print("fracture mean ", fracture_mean)
+        print("fracture median ", fracture_median)
+
+        print("matrix mean ", matrix_mean)
+        print("matrix median ", matrix_median)
+
+        sample_ratio_mean = fracture_mean / matrix_mean
+        sample_ratio_median = fracture_median / matrix_median
+
+        print("sample_ratio_mean ", sample_ratio_mean)
+        print("sample_ratio_median ", sample_ratio_median)
+
+        # 4. Find closest available ratio
+        available_ratios = np.array([1e7, 1e5, 1e4, 1e3])
+        log_sample_ratio = np.log10(sample_ratio_mean)
+        print("log_sample_ratio ", log_sample_ratio)
+        closest_ratio = available_ratios[np.argmin(np.abs(np.log10(available_ratios) - log_sample_ratio))]
+        print("closest ratio mean ", closest_ratio)
+
+        log_sample_ratio = np.log10(sample_ratio_median)
+        print("log_sample_ratio ", log_sample_ratio)
+        closest_ratio = available_ratios[np.argmin(np.abs(np.log10(available_ratios) - log_sample_ratio))]
+        print("closest ratio median ", closest_ratio)
+
+
+    @staticmethod
     def rasterize_at_once_zarr(config, dfn_to_homogenization, bulk_cond_values, bulk_cond_points, fem_grid_rast, n_subdomains_per_axes):
         zarr_file_path = DFMSim3D.create_zarr_file(os.getcwd(), n_samples=int(n_subdomains_per_axes ** 3), config_dict=config, centers=True)
 
@@ -2205,9 +2246,14 @@ class DFMSim3D(Simulation):
         if len(dfn_to_homogenization) > 0:
             fr_cross_section, fr_cond = DFMSim3D.fr_conductivity(dfn_to_homogenization, cross_section_factor=1e-4)
 
+        print("fr cond ", fr_cond)
+
         bulk_cond_fem_rast_voigt = tn_to_voigt(bulk_cond_fem_rast)
         bulk_cond_fem_rast_voigt = bulk_cond_fem_rast_voigt.reshape(*fem_grid_n_steps, bulk_cond_fem_rast_voigt.shape[-1]).T
-        #print("bulk cond fem rast ", bulk_cond_fem_rast.shape)
+        print("bulk cond fem rast ", bulk_cond_fem_rast.shape)
+
+        DFMSim3D.get_fracture_to_matrix_ratio(fr_cond, bulk_cond_fem_rast)
+        exit()
 
         #print("len(dfn_to_homogenization) ", len(dfn_to_homogenization))
 
