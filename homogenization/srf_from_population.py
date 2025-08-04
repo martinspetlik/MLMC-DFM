@@ -23,13 +23,22 @@ class SRFFromTensorPopulation:
 
         coarse_step = config_dict["coarse"]["step"]
 
+        hom_block_size = config_dict["fine"]["step"] * 1.5
+        if "hom_box_fine_step_mult" in config_dict["sim_config"]:
+            level_parameters = list(np.squeeze(config_dict["sim_config"]["level_parameters"], axis=1))
+            print("level parameters", level_parameters)
+            current_level_index = list(np.squeeze(config_dict["sim_config"]["level_parameters"], axis=1)).index(config_dict["fine"]["step"])
+            print("current_level_index ", current_level_index)
+
+            previous_level_fine_step = level_parameters[current_level_index + 1]
+
+            hom_block_size = previous_level_fine_step * config_dict["sim_config"]["hom_box_fine_step_mult"]
+
         if coarse_step == 0:
-            hom_block_size = config_dict["fine"]["step"] * 1.5
             orig_domain_box = config_dict["sim_config"]["geometry"]["orig_domain_box"]
             print("orig_domain_box ", orig_domain_box)
             larger_domain_size = orig_domain_box[0] + hom_block_size
         else:
-            hom_block_size = config_dict["coarse"]["step"] * 1.5
             orig_domain_box = config_dict["sim_config"]["geometry"]["orig_domain_box"]
             print("orig_domain_box ", orig_domain_box)
             larger_domain_size = orig_domain_box[0] + hom_block_size + fine_step

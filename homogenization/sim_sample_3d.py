@@ -2122,8 +2122,8 @@ class DFMSim3D(Simulation):
         # z_unique = np.unique(subdomain_bulk_cond_points[:, 2])
 
         print("x_unique ", x_unique)
-        print("y_unique ", y_unique)
-        print("z_unique ", z_unique)
+        # print("y_unique ", y_unique)
+        # print("z_unique ", z_unique)
 
         # Compute bounding box corners
         bbox_min = np.array([x_unique.min(), y_unique.min(), z_unique.min()])
@@ -2146,11 +2146,15 @@ class DFMSim3D(Simulation):
         return resized_data
 
     @staticmethod
-    def _calculate_subdomains(coarse_step, geometry):
+    def _calculate_subdomains(coarse_step, geometry, hom_box_size=None):
         print("coarse step ", coarse_step)
+        print("hom box size ", hom_box_size)
         #print("geometry ", geometry)
         if coarse_step > 0:
-            hom_box_size = coarse_step * 1.5
+            if hom_box_size is None:
+                hom_box_size = coarse_step * 1.5
+
+            print("hom box size ", hom_box_size)
             domain_box_size = geometry["orig_domain_box"][0]
             n_centers = np.round(domain_box_size / hom_box_size)
             n_total_centers = np.round(n_centers * geometry["pixel_stride_div"] + 1)
@@ -2194,7 +2198,7 @@ class DFMSim3D(Simulation):
         return equivalent_cond_tn_voigt, fr_cond, fr_region_map
 
     @staticmethod
-    def get_fracture_to_matrix_ratio(fr_cond, bulk_cond_fem_rast):
+    def get_fracture_to_matrix_ratio(fr_cond, bulk_cond_fem_rast, available_ratios):
         fracture_cond = fr_cond[:, 0, 0]  # shape (N,)
         fracture_mean = np.mean(fracture_cond)
         fracture_median = np.median(fracture_cond)
@@ -2203,9 +2207,6 @@ class DFMSim3D(Simulation):
         matrix_cond = matrix_cond[matrix_cond > 0]  # avoid invalid values
         matrix_mean = np.mean(matrix_cond)
         matrix_median = np.median(matrix_cond)
-
-        print("fracture_cond.shape ", fracture_cond.shape)
-        print("matrix_cond.shape ", matrix_cond.shape)
 
         print("fracture mean ", fracture_mean)
         print("fracture median ", fracture_median)
@@ -2219,17 +2220,18 @@ class DFMSim3D(Simulation):
         print("sample_ratio_mean ", sample_ratio_mean)
         print("sample_ratio_median ", sample_ratio_median)
 
+
         # 4. Find closest available ratio
-        available_ratios = np.array([1e7, 1e5, 1e4, 1e3])
         log_sample_ratio = np.log10(sample_ratio_mean)
         print("log_sample_ratio ", log_sample_ratio)
         closest_ratio = available_ratios[np.argmin(np.abs(np.log10(available_ratios) - log_sample_ratio))]
         print("closest ratio mean ", closest_ratio)
 
-        log_sample_ratio = np.log10(sample_ratio_median)
-        print("log_sample_ratio ", log_sample_ratio)
-        closest_ratio = available_ratios[np.argmin(np.abs(np.log10(available_ratios) - log_sample_ratio))]
-        print("closest ratio median ", closest_ratio)
+        # log_sample_ratio = np.log10(sample_ratio_median)
+        # print("log_sample_ratio ", log_sample_ratio)
+        # closest_ratio = available_ratios[np.argmin(np.abs(np.log10(available_ratios) - log_sample_ratio))]
+        # print("closest ratio median ", closest_ratio)
+        return closest_ratio
 
 
     @staticmethod
@@ -2246,16 +2248,14 @@ class DFMSim3D(Simulation):
         if len(dfn_to_homogenization) > 0:
             fr_cross_section, fr_cond = DFMSim3D.fr_conductivity(dfn_to_homogenization, cross_section_factor=1e-4)
 
-        print("fr cond ", fr_cond)
-
         bulk_cond_fem_rast_voigt = tn_to_voigt(bulk_cond_fem_rast)
         bulk_cond_fem_rast_voigt = bulk_cond_fem_rast_voigt.reshape(*fem_grid_n_steps, bulk_cond_fem_rast_voigt.shape[-1]).T
-        print("bulk cond fem rast ", bulk_cond_fem_rast.shape)
 
-        DFMSim3D.get_fracture_to_matrix_ratio(fr_cond, bulk_cond_fem_rast)
-        exit()
-
-        #print("len(dfn_to_homogenization) ", len(dfn_to_homogenization))
+        closest_frac_bulk_cond_ratio = None
+        if "nn_path_cond_frac" in config["sim_config"]:
+            available_cond_frac_ratios = list(config["sim_config"]["nn_path_cond_frac"].keys())
+            print("available ratios ", available_cond_frac_ratios)
+            closest_frac_bulk_cond_ratio = DFMSim3D.get_fracture_to_matrix_ratio(fr_cond, bulk_cond_fem_rast, available_cond_frac_ratios)
 
         if len(dfn_to_homogenization) == 0:
             rasterized_input = bulk_cond_fem_rast
@@ -2472,7 +2472,10 @@ class DFMSim3D(Simulation):
         import torch.autograd.profiler as profiler
 
         if DFMSim3D.model is None:
-            nn_path = config["sim_config"]["nn_path"]
+            if closest_frac_bulk_cond_ratio is not None:
+                nn_path = config["sim_config"]["nn_path_cond_frac"][closest_frac_bulk_cond_ratio]
+            else:
+                nn_path = config["sim_config"]["nn_path"]
             print("nn_path ", nn_path)
             study = load_study(nn_path)
             model_path = get_saved_model_path(nn_path, study.best_trial)
@@ -3011,7 +3014,10 @@ class DFMSim3D(Simulation):
         sim_config = config["sim_config"]
         geom = sim_config["geometry"]
 
-        subdomain_box, n_nonoverlap_subdomains, n_subdomains_per_axes = DFMSim3D._calculate_subdomains(coarse_step, config["sim_config"]["geometry"])
+        if "hom_box_fine_step_mult" in sim_config:
+            subdomain_box, n_nonoverlap_subdomains, n_subdomains_per_axes = DFMSim3D._calculate_subdomains(coarse_step, config["sim_config"]["geometry"], hom_box_size=fine_step*sim_config["hom_box_fine_step_mult"])
+        else:
+            subdomain_box, n_nonoverlap_subdomains, n_subdomains_per_axes = DFMSim3D._calculate_subdomains(coarse_step, config["sim_config"]["geometry"])
 
         print("calculated subdomain box: {}, n subdomains per axes: {}, n_nonoverlap_subdomains: {}".format(subdomain_box, n_subdomains_per_axes, n_nonoverlap_subdomains))
 
@@ -3122,7 +3128,6 @@ class DFMSim3D(Simulation):
 
         # Generate fine SRF based on population of tensors
         elif list(np.squeeze(config["sim_config"]["level_parameters"], axis=1)).index(config["fine"]["step"]) in config["sim_config"]["levels_fine_srf_from_population"]:
-
             dfn_to_fine_list = []
             for fr in dfn:
                 if fr.r >= fine_step:
@@ -3277,7 +3282,11 @@ class DFMSim3D(Simulation):
             dfn_to_homogenization_list = []
             dfn_to_coarse_list = []
             for fr in dfn:
-                if fr.r <= coarse_step:
+                hom_max_r = coarse_step
+                if "hom_box_fine_step_mult" in sim_config: # homogenization block size determined by fine_step
+                    hom_max_r = fine_step * sim_config["hom_box_fine_step_mult"] * (2/3) # maximal fracture size is 2/3 homogenization block size
+
+                if fr.r <= hom_max_r:
                     dfn_to_homogenization_list.append(fr)
                 else:
                     #print("coarse fr.r ", fr.r)
