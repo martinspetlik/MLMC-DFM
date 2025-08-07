@@ -2105,42 +2105,42 @@ class DFMSim3D(Simulation):
         interp = sc_interpolate.RegularGridInterpolator((x_unique, y_unique, z_unique), values_grid, method='nearest')
         target_points = grid_rast.barycenters()  # shape: (M, 3)
 
-        from scipy.spatial import Delaunay
-        # Create Delaunay triangulation of known points
-        tri = Delaunay(bulk_cond_points)
-        # Check if barycenters are inside the convex hull
-        inside_mask = tri.find_simplex(target_points) >= 0
-        # inside_mask is a boolean array, True if inside hull, False if outside
-        outside_mask = ~inside_mask
-
-        print(f"Points inside convex hull: {np.sum(inside_mask)}")
-        print(f"Points outside convex hull: {np.sum(outside_mask)}")
-
-        # Given unique grid axes (1D arrays)
-        # x_unique = np.unique(bulk_cond_points[:, 0])
-        # y_unique = np.unique(subdomain_bulk_cond_points[:, 1])
-        # z_unique = np.unique(subdomain_bulk_cond_points[:, 2])
-
-        print("x_unique ", x_unique)
-        # print("y_unique ", y_unique)
-        # print("z_unique ", z_unique)
-
-        # Compute bounding box corners
-        bbox_min = np.array([x_unique.min(), y_unique.min(), z_unique.min()])
-        bbox_max = np.array([x_unique.max(), y_unique.max(), z_unique.max()])
-
-        # Your points to check (M x 3)
-        points = target_points
-
-        # Test if points lie inside bounding box (inclusive)
-        inside_bbox_mask = np.all((points >= bbox_min) & (points <= bbox_max), axis=1)
-
-        # Summary
-        print(f"Points inside bounding box: {np.sum(inside_bbox_mask)} / {len(points)}")
-        print(f"Points outside bounding box: {len(points) - np.sum(inside_bbox_mask)}")
-
-        outside_points = points[~inside_bbox_mask]
-        print("outside points ", outside_points)
+        # from scipy.spatial import Delaunay
+        # # Create Delaunay triangulation of known points
+        # tri = Delaunay(bulk_cond_points)
+        # # Check if barycenters are inside the convex hull
+        # inside_mask = tri.find_simplex(target_points) >= 0
+        # # inside_mask is a boolean array, True if inside hull, False if outside
+        # outside_mask = ~inside_mask
+        #
+        # print(f"Points inside convex hull: {np.sum(inside_mask)}")
+        # print(f"Points outside convex hull: {np.sum(outside_mask)}")
+        #
+        # # Given unique grid axes (1D arrays)
+        # # x_unique = np.unique(bulk_cond_points[:, 0])
+        # # y_unique = np.unique(subdomain_bulk_cond_points[:, 1])
+        # # z_unique = np.unique(subdomain_bulk_cond_points[:, 2])
+        #
+        # print("x_unique ", x_unique)
+        # # print("y_unique ", y_unique)
+        # # print("z_unique ", z_unique)
+        #
+        # # Compute bounding box corners
+        # bbox_min = np.array([x_unique.min(), y_unique.min(), z_unique.min()])
+        # bbox_max = np.array([x_unique.max(), y_unique.max(), z_unique.max()])
+        #
+        # # Your points to check (M x 3)
+        # points = target_points
+        #
+        # # Test if points lie inside bounding box (inclusive)
+        # inside_bbox_mask = np.all((points >= bbox_min) & (points <= bbox_max), axis=1)
+        #
+        # # Summary
+        # print(f"Points inside bounding box: {np.sum(inside_bbox_mask)} / {len(points)}")
+        # print(f"Points outside bounding box: {len(points) - np.sum(inside_bbox_mask)}")
+        #
+        # outside_points = points[~inside_bbox_mask]
+        # print("outside points ", outside_points)
 
         resized_data = interp(target_points)
         return resized_data
@@ -3137,7 +3137,6 @@ class DFMSim3D(Simulation):
             fr_media = FracturedMedia.fracture_cond_params(dfn, 1e-4, 0.00001)
 
             if "cond_tn_pop_file" in config["fine"] or "pred_cond_tn_pop_file" in config["fine"]:
-                bulk_conductivity = config["sim_config"]['bulk_conductivity']
                 bulk_model = SRFFromTensorPopulation(config)
                 bulk_cond_values, bulk_cond_points = bulk_model.generate_field()
 
