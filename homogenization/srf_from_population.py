@@ -23,21 +23,22 @@ class SRFFromTensorPopulation:
 
         coarse_step = config_dict["coarse"]["step"]
 
-        hom_block_size = config_dict["fine"]["step"] * 1.5
+        hom_block_size = int(fine_step * 3)
+
+        level_parameters = list(np.squeeze(config_dict["sim_config"]["level_parameters"], axis=1))
+        current_level_index = list(np.squeeze(config_dict["sim_config"]["level_parameters"], axis=1)).index(fine_step)
+        previous_level_fine_step = level_parameters[current_level_index + 1]
+
+        previous_level_hom_block_size = int(previous_level_fine_step * 3)
+
         if "hom_box_fine_step_mult" in config_dict["sim_config"]:
-            level_parameters = list(np.squeeze(config_dict["sim_config"]["level_parameters"], axis=1))
-            print("level parameters", level_parameters)
-            current_level_index = list(np.squeeze(config_dict["sim_config"]["level_parameters"], axis=1)).index(config_dict["fine"]["step"])
-            print("current_level_index ", current_level_index)
-
-            previous_level_fine_step = level_parameters[current_level_index + 1]
-
-            hom_block_size = previous_level_fine_step * config_dict["sim_config"]["hom_box_fine_step_mult"]
+            hom_block_size = int(fine_step * config_dict["sim_config"]["hom_box_fine_step_mult"])
+            previous_level_hom_block_size = int(previous_level_fine_step * config_dict["sim_config"]["hom_box_fine_step_mult"])
 
         if coarse_step == 0:
             orig_domain_box = config_dict["sim_config"]["geometry"]["orig_domain_box"]
             print("orig_domain_box ", orig_domain_box)
-            larger_domain_size = orig_domain_box[0] + hom_block_size
+            larger_domain_size = orig_domain_box[0] + previous_level_hom_block_size + previous_level_fine_step
         else:
             orig_domain_box = config_dict["sim_config"]["geometry"]["orig_domain_box"]
             print("orig_domain_box ", orig_domain_box)
@@ -50,8 +51,9 @@ class SRFFromTensorPopulation:
         print("new larger_domain_size ", larger_domain_size)
         #print("larger_domain_reduced_by_homogenization ", larger_domain_reduced_by_homogenization)
         print("hom block size ", hom_block_size)
+        print("previous level hom block size ", previous_level_hom_block_size)
 
-        self.centers_3d = SRFFromTensorPopulation.calculate_all_centers(larger_domain_size, hom_block_size, overlap=hom_block_size/2)
+        self.centers_3d = SRFFromTensorPopulation.calculate_all_centers(larger_domain_size, previous_level_hom_block_size, overlap=previous_level_hom_block_size/2)
 
         # if config_dict["sim_config"]["bulk_fine_sample_model"] == "choice":
         #     srf_model = SpatialCorrelatedFieldHomChoice()
@@ -104,8 +106,6 @@ class SRFFromTensorPopulation:
         z, y, x = np.meshgrid(centers_1d, centers_1d, centers_1d, indexing='ij')
         centers_3d = np.stack([x.ravel(), y.ravel(), z.ravel()], axis=1)
         print("centers_3d.shape ", centers_3d.shape)
-
-        print("centers 3d ", centers_3d)
 
         return centers_3d
 
