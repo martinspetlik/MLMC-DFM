@@ -334,6 +334,183 @@ class DFMSim3D(Simulation):
 
         return zarr_file_path
 
+    @staticmethod
+    def predict_on_hom_sample(config, bulk_cond_values, bulk_cond_points, dfn,
+                              fr_cond,
+                              fem_grid_rast, centers):
+        index = 0
+        batch_size = 1
+
+        n_steps = config["sim_config"]["geometry"]["n_voxels"]
+
+        zarr_file_path = DFMSim3D.create_zarr_file(os.getcwd(), n_samples=1, config_dict=config, centers=True)
+        zarr_file = zarr.open(zarr_file_path, mode='r+')
+
+        bulk_cond_fem_rast = DFMSim3D._bulk_cond_to_rast_grid(bulk_cond_values, bulk_cond_points,
+                                                              fem_grid_rast.grid)
+
+        bulk_cond_fem_rast_voigt = tn_to_voigt(bulk_cond_fem_rast)
+        bulk_cond_fem_rast_voigt = bulk_cond_fem_rast_voigt.reshape(*n_steps,
+                                                                    bulk_cond_fem_rast_voigt.shape[-1]).T
+
+        if len(dfn) == 0:
+            rasterized_input = bulk_cond_fem_rast
+        else:
+            rasterized_input = DFMSim3D.rasterize(fem_grid_rast, dfn, bulk_cond=bulk_cond_fem_rast, fr_cond=fr_cond)
+
+        rasterized_input_voigt = tn_to_voigt(rasterized_input)
+
+        # print("before reshape rasterized_input_voigt ", rasterized_input_voigt)
+        # print("before reshape rasterized_input_voigt shape", rasterized_input_voigt.shape)
+
+        rasterized_input_voigt = rasterized_input_voigt.reshape(*n_steps, rasterized_input_voigt.shape[-1]).T
+
+        # print("rasterized_input_voigt[:, 0, 0, 0] ", rasterized_input_voigt[:, 0, 0, 0])
+        #
+        # print("rasterized_input_voigt ", rasterized_input_voigt)
+        # print("rasterized_input_voigt shape ", rasterized_input_voigt.shape)
+
+        zarr_file["inputs"][index, :] = rasterized_input_voigt
+        zarr_file["centers"][index, :] = centers
+
+        # print("zarr_file[inputs][index, :].shape ", zarr_file["inputs"][index, :].shape)
+
+        hom_block_bulk = bulk_cond_fem_rast_voigt
+
+        # print("np.mean(hom_block_bulk, axis=(1, 2, 3)) ", np.mean(hom_block_bulk, axis=(1, 2, 3)))
+
+        zarr_file["bulk_avg"][index, :] = np.mean(hom_block_bulk, axis=(1, 2, 3))
+
+        # index += 1
+
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        import torch.autograd.profiler as profiler
+
+        if DFMSim3D.model is None:
+            nn_path = config["sim_config"]["nn_path_for_block_hom"]
+            study = load_study(nn_path)
+            model_path = get_saved_model_path(nn_path, study.best_trial)
+            model_kwargs = study.best_trial.user_attrs["model_kwargs"]
+            DFMSim3D.model = study.best_trial.user_attrs["model_class"](**model_kwargs)
+            if not torch.cuda.is_available():
+                DFMSim3D.checkpoint = torch.load(model_path, map_location=torch.device('cpu'))
+            else:
+                DFMSim3D.checkpoint = torch.load(model_path)
+            DFMSim3D.inverse_transform = get_inverse_transform(study, results_dir=nn_path)
+            DFMSim3D.transform = get_transform(study, results_dir=nn_path)
+
+        ##
+        # Create dataset
+        ##
+        dataset_for_prediction = DFM3DDataset(zarr_path=zarr_file_path,
+                                              init_transform=DFMSim3D.transform[0],
+                                              input_transform=DFMSim3D.transform[1],
+                                              output_transform=DFMSim3D.transform[2],
+                                              return_centers_bulk_avg=True)
+
+        dset_prediction_loader = torch.utils.data.DataLoader(dataset_for_prediction, batch_size=batch_size,
+                                                             shuffle=False)
+
+        DFMSim3D.model.load_state_dict(DFMSim3D.checkpoint['best_model_state_dict'])
+
+        # DFMSim3D.model.eval()
+
+        DFMSim3D.model = DFMSim3D.model.to(memory_format=torch.channels_last_3d)
+        DFMSim3D.model.to(device).eval()
+
+        # model.half()
+
+        # example_input = torch.randn(1, 6, 64, 64, 64)
+        # scripted_model = torch.jit.trace(DFMSim3D.model, example_input)
+        # scripted_model = torch.compile(DFMSim3D.model, backend="aot_eager")
+        # output = scripted_model(data)
+
+        # print(" torch.cuda.is_available() ", torch.cuda.is_available())
+
+        # DFMSim3D.model = torch.compile(DFMSim3D.model)
+
+        with torch.inference_mode():
+            for i, sample in enumerate(dset_prediction_loader):
+                # print("i ", i)
+                inputs, targets, centers, bulk_features_avg = sample
+                # print("inputs ", inputs.shape)
+                # print("centers ", centers)
+                # print("bulk features avg ", bulk_features_avg)
+
+                inputs = inputs.to(memory_format=torch.channels_last_3d)  # Optimize for 3D convolution
+                inputs = inputs.float().to(device)
+
+                # inputs = inputs.contiguous()
+                # sample_n = dataset_for_prediction._bulk_file_paths[i].split('/')[-2]
+                # center = sample_center[sample_n]
+                # print("torch.cuda.is_available() ", torch.cuda.is_available())
+                # if torch.cuda.is_available():
+                #     # print("cuda available")
+                #     inputs = inputs.cuda()
+                #     DFMSim3D.model = DFMSim3D.model.cuda()
+
+                # with profiler.profile() as prof:
+                #     #with profiler.record_function("conv3d"):
+                #     predictions = DFMSim3D.model(inputs)
+                # print(prof.key_averages().table(sort_by="cpu_time_total"))
+                # exit()
+                # with torch.autocast(device_type="cpu", dtype=torch.bfloat16):
+                predictions = DFMSim3D.model(inputs)
+                # predictions = model(inputs)
+                print("predictions ", predictions)
+
+                predictions = np.squeeze(predictions)
+
+                # print("dset_prediction_loader ", dset_prediction_loader._bulk_features_avg)
+
+                # print("zarr predictions ", predictions)
+                # print("torch.reshape(predictions, (*predictions.shape, 1, 1))) ", torch.reshape(predictions, (*predictions.shape, 1, 1)).shape)
+
+                # if np.any(predictions < 0):
+                #     print("inputs ", inputs)
+                #     print("negative predictions ", predictions)
+
+                inv_predictions = torch.squeeze(
+                    DFMSim3D.inverse_transform(torch.reshape(predictions, (*predictions.shape, 1, 1))))
+                # print("inv predictions shape ", inv_predictions.shape)
+                # print("bulk_features_avg.shape ", bulk_features_avg.shape)
+                # print("inv predictions ", inv_predictions)
+
+                print("inv predictions ", inv_predictions)
+
+                if dataset_for_prediction.init_transform is not None:
+                    # print("dataset_for_prediction._bulk_features_avg ", dataset_for_prediction._bulk_features_avg)
+                    if len(inv_predictions.shape) > 1:
+                        bulk_features_avg = bulk_features_avg.view(-1, 1)
+
+                    print("bulk_features_avg ", bulk_features_avg)
+                    # print("inv predictions ", inv_predictions)
+
+                    inv_predictions *= bulk_features_avg
+
+                print("inv predictions scaled ", inv_predictions)
+
+                # return
+                # return pred_cond_tensors
+
+                # print("inv prediction shape ", inv_predictions.shape)
+
+                # pred_cond_tn = np.array([[inv_predictions[0], inv_predictions[1]],
+                #                          [inv_predictions[1], inv_predictions[2]]])
+
+                # if pred_cond_tn is not None:
+
+                # print("list(centers.numpy()) ", centers.tolist())
+                # print("type list(centers.numpy()) ", type(centers.tolist()))
+
+                # print("centers ", centers)
+                # print("centers.numpy ", centers.numpy())
+                # print("centers.numpy.shape ", centers.numpy().shape)
+                # print("inv_predictions.numpy() ", inv_predictions.numpy().shape)
+                # print("len(inv_predictions.numpy().shape) ", len(inv_predictions.numpy().shape))
+
+                inv_predictions_numpy = inv_predictions.numpy()
+                return inv_predictions_numpy
 
     @staticmethod
     def extract_subdomain(grid_values, coordinates, center, domain_size):
@@ -593,7 +770,7 @@ class DFMSim3D(Simulation):
                                                                                      subdomain_box_run_samples,
                                                                                      mesh_step=config["fine"]["step"],
                                                                                      center=[center_x, center_y,
-                                                                                             center_z])
+                                                                                             center_z], regular_grid_interp=False)
                             flux_response_0 = DFMSim3D.get_flux_response()  # bc_pressure_gradient, fr_media, fem_grid, config, sample_dir,
                             # sim_config)
 
@@ -602,7 +779,8 @@ class DFMSim3D(Simulation):
                                                  subdomain_bulk_cond_values,
                                                  subdomain_bulk_cond_points,
                                                  subdomain_box_run_samples, mesh_step=config["fine"]["step"],
-                                                 cond_file=cond_file, center=[center_x, center_y, center_z])
+                                                 cond_file=cond_file, center=[center_x, center_y, center_z],
+                                                 regular_grid_interp=False)
                             flux_response_1 = DFMSim3D.get_flux_response()  # bc_pressure_gradient, fr_media, fem_grid, config, sample_dir,
                             # sim_config)
 
@@ -611,7 +789,8 @@ class DFMSim3D(Simulation):
                                                  subdomain_bulk_cond_values,
                                                  subdomain_bulk_cond_points,
                                                  subdomain_box_run_samples, mesh_step=config["fine"]["step"],
-                                                 cond_file=cond_file, center=[center_x, center_y, center_z])
+                                                 cond_file=cond_file, center=[center_x, center_y, center_z],
+                                                 regular_grid_interp=False)
 
                             flux_response_2 = DFMSim3D.get_flux_response()  # bc_pressure_gradient, fr_media, fem_grid, config, sample_dir,
                             # sim_config)
@@ -3314,16 +3493,13 @@ class DFMSim3D(Simulation):
             if not no_homogenization_flag:
                 if "nn_path" in config["sim_config"]:
                     domain_size = config["sim_config"]["geometry"]["domain_box"]
-
                     #print("n voxels ", config["sim_config"]["geometry"]["n_voxels"])
 
                     n_steps_per_axes = config["sim_config"]["geometry"]["n_voxels"][0]
                     fem_grid_n_steps = [n_steps_per_axes * n_nonoverlap_subdomains] * 3
 
                     #print("fem_grid_n_steps ", fem_grid_n_steps)
-
                     #print("domain size ", domain_size)
-
 
                     pr = cProfile.Profile()
                     pr.enable()
@@ -3385,6 +3561,11 @@ class DFMSim3D(Simulation):
                     ps = pstats.Stats(pr).sort_stats('cumtime')
                     ps.print_stats(35)
 
+                    # print("cond tensors ", cond_tensors)
+                    # print("pred cond tensors homo ", pred_cond_tensors_homo)
+
+                    print("current dir ", current_dir)
+
                     DFMSim3D._save_tensors(pred_cond_tensors_homo, file=os.path.join(current_dir, DFMSim3D.PRED_COND_TN_FILE))
 
                     pred_hom_bulk_cond_values, pred_hom_bulk_cond_points = np.squeeze(
@@ -3404,7 +3585,6 @@ class DFMSim3D(Simulation):
             print("homogenization time ", time.time() - homogenization_start_time)
 
             print("homogenized cond tensors ", np.array(list(cond_tensors.values())).shape)
-
 
             DFMSim3D._save_tensors(cond_tensors, file=os.path.join(current_dir, DFMSim3D.COND_TN_FILE))
 
@@ -3784,7 +3964,7 @@ class DFMSim3D(Simulation):
 
     @staticmethod
     def _run_sample_flow(bc_pressure_gradient, fr_media, config, sample_dir, bulk_cond_values, bulk_cond_points, dimensions,
-                    mesh_step, cond_file=None, center=[0, 0, 0], fr_region_map=None, sample_seed=None):
+                    mesh_step, cond_file=None, center=[0, 0, 0], fr_region_map=None, sample_seed=None, regular_grid_interp=True):
 
         fr_cond = None
         if cond_file is None:
@@ -3792,7 +3972,9 @@ class DFMSim3D(Simulation):
                                                              mesh_step=mesh_step,
                                                              sample_dir=sample_dir,
                                                              work_dir=config["sim_config"]["work_dir"],
-                                                             center=center, outflow_problem=True, fr_region_map=fr_region_map, config=config, sample_seed=sample_seed
+                                                             center=center,
+                                                             outflow_problem=True, fr_region_map=fr_region_map,
+                                                             config=config, sample_seed=sample_seed, regular_grid_interp=regular_grid_interp
                                                              )
 
         if "run_local" in config["sim_config"] and config["sim_config"]["run_local"]:
@@ -3861,7 +4043,8 @@ class DFMSim3D(Simulation):
             cond_file=None,
             center=[0, 0, 0],
             fr_region_map=None,
-            sample_seed=None):
+            sample_seed=None,
+            regular_grid_interp=True):
         """
         Runs a single simulation sample: generates the mesh with conductivity values,
         sets up the simulation using Flow123d, and executes it via Docker or Singularity.
@@ -3894,7 +4077,7 @@ class DFMSim3D(Simulation):
                 center=center,
                 fr_region_map=fr_region_map,
                 config=config,
-                sample_seed=sample_seed
+                sample_seed=sample_seed, regular_grid_interp=regular_grid_interp
             )
 
         if "run_local" in config["sim_config"] and config["sim_config"]["run_local"]:
