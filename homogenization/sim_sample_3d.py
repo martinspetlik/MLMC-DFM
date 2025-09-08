@@ -3232,9 +3232,11 @@ class DFMSim3D(Simulation):
         # print("n_nonoverlap_subdomains ", n_nonoverlap_subdomains)
         # print("n_subdomains_per_axes ", n_subdomains_per_axes)
 
+        dimensions = config["sim_config"]["geometry"]["orig_domain_box"]
         ###################
         ### Fine sample ###
         ###################
+        bulk_cond_values_for_fine_sample, bulk_cond_points_for_fine_sample = None, None
         fine_sample_start_time = time.time()
         dfn = DFMSim3D.fracture_random_set(sample_seed, fr_range, sim_config["work_dir"], max_frac=geom["n_frac_limit"])
         dfn_list = []
@@ -3243,6 +3245,7 @@ class DFMSim3D(Simulation):
                 dfn_list.append(fr)
         dfn = stochastic.FractureSet.from_list(dfn_list)
         print("level parameters ", config["sim_config"]["level_parameters"])
+        print(list(np.squeeze(config["sim_config"]["level_parameters"], axis=1)).index(config["fine"]["step"]))
 
         bulk_cond_values_start_time = time.time()
 
@@ -3315,9 +3318,18 @@ class DFMSim3D(Simulation):
             # Cubic law transmisivity
             fr_media = FracturedMedia.fracture_cond_params(dfn, 1e-4, 0.00001)
 
-            if "cond_tn_pop_file" in config["fine"] or "pred_cond_tn_pop_file" in config["fine"]:
-                bulk_model = SRFFromTensorPopulation(config)
-                bulk_cond_values, bulk_cond_points = bulk_model.generate_field()
+            assert "cond_tn_pop_file" in config["fine"] or "pred_cond_tn_pop_file" in config["fine"]
+
+            bulk_model = SRFFromTensorPopulation(config)
+            bulk_cond_values, bulk_cond_points = bulk_model.generate_field()
+
+            ###########
+            # Bulk cond values for fine sample - use the exactly same 'hom centers' as coarse sample on a finer level
+            ###########
+            bulk_cond_values_for_fine_sample, bulk_cond_points_for_fine_sample = DFMSim3D.extract_subdomain(
+                bulk_cond_values, bulk_cond_points, (0, 0, 0), dimensions)
+            print('bulk_cond_points_for_fine_sample ', bulk_cond_points_for_fine_sample)
+            print("bulk_cond_points_for_fine_sample.shape ", bulk_cond_points_for_fine_sample.shape)
 
         else:
             pr = cProfile.Profile()
@@ -3351,7 +3363,7 @@ class DFMSim3D(Simulation):
         # #exit()
         #print("bulk step: {}, fr step: {}".format(bulk_step, fr_step))
 
-        dimensions = config["sim_config"]["geometry"]["orig_domain_box"] #config["sim_config"]["geometry"]["domain_box"]
+
 
         fine_res = [0, 0, 0, 0, 0, 0]
         print("fine sample dimensions ", dimensions)
@@ -3367,13 +3379,20 @@ class DFMSim3D(Simulation):
         # fine_fr_media = FracturedMedia.fracture_cond_params(fine_dfn, 1e-4, 0.00001)
         # exit()
 
+
+        if bulk_cond_values_for_fine_sample is None:
+            bulk_cond_values_for_fine_sample = bulk_cond_values
+            bulk_cond_points_for_fine_sample = bulk_cond_points
+
+
         pr = cProfile.Profile()
         pr.enable()
         if not gen_hom_samples:
             sim_run_start_time = time.time()
             if "flow_sim" in config["sim_config"] and config["sim_config"]["flow_sim"]:
                 bc_pressure_gradient = [1, 0, 0]
-                cond_file, fr_cond, fr_region_map = DFMSim3D._run_sample_flow(bc_pressure_gradient, fr_media, config, current_dir, bulk_cond_values, bulk_cond_points, dimensions, mesh_step=config["fine"]["step"], sample_seed=sample_seed)
+                cond_file, fr_cond, fr_region_map = DFMSim3D._run_sample_flow(bc_pressure_gradient, fr_media, config, current_dir,
+                                                                              bulk_cond_values_for_fine_sample, bulk_cond_points_for_fine_sample, dimensions, mesh_step=config["fine"]["step"], sample_seed=sample_seed)
 
                 conv_check = check_conv_reasons(os.path.join(current_dir, "flow123.0.log"))
                 if not conv_check:
@@ -3403,7 +3422,7 @@ class DFMSim3D(Simulation):
                     shutil.move("voxel_fracture_sizes.npy", "fine_voxel_fracture_sizes.npy")
                 pass
             else:
-                fine_res, fr_cond, fr_region_map = DFMSim3D.get_equivalent_cond_tn(fr_media, config, current_dir, bulk_cond_values, bulk_cond_points, dimensions, mesh_step=config["fine"]["step"], sample_seed=sample_seed)
+                fine_res, fr_cond, fr_region_map = DFMSim3D.get_equivalent_cond_tn(fr_media, config, current_dir, bulk_cond_values_for_fine_sample, bulk_cond_points_for_fine_sample, dimensions, mesh_step=config["fine"]["step"], sample_seed=sample_seed)
                 conv_check = check_conv_reasons(os.path.join(current_dir, "flow123.0.log"))
                 if not conv_check:
                     raise Exception("fine sample not converged")
