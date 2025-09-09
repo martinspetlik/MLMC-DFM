@@ -1,6 +1,5 @@
 import os
 import numpy as np
-from itertools import product
 
 
 class SRFFromTensorPopulation:
@@ -159,11 +158,38 @@ class SRFFromTensorPopulation:
         self._cond_tns = np.load(cond_pop_file)
         self._cond_tns_coords = np.load(cond_pop_coords_file)
 
-    def generate_field(self):
+    def generate_field(self, reuse_sample=False):
         # Sample N indices independently with replacement from the M tensor samples
         indices = np.random.choice(self._cond_tns.shape[0], size=self.centers_3d.shape[0], replace=True)
-
         # Select sampled tensors
         sampled_tensors = self._cond_tns[indices]  # shape: (N, 3, 3)
+
+        if reuse_sample:
+            import glob
+            import random
+            # Original file path
+            name, ext = os.path.splitext("cond_tensors_values.npz") # @TODO: use a variable
+
+            # Build the search pattern
+            pattern = os.path.join(self._config_dict["fine"]["common_files_dir"], f"{name}_*{ext}")
+            # Find all matching files
+            files = glob.glob(pattern)
+            # Randomly select one if available
+            if files:
+                selected_file = random.choice(files)
+                print("Selected file:", selected_file)
+            else:
+                print("No matching files found.")
+
+            loaded_cond_tns_for_fine_sample = np.load(selected_file)['data']
+
+            # Step 1: build a mapping from coordinate -> index in large array
+            coord_to_index = {tuple(c): i for i, c in enumerate(self.centers_3d)}
+
+            # Step 2: scatter values from small_tensors into large_tensors
+            for tensor, coord in zip(loaded_cond_tns_for_fine_sample, self._cond_tns_coords):
+                idx = coord_to_index.get(tuple(coord))
+                if idx is not None:
+                    sampled_tensors[idx] = tensor
 
         return sampled_tensors, self.centers_3d

@@ -3328,7 +3328,7 @@ class DFMSim3D(Simulation):
             assert "cond_tn_pop_file" in config["fine"] or "pred_cond_tn_pop_file" in config["fine"]
 
             bulk_model = SRFFromTensorPopulation(config)
-            bulk_cond_values, bulk_cond_points = bulk_model.generate_field()
+            bulk_cond_values, bulk_cond_points = bulk_model.generate_field(reuse_sample=True)
 
             ###########
             # Bulk cond values for fine sample - use the exactly same 'hom centers' as coarse sample on a finer level
