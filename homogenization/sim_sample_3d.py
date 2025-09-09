@@ -1916,6 +1916,7 @@ class DFMSim3D(Simulation):
                 values_grid = values_sorted.reshape((nx, ny, nz, 3, 3))
 
                 print("values_grid.shape ", values_grid.shape)
+                print("x_unique ", x_unique)
 
                 interp = sc_interpolate.RegularGridInterpolator((x_unique, y_unique, z_unique), values_grid)
             else:
@@ -3251,10 +3252,13 @@ class DFMSim3D(Simulation):
 
         # If the finest level
         if list(np.squeeze(config["sim_config"]["level_parameters"], axis=1)).index(config["fine"]["step"]) == (len(np.squeeze(config["sim_config"]["level_parameters"], axis=1)) - 1):
+            print("If the finest level")
             dfn_to_fine_list = []
             for fr in dfn:
                 if fr.r >= fine_step:
+                    print("fr.r ", fr.r)
                     dfn_to_fine_list.append(fr)
+            print("len(dfn_to_fine_list) ", len(dfn_to_fine_list))
             dfn = stochastic.FractureSet.from_list(dfn_to_fine_list)
 
             #n_steps = config["sim_config"]["geometry"]["n_voxels"]
@@ -3310,10 +3314,13 @@ class DFMSim3D(Simulation):
 
         # Generate fine SRF based on population of tensors
         elif list(np.squeeze(config["sim_config"]["level_parameters"], axis=1)).index(config["fine"]["step"]) in config["sim_config"]["levels_fine_srf_from_population"]:
+            print("Generate fine SRF based on population of tensors")
             dfn_to_fine_list = []
             for fr in dfn:
                 if fr.r >= fine_step:
+                    print("fr.r ", fr.r)
                     dfn_to_fine_list.append(fr)
+            print("len(dfn_to_fine_list) ", len(dfn_to_fine_list))
             dfn = stochastic.FractureSet.from_list(dfn_to_fine_list)
             # Cubic law transmisivity
             fr_media = FracturedMedia.fracture_cond_params(dfn, 1e-4, 0.00001)
@@ -3330,7 +3337,6 @@ class DFMSim3D(Simulation):
                 bulk_cond_values, bulk_cond_points, (0, 0, 0), dimensions)
             print('bulk_cond_points_for_fine_sample ', bulk_cond_points_for_fine_sample)
             print("bulk_cond_points_for_fine_sample.shape ", bulk_cond_points_for_fine_sample.shape)
-
         else:
             pr = cProfile.Profile()
             pr.enable()
@@ -3345,14 +3351,14 @@ class DFMSim3D(Simulation):
         #######################
         ## Bulk conductivity ##
         #######################
-        fr_rad_values = []
-        total_area = 0
-        total_excluded_volume = 0
-        for fr in dfn:
-            #print("fr.r ", fr.r)
-            total_area += 4 * fr.r**2
-            total_excluded_volume += np.pi * fr.r**3
-            fr_rad_values.append(fr.radius[0] * (fr.radius[1] ** 2) + (fr.radius[0] ** 2) * fr.radius[1])
+        # fr_rad_values = []
+        # total_area = 0
+        # total_excluded_volume = 0
+        # for fr in dfn:
+        #     #print("fr.r ", fr.r)
+        #     total_area += 4 * fr.r**2
+        #     total_excluded_volume += np.pi * fr.r**3
+        #     fr_rad_values.append(fr.radius[0] * (fr.radius[1] ** 2) + (fr.radius[0] ** 2) * fr.radius[1])
 
         # Square fractures:
         # print("Whole sample mean fr rad values ", np.mean(fr_rad_values))
@@ -3362,8 +3368,6 @@ class DFMSim3D(Simulation):
         # print("rho_3D_new ", rho_3D_new)
         # #exit()
         #print("bulk step: {}, fr step: {}".format(bulk_step, fr_step))
-
-
 
         fine_res = [0, 0, 0, 0, 0, 0]
         print("fine sample dimensions ", dimensions)
@@ -3379,11 +3383,9 @@ class DFMSim3D(Simulation):
         # fine_fr_media = FracturedMedia.fracture_cond_params(fine_dfn, 1e-4, 0.00001)
         # exit()
 
-
         if bulk_cond_values_for_fine_sample is None:
             bulk_cond_values_for_fine_sample = bulk_cond_values
             bulk_cond_points_for_fine_sample = bulk_cond_points
-
 
         pr = cProfile.Profile()
         pr.enable()
@@ -3483,10 +3485,13 @@ class DFMSim3D(Simulation):
                 if "hom_box_fine_step_mult" in sim_config: # homogenization block size determined by fine_step
                     hom_max_r = fine_step * sim_config["hom_box_fine_step_mult"] * (2/3) # maximal fracture size is 2/3 homogenization block size
 
+                print("hom_max_r ", hom_max_r)
+
                 if fr.r <= hom_max_r:
+                    print("to hom fr.r ", fr.r)
                     dfn_to_homogenization_list.append(fr)
                 else:
-                    #print("coarse fr.r ", fr.r)
+                    print("coarse fr.r ", fr.r)
                     dfn_to_coarse_list.append(fr)
             dfn_to_homogenization = stochastic.FractureSet.from_list(dfn_to_homogenization_list)
             dfn_to_coarse = stochastic.FractureSet.from_list(dfn_to_coarse_list)
