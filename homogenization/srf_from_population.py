@@ -207,12 +207,14 @@ class SRFFromTensorPopulation:
     # Field generation
     # ------------------------------------------------------------------
 
-    def generate_field(self, reuse_sample=False):
+    def generate_field(self, reuse_sample=False, location_population=False):
         """
         Generate a stochastic random field by sampling conductivity tensors.
 
         :param reuse_sample: bool, optional
             If True, reuse an existing sample from disk instead of resampling.
+        :param location_population: bool, optional
+            If True, generate value at each location within original area from a population of tensors at that particular location
         :return: tuple
             sampled_tensors: np.ndarray, shape (N, 3, 3)
                 Sampled conductivity tensors.
@@ -224,6 +226,22 @@ class SRFFromTensorPopulation:
             self._cond_tns.shape[0], size=self.centers_3d.shape[0], replace=True
         )
         sampled_tensors = self._cond_tns[indices]
+
+        if location_population:
+            print("location population")
+            coord_values_dir = os.path.join(self._config_dict["fine"]["common_files_dir"], "coord_values")
+
+            coord_to_index = {tuple(c): i for i, c in enumerate(self.centers_3d)}
+            for coord in self._cond_tns_coords:
+                filename = "coord_" + "_".join(str(c) for c in coord) + ".npy"
+                path = os.path.join(coord_values_dir, filename)
+                cond_tns_for_coord = np.load(path, mmap_mode="r")
+                print("cond_tns_for_coord.shape ", cond_tns_for_coord.shape)
+                choice_idx = np.random.randint(cond_tns_for_coord.shape[0])
+
+                idx = coord_to_index.get(tuple(coord))
+                if idx is not None:
+                    sampled_tensors[idx] = cond_tns_for_coord[choice_idx]
 
         if reuse_sample:
             import glob, random

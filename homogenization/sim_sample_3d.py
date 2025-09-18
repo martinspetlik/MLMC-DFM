@@ -3181,7 +3181,14 @@ class DFMSim3D(Simulation):
             assert "cond_tn_pop_file" in config["fine"] or "pred_cond_tn_pop_file" in config["fine"]
 
             bulk_model = SRFFromTensorPopulation(config)
-            bulk_cond_values, bulk_cond_points = bulk_model.generate_field(reuse_sample=True)
+
+            location_population = False
+            if "generate_srf_from_hom_location_population" in config["sim_config"]:
+                level_index = list(np.squeeze(config["sim_config"]["level_parameters"], axis=1)).index(config["fine"]["step"])
+                if level_index in config["sim_config"]["generate_srf_from_hom_location_population"]:
+                    location_population = config["sim_config"]["generate_srf_from_hom_location_population"][level_index]
+
+            bulk_cond_values, bulk_cond_points = bulk_model.generate_field(reuse_sample=False, location_population=location_population)
 
             ###########
             # Bulk cond values for fine sample - use the exactly same 'hom centers' as coarse sample on a finer level
@@ -3190,6 +3197,23 @@ class DFMSim3D(Simulation):
                 bulk_cond_values, bulk_cond_points, (0, 0, 0), dimensions)
             print('bulk_cond_points_for_fine_sample ', bulk_cond_points_for_fine_sample)
             print("bulk_cond_points_for_fine_sample.shape ", bulk_cond_points_for_fine_sample.shape)
+
+            fine_samples_dir = os.path.join(config["fine"]["common_files_dir"], "fine_samples")
+            if not os.path.exists(fine_samples_dir):
+                os.mkdir(fine_samples_dir)
+
+            # Make dictionary
+            coord_value_dict = {tuple(c): v for c, v in
+                                zip(bulk_cond_points_for_fine_sample, bulk_cond_values_for_fine_sample)}
+
+            DFMSim3D._save_tensor_values(coord_value_dict,
+                                         file=os.path.join(fine_samples_dir,
+                                                           DFMSim3D.COND_TN_VALUES_FILE))
+            DFMSim3D._save_tensor_coords(coord_value_dict,
+                                         file=os.path.join(fine_samples_dir,
+                                                           DFMSim3D.COND_TN_COORDS_FILE))
+
+
         else:
             raise Exception("Other methods are no longer supported")
             # fr_media, bulk_cond_values, bulk_cond_points = DFMSim3D.fine_SRF_from_homogenization(dfn, config, sample_seed)

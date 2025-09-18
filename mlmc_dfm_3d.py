@@ -54,13 +54,13 @@ class ProcessSimple:
         self.use_pbs = False
         self.generate_samples_per_level = True
         # Use PBS sampling pool
-        self.n_levels = 3
-        self._levels_fine_srf_from_population = [0, 1]
+        self.n_levels = 2
+        self._levels_fine_srf_from_population = [0]
         self.n_moments = 3
         # Number of MLMC levels
 
-        step_range = [20, 5]
-        #step_range = [40, 5]
+        step_range = [10, 5]
+        #step_range = [15, 10]
         #step_range = [20, 10]
 
         # step_range [simulation step at the coarsest level, simulation step at the finest level]
@@ -112,7 +112,7 @@ class ProcessSimple:
         if recollect:
             raise NotImplementedError("Not supported in released version")
         else:
-            self.generate_jobs(sampler, n_samples=[1, 5, 1], renew=renew)#[1, 1, 1, 3, 3, 3, 3], renew=renew)
+            self.generate_jobs(sampler, n_samples=[5, 5], renew=renew)#[1, 1, 1, 3, 3, 3, 3], renew=renew)
             #self.generate_jobs(sampler, n_samples=[100, 2],renew=renew, target_var=1e-5)
             self.all_collect(sampler)  # Check if all samples are finished
 
@@ -243,6 +243,53 @@ class ProcessSimple:
 
         return sampling_pool
 
+    def create_sampling_pool_cpu(self):
+        """
+        Initialize sampling pool, object which
+        :return: None
+        """
+        if not self.use_pbs:
+            return OneProcessPool(work_dir=self.work_dir, debug=self.debug)  # Everything runs in one process
+
+        output_dir = os.path.join(os.path.join(self.work_dir, "output"))
+        output_dir_gpu = os.path.join(os.path.join(self.work_dir, "output_gpu"))
+        print("output_dir ", output_dir)
+        print("output_dir_gpu ", output_dir_gpu)
+        shutil.move(output_dir, output_dir_gpu)
+
+        # Create PBS sampling pool
+        sampling_pool = SamplingPoolPBS(work_dir=self.work_dir, debug=self.debug)
+        # sampling_pool = OneProcessPool(work_dir=self.work_dir, debug=self.debug)
+
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        pbs_config = dict(
+            n_cores=1,
+            n_nodes=1,
+            select_flags={'cgroups': 'cpuacct', 'scratch_local': '24gb'},
+            mem='24Gb',
+            queue='charon',
+            pbs_name='flow123d',
+            walltime='24:00:00',
+            optional_pbs_requests=[],  # e.g. ['#PBS -m ae', ...]
+            home_dir='/storage/liberec3-tul/home/martin_spetlik/',
+            python='python3',
+            env_setting=['cd $MLMC_WORKDIR',
+                         "trap 'clean_scratch' EXIT TERM",
+                         # 'module load python/3.8.0-gcc',
+                         'source venv_torch/bin/activate',
+                         'export PYTHONPATH={}/:$PYTHONPATH'.format(script_dir)
+                         # 'module use /storage/praha1/home/jan-hybs/modules',
+                         # 'module load flow123d',
+                         # 'module unload python-3.6.2-gcc',
+                         # 'module unload python36-modules-gcc'
+                         ],
+            scratch_dir=None
+        )
+
+        sampling_pool.pbs_common_setting(flow_3=True, **pbs_config)
+
+        return sampling_pool
+
     # @staticmethod
     # def prepare_distr_data(level_instance_obj):
     #     config_dict = level_instance_obj.config_dict
@@ -317,6 +364,45 @@ class ProcessSimple:
             outputs.attrs['channel_names'] = ['cond_tn_0', 'cond_tn_1', 'cond_tn_2', 'cond_tn_3', 'cond_tn_4', 'cond_tn_5']
             bulk_avg.attrs['channel_names'] = ['cond_tn_0', 'cond_tn_1', 'cond_tn_2', 'cond_tn_3', 'cond_tn_4', 'cond_tn_5']
 
+    @staticmethod
+    def save_cond_tns_per_coord(level_instance_obj):
+        directory = level_instance_obj.config_dict["coarse"]["common_files_dir"]
+        sample_cond_tns = []
+
+        # --- Load all values ---
+        name, ext = os.path.splitext(DFMSim3D.COND_TN_VALUES_FILE)
+        pattern = os.path.join(directory, f"{name}_*{ext}")
+
+        for file_path in glob.glob(pattern):
+            print("Found value file:", file_path)
+            loaded_cond_tns = np.load(file_path)["data"]
+            sample_cond_tns.append(list(loaded_cond_tns))
+
+        # --- Load coords (taking first file for now) ---
+        name, ext = os.path.splitext(DFMSim3D.COND_TN_COORDS_FILE)
+        pattern = os.path.join(directory, f"{name}_*{ext}")
+
+        for file_path in glob.glob(pattern):
+            print("Found coords file:", file_path)
+            loaded_coords = np.load(file_path)["data"]
+            break
+
+        # --- Save one .npy per coordinate ---
+        output_dir = os.path.join(directory, "coord_values")
+        os.makedirs(output_dir, exist_ok=True)
+
+        sample_cond_tns = np.array(sample_cond_tns).transpose(1, 0, 2, 3)
+        print("sample_cond_tns.shape ", sample_cond_tns.shape)
+
+        for coord, values in zip(loaded_coords, sample_cond_tns):
+            coord_tuple = tuple(coord)
+            # safe string for filename (handles negatives)
+            filename = "coord_" + "_".join(str(c) for c in coord_tuple) + ".npy"
+            path = os.path.join(output_dir, filename)
+            np.save(path, np.array(values))
+            print(f"Saved {path}")
+
+
     def generate_jobs(self, sampler, n_samples=None, renew=False, target_var=None):
         """
         Generate level samples
@@ -337,13 +423,10 @@ class ProcessSimple:
             if n_samples is not None:
                 if self.use_pbs or self.generate_samples_per_level:
                     for level_id in reversed(range(self.n_levels)):
-                    #for level_id in range(self.n_levels):
                         level_instance_obj = sampler._level_sim_objects[level_id]
 
-                        # # Prepare objects and other necessary data for further sampling
-                        # if level_id < (self.n_levels - 1):
-                        #     print("level id prepare distr data ", level_id)
-                        #     ProcessSimple.prepare_distr_data(level_instance_obj)
+                        if self.use_pbs and level_id == 0:
+                            sampler._sampling_pool = self.create_sampling_pool_cpu()
 
                         sampler.schedule_samples(level_id=level_id, n_samples=n_samples[level_id])
                         # l_n_scheduled = sampler._n_scheduled_samples[level_id]
@@ -364,6 +447,11 @@ class ProcessSimple:
 
                             print("cond_tn_pop_file ", cond_tn_pop_file)
                             if cond_tn_pop_file is not None:
+
+                                if level_id - 1 in level_instance_obj.config_dict["sim_config"]["generate_srf_from_hom_location_population"] and\
+                                        level_instance_obj.config_dict["sim_config"]["generate_srf_from_hom_location_population"][level_id - 1]:
+                                    ProcessSimple.save_cond_tns_per_coord(level_instance_obj)
+
                                 sample_cond_tns = []
                                 sample_pred_cond_tns = []
 
@@ -386,48 +474,6 @@ class ProcessSimple:
                                     print("Found file:", file_path)
                                     loaded_coords = np.load(file_path)['data']
                                     break
-
-
-                                # for s in range(int(sampler.n_finished_samples[level_id])):
-                                #     sample_dir_name = "L{:02d}_S{:07d}".format(level_id, s)
-                                #     sample_dir = os.path.join(os.path.join(self.work_dir, "output"), sample_dir_name)
-                                #
-                                #     print('sample_dir ', sample_dir)
-                                #
-                                #     if not os.path.exists(sample_dir):
-                                #         continue
-                                #
-                                #     sample_cond_tns_values_file = os.path.join(sample_dir, DFMSim3D.COND_TN_VALUES_FILE)
-                                #     sample_cond_tns_coords_file = os.path.join(sample_dir, DFMSim3D.COND_TN_COORDS_FILE)
-                                #
-                                #     # Load file
-                                #     loaded_cond_tns = np.load(sample_cond_tns_values_file)['data']
-                                #     loaded_coords = np.load(sample_cond_tns_coords_file)['data']
-                                #
-                                #     #ProcessSimple.get_corr_lengths(loaded_coords, loaded_cond_tns, use_log=True)
-                                #
-                                #     if len(sample_cond_tns) < 15000:
-                                #          sample_cond_tns.extend(list(loaded_cond_tns))
-
-                                    # if not self.debug:
-                                    #     shutil.rmtree(sample_dir)
-
-
-                                    # sample_pred_cond_tns_file = os.path.join(sample_dir, DFMSim3D.PRED_COND_TN_FILE)
-                                    #
-                                    # if os.path.exists(sample_cond_tns_file):
-                                    #     print("sample_cond_tns_file ", sample_cond_tns_file)
-                                    #     with open(sample_cond_tns_file, "r") as f:
-                                    #         cond_tns = yaml.load(f, Loader=yaml.FullLoader)
-                                    #     print("cond tnd ", cond_tns)
-                                    #     if len(sample_cond_tns) < 15000:
-                                    #         sample_cond_tns.extend(list(cond_tns.values()))
-                                    #
-                                    # if os.path.exists(sample_pred_cond_tns_file):
-                                    #     with open(sample_pred_cond_tns_file, "r") as f:
-                                    #         pred_cond_tns = ruamel.yaml.load(f)
-                                    #     if len(sample_pred_cond_tns) < 15000:
-                                    #         sample_pred_cond_tns.extend(list(pred_cond_tns.values()))
 
                                 print("samples_cond_tns ", sample_cond_tns)
                                 np.save(cond_tn_pop_file, sample_cond_tns)
@@ -583,7 +629,7 @@ class ProcessSimple:
         # print("fine l_3_samples.var ", np.var(np.squeeze(l_3_samples[..., 0])))
         # print("fine l_4_samples.var ", np.var(np.squeeze(l_4_samples[..., 0])))
 
-        target_var = 1e-6
+        target_var = 1e-6 #5e-9
         root_quantity = make_root_quantity(storage=sample_storage,
                                            q_specs=sample_storage.load_result_format())
 
@@ -610,15 +656,19 @@ class ProcessSimple:
         q_value = k_xx #cond_tn_quantity#k_xx
         #q_value = np.array([location_mean[0], location_mean[1], location_mean[2]])
 
+        print("q_value ", q_value)
+
         # @TODO: How to estimate true_domain?
         quantile = 1e-3
         true_domain = mlmc.estimator.Estimate.estimate_domain(q_value, sample_storage, quantile=quantile)
+        #true_domain = (0.0001033285847, 0.15110546971700062)
+        #true_domain = (0.0001033285847, 0.15110546971700062)
         print("true domain ", true_domain)
         #true_domain = (3.61218304e-07, 3.645725840000398e-05)
         #true_domain = (4.1042996300000003e-07, 2.9956777900000792e-05)
         #true_domain = (3.61218304e-07, 2.9956777900000792e-05)
         #moments_fn = Legendre(self.n_moments, true_domain)
-        moments_fn = Monomial(self.n_moments, true_domain)# ref_domain=true_domain)
+        moments_fn = Monomial(self.n_moments, true_domain)#, ref_domain=true_domain)
 
         # n_ops = np.array(sample_storage.get_n_ops())
         # print("n ops ", n_ops)
@@ -627,6 +677,78 @@ class ProcessSimple:
         print("sample storage n collected ", sample_storage.get_n_collected())
 
         estimate_obj = mlmc.estimator.Estimate(quantity=q_value, sample_storage=sample_storage, moments_fn=moments_fn)
+        estimate_obj_squared = mlmc.estimator.Estimate(quantity=np.power(q_value, 2), sample_storage=sample_storage, moments_fn=moments_fn)
+
+        # ###################
+        # ###################
+        # # Central moments #
+        # ###################
+        # ###################
+        # means = estimate_mean(root_quantity)
+        #
+        # # moments_fn = Legendre(n_moments, true_domain)
+        # moments_fn = Monomial(self.n_moments, true_domain)
+        #
+        # moments_quantity = moments(root_quantity, moments_fn=moments_fn, mom_at_bottom=True)
+        # moments_mean = estimate_mean(moments_quantity)
+        #
+        # cond_tn_quantity = moments_mean["cond_tn"]
+        # time_mean = cond_tn_quantity[1]  # times: [1]
+        # location_mean = time_mean['0']  # locations: ['0']
+        # # print("location mean ", location_mean)
+        # k_xx = location_mean[2]
+        # q_value = k_xx
+        # print("q_value ", q_value.mean)
+        # values_mean = q_value  # result shape: (1, 1)
+        # value_mean = values_mean[0]
+        # assert value_mean.mean == 1
+        #
+        # true_domain = [-10, 10]  # keep all values on the original domain
+        # central_moments_fn = Monomial(self.n_moments, true_domain, ref_domain=true_domain)
+        # central_moments_quantity = moments(root_quantity, moments_fn=central_moments_fn, mom_at_bottom=True)
+        # central_moments_mean = estimate_mean(central_moments_quantity)
+        #
+        # print("central moments mean ", central_moments_mean.mean)
+        #
+        # ############
+        # ############
+        # ############
+
+        ###############################
+        ###############################
+        # Pure data MEAN and VARIANCE #
+        ###############################
+        ###############################
+        squared_root_quantity = np.power(q_value, 2)
+        means_root_quantity = estimate_mean(q_value)
+        means_squared_root_quantity = estimate_mean(squared_root_quantity)
+
+        fine_means_root_quantity = estimate_mean(q_value, form="fine")
+        coarse_means_root_quantity = estimate_mean(q_value, form="coarse")
+
+        print("means_root_quantity.l_means ", means_root_quantity.l_means)
+        print("fine_means_root_quantity.l_means ", fine_means_root_quantity.l_means)
+        print("coarse_means_root_quantity.l_means ", coarse_means_root_quantity.l_means)
+
+        variance = means_squared_root_quantity.mean - np.power(means_root_quantity.mean, 2)
+
+        print("COLLECTED VALUES MEAN: {}, VARIANCE: {}".format(means_root_quantity.mean, variance))
+
+        # means, vars = estimate_obj.estimate_moments(moments_fn)
+        # means_squared, vars = estimate_obj_squared.estimate_moments(moments_fn)
+        #
+        # print('means ', means)
+        # print("means squared ", means_squared)
+        #
+        # variance = np.squeeze(means_squared)[1] - (np.squeeze(means)[1] ** 2)
+        #
+        # print("variance ", variance)
+        #
+
+        ############
+        ############
+        ############
+
 
         #############
         # subsample #
@@ -845,7 +967,7 @@ class ProcessSimple:
             l2_diff = l2_fine_samples - l2_coarse_samples
             l1_diff = l1_fine_samples - l1_coarse_samples
 
-            log = False
+            log = True
             if log:
                 l2_coarse_samples = np.log10(l2_coarse_samples)
                 l2_coarse_samples =l2_coarse_samples[~np.isinf(l2_coarse_samples)]
@@ -920,8 +1042,6 @@ class ProcessSimple:
 
             print("np.min([len(l_0_samples), len(l1_coarse_samples)]) ", np.min([len(l_0_samples), len(l1_coarse_samples)]))
 
-
-
             self.compare_means(l_0_samples, l1_coarse_samples, title="L0 fine mean and L1 coarse mean")
             self.compare_means(l1_fine_samples, l2_coarse_samples, title="L1 fine mean and L2 coarse mean")
 
@@ -940,24 +1060,25 @@ class ProcessSimple:
                 m0_l1_coarse_moments = np.log10(l1_coarse_moments[0])
                 m0_l0_samples_moments = np.log10(np.squeeze(l_0_samples_moments[0]))
 
-            fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(10, 10))
-            axes.hist(m0_l1_coarse_moments, bins=100, density=True, label="moment 0 L1 coarse")
-            axes.hist(m0_l0_samples_moments, bins=100, density=True, label="moment 0 L0 samples", alpha=0.5)
-            fig.suptitle("moments 0 L1 coarse L0 samples, log: {}".format(log))
-            fig.legend()
-            fig.savefig("moments_0_L1_coarse_L0_samples.pdf")
-            plt.show()
+                fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(10, 10))
+                axes.hist(m0_l1_coarse_moments, bins=100, density=True, label="moment 0 L1 coarse")
+                axes.hist(m0_l0_samples_moments, bins=100, density=True, label="moment 0 L0 samples", alpha=0.5)
+                fig.suptitle("moments 0 L1 coarse L0 samples, log: {}".format(log))
+                fig.legend()
+                fig.savefig("moments_0_L1_coarse_L0_samples.pdf")
+                plt.show()
 
 
-            print("moments 0 L0 mean {}, L1 coarse mean: {}".format(np.mean(m0_l0_samples_moments), np.mean(m0_l1_coarse_moments)))
-            print("moments 0 L0 std {}, L1 coarse std: {}".format(np.std(m0_l0_samples_moments), np.std(m0_l1_coarse_moments)))
-            self.compare_means(m0_l0_samples_moments, m0_l1_coarse_moments, title="Moments 0 L0 fine and L1 coarse ")
+                print("moments 0 L0 mean {}, L1 coarse mean: {}".format(np.mean(m0_l0_samples_moments), np.mean(m0_l1_coarse_moments)))
+                print("moments 0 L0 std {}, L1 coarse std: {}".format(np.std(m0_l0_samples_moments), np.std(m0_l1_coarse_moments)))
+                self.compare_means(m0_l0_samples_moments, m0_l1_coarse_moments, title="Moments 0 L0 fine and L1 coarse ")
 
-            exit()
 
-        sample_vec = [100, 75, 50]
-        sample_vec = [4462,  213,  164]
-        sample_vec = [250, 100]
+
+        sample_vec = [100, 75, 50, 25]
+        #sample_vec = [10, 7, 5]
+        #sample_vec = [4462,  213,  164]
+        #sample_vec = [250, 100]
         #sample_vec = [10000]
         #sample_vec = [1785,   80,   21]
         bs_n_estimated = estimate_obj.bs_target_var_n_estimated(target_var=target_var, sample_vec=sample_vec, n_subsamples=10)
