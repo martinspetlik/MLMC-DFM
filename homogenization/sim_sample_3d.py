@@ -2699,327 +2699,133 @@ class DFMSim3D(Simulation):
         DFMSim3D._load_or_init_model(config, closest_frac_bulk_cond_ratio)
         return DFMSim3D._predict_from_zarr(zarr_file_path, batch_size=1)
 
-    # @staticmethod
-    # def fine_SRF_from_homogenization(dfn, config, sample_seed):
-    #     fine_step = config["fine"]["step"]
-    #     coarse_step = config["coarse"]["step"]
-    #     print("fine step: {}, coarse step: {}".format(fine_step, coarse_step))
-    #
-    #     orig_domain_box = config["sim_config"]["geometry"]["orig_domain_box"]
-    #
-    #     # There is no homogenization on the coarsest level
-    #     # if coarse_step == 0:
-    #     #     subdomain_box = [0, 0, 0]
-    #     # else:
-    #     # subdomain_box, n_nonoverlap_subdomains, n_subdomains_per_axes = DFMSim3D._calculate_subdomains(coarse_step,
-    #     #                                                                                            config["sim_config"]["geometry"])
-    #     # print("subdomain box ", subdomain_box)
-    #     # print("orig domain box ", orig_domain_box)
-    #     # print("n_nonoverlap_subdomains ", n_nonoverlap_subdomains)
-    #     print("levels_fine_srf_from_population ", config["sim_config"]["levels_fine_srf_from_population"])
-    #
-    #     reversed_level_params = list(np.squeeze(config["sim_config"]["level_parameters"]))[::-1]
-    #     print("reversed level params ", reversed_level_params)
-    #
-    #     hom_block_sizes = np.array(reversed_level_params[1:reversed_level_params.index(fine_step) + 1]) * 1.5
-    #
-    #     # print("reversed_level_params[:reversed_level_params.index(fine_step)] ", reversed_level_params[:reversed_level_params.index(fine_step)])
-    #     # print("np.sum(reversed_level_params[:reversed_level_params.index(fine_step)]) ", np.sum(reversed_level_params[:reversed_level_params.index(fine_step)]))
-    #
-    #     larger_domain_size = orig_domain_box[0] + np.sum(hom_block_sizes) + np.sum(reversed_level_params[
-    #                                                                                :reversed_level_params.index(
-    #                                                                                    fine_step)])  # Add fine samples to ensure larger domains for interpolations
-    #     larger_domain_reduced_by_homogenization = larger_domain_size
-    #     for hb_size in hom_block_sizes:
-    #         larger_domain_reduced_by_homogenization -= hb_size
-    #
-    #     print("new larger_domain_size ", larger_domain_size)
-    #     print("larger_domain_reduced_by_homogenization ", larger_domain_reduced_by_homogenization)
-    #
-    #     # To homogenize at this level - bulk conductivity has to be generated on larger domain size
-    #     # geometry = {}
-    #     larger_domain_box = [larger_domain_size, larger_domain_size, larger_domain_size]
-    #     # geometry["pixel_stride_div"] = config["sim_config"]["geometry"]["pixel_stride_div"]
-    #
-    #     dfn_fine = dfn
-    #     for i in range(0, reversed_level_params.index(fine_step)):
-    #         dfn_to_homogenization_list = []
-    #         dfn_to_fine_list = []
-    #         current_fine_step = reversed_level_params[i]
-    #         current_coarse_step = reversed_level_params[i + 1]
-    #
-    #         print("current fine step: {}, current coarse step: {}".format(current_fine_step, current_coarse_step))
-    #         for fr in dfn_fine:
-    #             ### dfn for homogenization - to get fine sample SRF
-    #             if fr.r >= current_fine_step and fr.r <= current_coarse_step:
-    #                 # print("to hom fr.r ", fr.r)
-    #                 dfn_to_homogenization_list.append(fr)
-    #             else:
-    #                 # print("coarse/new fine fr.r ", fr.r)
-    #                 dfn_to_fine_list.append(fr)
-    #
-    #         dfn_to_homogenization = stochastic.FractureSet.from_list(dfn_to_homogenization_list)
-    #         dfn_fine = stochastic.FractureSet.from_list(dfn_to_fine_list)
-    #         # coarse_fr_media = FracturedMedia.fracture_cond_params(dfn_to_coarse, 1e-4, 0.00001)
-    #
-    #         # print("cond_larger_domain_size % (current_coarse_step*1.5) ", cond_larger_domain_size % (current_coarse_step*1.5))
-    #         # while cond_larger_domain_size % (current_coarse_step*1.5) != 0:
-    #         #     cond_larger_domain_size += 1
-    #         #
-    #         # geometry["orig_domain_box"] = [cond_larger_domain_size, cond_larger_domain_size, cond_larger_domain_size]
-    #         # print("fine orig domain box ", orig_domain_box)
-    #
-    #         # dfn = stochastic.FractureSet.from_list(dfn_to_fine_list)
-    #         # Cubic law transmisivity
-    #
-    #         # subdomain_box, n_nonoverlap_subdomains, n_subdomains_per_axes = DFMSim3D._calculate_subdomains(current_coarse_step, geometry)
-    #         # print("HOM subdomain box ", subdomain_box)
-    #         # print("HOM n nonoverlap_subdomain ", n_nonoverlap_subdomains)
-    #         # print("HOM n_subdomains_per_axes ", n_subdomains_per_axes)
-    #
-    #         hom_box_size = current_coarse_step * 1.5
-    #
-    #         print("larger domain box size ", larger_domain_size)
-    #         print("hom box size ", hom_box_size)
-    #
-    #         # domain_box_size = geometry["orig_domain_box"][0]
-    #         # n_centers = np.round(domain_box_size / hom_box_size)
-    #         # n_total_centers = np.round(n_centers * geometry["pixel_stride_div"] + 1)
-    #         hom_boxes_per_domain = larger_domain_size / hom_box_size
-    #         print("hom_boxes_per_domain ", hom_boxes_per_domain)
-    #
-    #         # Generate SRF on the finest level's resolution
-    #         if i == 0:
-    #             n_steps_cond_grid_size = int(hom_boxes_per_domain * 16)
-    #             # print("n_steps_cond_grid_size ", n_steps_cond_grid_size)
-    #             n_steps_cond_grid = (n_steps_cond_grid_size, n_steps_cond_grid_size, n_steps_cond_grid_size)
-    #
-    #             fem_grid_cond = fem.fem_grid(n_steps_cond_grid_size, n_steps_cond_grid, fem.Fe.Q(dim=3),
-    #                                          origin=-n_steps_cond_grid_size / 2)
-    #
-    #             print("fine SRF FEM GRID COND ", fem_grid_cond)
-    #
-    #             if "gstools_effective" in config["sim_config"] and config["sim_config"]["gstools_effective"]:
-    #                 print("gstools effective ")
-    #                 femgrid_barycenters = fem_grid_cond.grid.barycenters()
-    #                 # x_unique = np.unique(femgrid_barycenters[:, 0])
-    #                 # y_unique = np.unique(femgrid_barycenters[:, 1])
-    #                 # z_unique = np.unique(femgrid_barycenters[:, 2])
-    #
-    #                 bulk_cond_values, bulk_cond_points = DFMSim3D.generate_grid_cond(
-    #                     (femgrid_barycenters[:, 0], femgrid_barycenters[:, 1], femgrid_barycenters[:, 2]),
-    #                     config, seed=sample_seed,
-    #                     mode="fft")
-    #                 bulk_cond_points = femgrid_barycenters
-    #             else:
-    #                 bulk_cond_values, bulk_cond_points = DFMSim3D.generate_grid_cond(fem_grid_cond.grid.barycenters(),
-    #                                                                                  config, seed=sample_seed)
-    #             print("bulk cond values ", bulk_cond_values.shape)
-    #             print("bulk cond points ", bulk_cond_points.shape)
-    #
-    #         ##############
-    #         # Upscaling  #
-    #         ##############
-    #         if "nn_path" in config["sim_config"]:
-    #             n_voxels_per_hom_block = config["sim_config"]["geometry"]["n_voxels"][0]
-    #             # print("n_voxels_per_hom_block ", n_voxels_per_hom_block)
-    #             fem_grid_n_steps = [int(n_voxels_per_hom_block * hom_boxes_per_domain)] * 3
-    #             # print("fem_grid_n_steps ", fem_grid_n_steps)
-    #             fem_grid_rast = fem.fem_grid(larger_domain_size, fem_grid_n_steps, fem.Fe.Q(dim=3),
-    #                                          origin=-larger_domain_size / 2)
-    #             print("fem grid rast ", fem_grid_rast)
-    #             ##@TODO: Set the most suitable Surrogate for prediction
-    #             cond_tensors = DFMSim3D.rasterize_at_once_zarr_move_by_stride(config, dfn_to_homogenization,
-    #                                                                           bulk_cond_values, bulk_cond_points,
-    #                                                                           hom_box_size, larger_domain_size,
-    #                                                                           fem_grid_rast)
-    #
-    #             points = np.array(list(cond_tensors.keys()))
-    #             values = np.squeeze(np.array(list(cond_tensors.values())))
-    #             print("points ", points)
-    #             print("points.shape ", points.shape)
-    #             print("values ", values.shape)
-    #
-    #         else:
-    #             if config["sim_config"]["use_larger_domain"]:
-    #                 config["sim_config"]["geometry"]["domain_box"] = hom_domain_box
-    #                 config["sim_config"]["geometry"]["fractures_box"] = hom_domain_box
-    #
-    #             cond_tensors, pred_cond_tensors_homo = DFMSim3D.homogenization(config, dfn_to_homogenization,
-    #                                                                            dfn_to_homogenization_list,
-    #                                                                            bulk_cond_values, bulk_cond_points)
-    #         bulk_cond_values, bulk_cond_points = np.squeeze(
-    #             np.array(list(cond_tensors.values()))), np.array(list(cond_tensors.keys()))
-    #
-    #     fr_media = FracturedMedia.fracture_cond_params(dfn_fine, 1e-4, 0.00001)
-    #     return fr_media, bulk_cond_values, bulk_cond_points
-    #
-    # @staticmethod
-    # def get_sliding_indices(volume_size, window_size, stride):
-    #     starts = list(range(0, volume_size - window_size + 1, stride))
-    #     if starts[-1] + window_size < volume_size:
-    #         starts.append(volume_size - window_size)  # Add last window to cover edge
-    #     print("starts ", starts)
-    #     return starts
-    #
-    #
-    # @staticmethod
-    # def rasterize_at_once_zarr_move_by_stride(config, dfn_to_homogenization, bulk_cond_values, bulk_cond_points, hom_box_size, domain_box_size, fem_grid_rast):
-    #     fem_grid_n_steps = fem_grid_rast.grid.shape
-    #     bulk_cond_fem_rast = DFMSim3D._bulk_cond_to_rast_grid(bulk_cond_values, bulk_cond_points, fem_grid_rast.grid)
-    #
-    #     fr_cond, fr_cross_section = [], []
-    #     if len(dfn_to_homogenization) > 0:
-    #         fr_cross_section, fr_cond = DFMSim3D.fr_conductivity(dfn_to_homogenization, cross_section_factor=1e-4)
-    #
-    #     bulk_cond_fem_rast_voigt = tn_to_voigt(bulk_cond_fem_rast)
-    #     bulk_cond_fem_rast_voigt = bulk_cond_fem_rast_voigt.reshape(*fem_grid_n_steps,
-    #                                                                 bulk_cond_fem_rast_voigt.shape[-1]).T
-    #
-    #     if len(dfn_to_homogenization) == 0:
-    #         rasterized_input = bulk_cond_fem_rast
-    #     else:
-    #         rasterized_input = DFMSim3D.rasterize(fem_grid_rast, dfn_to_homogenization, bulk_cond=bulk_cond_fem_rast,
-    #                                               fr_cond=fr_cond)
-    #
-    #     rasterized_input_voigt = tn_to_voigt(rasterized_input)
-    #
-    #     rasterized_input_voigt = rasterized_input_voigt.reshape(*fem_grid_n_steps, rasterized_input_voigt.shape[-1]).T
-    #
-    #     #domain_box = config["sim_config"]["geometry"]["orig_domain_box"]
-    #     subdomain_box = hom_box_size #config["sim_config"]["geometry"]["subdomain_box"]
-    #     subdomain_pixel_size = 64
-    #     pixel_stride = subdomain_pixel_size // config["sim_config"]["geometry"]["pixel_stride_div"]
-    #
-    #     lx, ly, lz = domain_box_size, domain_box_size, domain_box_size
-    #
-    #     batch_size = 1
-    #
-    #     dict_centers = []
-    #     dict_cond_tn_values = []
-    #
-    #     x_size, y_size, z_size = rasterized_input_voigt.shape[1:]  # Assuming (channels, X, Y, Z)
-    #
-    #     x_starts = DFMSim3D.get_sliding_indices(x_size, subdomain_pixel_size, pixel_stride)
-    #     y_starts = DFMSim3D.get_sliding_indices(y_size, subdomain_pixel_size, pixel_stride)
-    #     z_starts = DFMSim3D.get_sliding_indices(z_size, subdomain_pixel_size, pixel_stride)
-    #
-    #     all_indices = list(itertools.product(x_starts, y_starts, z_starts))
-    #     num_subdomains = len(all_indices)
-    #
-    #     zarr_file_path = DFMSim3D.create_zarr_file(os.getcwd(), n_samples=num_subdomains, config_dict=config, centers=True)
-    #     zarr_file = zarr.open(zarr_file_path, mode='r+')
-    #
-    #     print("num subdomains ", num_subdomains)
-    #
-    #     zarr_batch_size = 1
-    #     n_channels = rasterized_input_voigt.shape[0]
-    #
-    #     voxel_spacing = subdomain_box/subdomain_pixel_size
-    #
-    #     for start in range(0, num_subdomains, zarr_batch_size):
-    #         end = min(start + zarr_batch_size, num_subdomains)
-    #
-    #         batch_centers = np.zeros((end - start, 3), dtype=np.float32)
-    #         batch_inputs = np.zeros(
-    #             (end - start, n_channels, subdomain_pixel_size, subdomain_pixel_size, subdomain_pixel_size),
-    #             dtype=np.float32)
-    #         batch_bulk_avg = np.zeros((end - start, n_channels), dtype=np.float32)
-    #
-    #         batch_indices = all_indices[start:end]
-    #
-    #         for batch_index, (x_start, y_start, z_start) in enumerate(batch_indices):
-    #             x_end = x_start + subdomain_pixel_size
-    #             y_end = y_start + subdomain_pixel_size
-    #             z_end = z_start + subdomain_pixel_size
-    #
-    #             # Compute voxel center index
-    #             cx_idx = (x_start + x_end) / 2
-    #             cy_idx = (y_start + y_end) / 2
-    #             cz_idx = (z_start + z_end) / 2
-    #
-    #             # Convert to real coordinates relative to domain center (0, 0, 0)
-    #             center_x = (cx_idx * voxel_spacing) - lx / 2
-    #             center_y = (cy_idx * voxel_spacing) - ly / 2
-    #             center_z = (cz_idx * voxel_spacing) - lz / 2
-    #
-    #             batch_centers[batch_index] = (center_x, center_y, center_z)
-    #             batch_inputs[batch_index] = rasterized_input_voigt[:, x_start:x_end, y_start:y_end, z_start:z_end]
-    #             batch_bulk_avg[batch_index] = np.mean(
-    #                 bulk_cond_fem_rast_voigt[:, x_start:x_end, y_start:y_end, z_start:z_end], axis=(1, 2, 3))
-    #
-    #         zarr_file["centers"][start:end] = batch_centers
-    #         zarr_file["inputs"][start:end] = batch_inputs
-    #         zarr_file["bulk_avg"][start:end] = batch_bulk_avg
-    #
-    #     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    #     import torch.autograd.profiler as profiler
-    #
-    #     if DFMSim3D.model is None:
-    #         nn_path = config["sim_config"]["nn_path"]
-    #         study = load_study(nn_path)
-    #         model_path = get_saved_model_path(nn_path, study.best_trial)
-    #         model_kwargs = study.best_trial.user_attrs["model_kwargs"]
-    #         DFMSim3D.model = study.best_trial.user_attrs["model_class"](**model_kwargs)
-    #         if not torch.cuda.is_available():
-    #             DFMSim3D.checkpoint = torch.load(model_path, map_location=torch.device('cpu'))
-    #         else:
-    #             DFMSim3D.checkpoint = torch.load(model_path)
-    #         DFMSim3D.inverse_transform = get_inverse_transform(study, results_dir=nn_path)
-    #         DFMSim3D.transform = get_transform(study, results_dir=nn_path)
-    #
-    #     ##
-    #     # Create dataset
-    #     ##
-    #     dataset_for_prediction = DFM3DDataset(zarr_path=zarr_file_path,
-    #                                           init_transform=DFMSim3D.transform[0],
-    #                                           input_transform=DFMSim3D.transform[1],
-    #                                           output_transform=DFMSim3D.transform[2],
-    #                                           return_centers_bulk_avg=True)
-    #
-    #     dset_prediction_loader = torch.utils.data.DataLoader(dataset_for_prediction, batch_size=batch_size,
-    #                                                          shuffle=False)
-    #
-    #     DFMSim3D.model.load_state_dict(DFMSim3D.checkpoint['best_model_state_dict'])
-    #     DFMSim3D.model = DFMSim3D.model.to(memory_format=torch.channels_last_3d)
-    #     DFMSim3D.model.to(device).eval()
-    #     with torch.inference_mode():
-    #         for i, sample in enumerate(dset_prediction_loader):
-    #             inputs, targets, centers, bulk_features_avg = sample
-    #             inputs = inputs.to(memory_format=torch.channels_last_3d)  # Optimize for 3D convolution
-    #             inputs = inputs.float().to(device)
-    #
-    #             predictions = DFMSim3D.model(inputs)
-    #             predictions = np.squeeze(predictions)
-    #
-    #             inv_predictions = torch.squeeze(
-    #                 DFMSim3D.inverse_transform(torch.reshape(predictions, (*predictions.shape, 1, 1))))
-    #
-    #             if dataset_for_prediction.init_transform is not None:
-    #                 if len(inv_predictions.shape) > 1:
-    #                     bulk_features_avg = bulk_features_avg.view(-1, 1)
-    #                 inv_predictions *= bulk_features_avg
-    #
-    #             inv_predictions_numpy = inv_predictions.numpy()
-    #
-    #             # print("len(inv_predictions_numpy.shape) ", len(inv_predictions_numpy.shape))
-    #             if len(inv_predictions_numpy.shape) == 1:
-    #                 inv_predictions_numpy = np.expand_dims(inv_predictions_numpy, axis=0)
-    #
-    #             if len(inv_predictions.numpy().shape) == 1:
-    #                 dict_cond_tn_values.extend([list(voigt_to_tn(inv_predictions_numpy))])
-    #             else:
-    #                 dict_cond_tn_values.extend(list(voigt_to_tn(inv_predictions_numpy)))
-    #
-    #             centers_tuples = map(tuple, centers.numpy())
-    #             dict_centers.extend(centers_tuples)
-    #
-    #     pred_cond_tensors = dict(zip(dict_centers, dict_cond_tn_values))
-    #
-    #     return pred_cond_tensors
+    @staticmethod
+    def fine_SRF_from_homogenization(dfn, config, sample_seed):
+        """
+        Generate a fine-scale stochastic random field (SRF) from homogenization.
+
+        :param dfn: List of fracture objects with attribute `r`.
+        :param config: Simulation configuration dictionary containing geometry and SRF setup.
+        :param sample_seed: Random seed for reproducibility of SRF generation.
+        :return: Tuple (bulk_cond_values, bulk_cond_points)
+            - bulk_cond_values: np.ndarray, conductivity tensor values after homogenization.
+            - bulk_cond_points: np.ndarray, corresponding spatial coordinates of the conductivity tensors.
+        """
+
+        # Extract steps from config
+        fine_step = config["fine"]["step"]
+        coarse_step = config["coarse"]["step"]
+        print(f"fine step: {fine_step}, coarse step: {coarse_step}")
+
+        orig_domain_box = config["sim_config"]["geometry"]["orig_domain_box"]
+
+        # Reverse level parameters (to align with finest to coarsest order)
+        reversed_level_params = list(np.squeeze(config["sim_config"]["level_parameters"]))[::-1]
+
+        # Identify current and previous level indices
+        current_level_index = int(reversed_level_params.index(fine_step))
+        assert current_level_index == len(reversed_level_params) - 1, "Only the coarsest level is supported"
+
+        previous_level_index = current_level_index - 1
+        print(f"current level index: {current_level_index}, previous level index: {previous_level_index}")
+
+        # Prepare config for homogenization
+        config_for_homogenization = copy.deepcopy(config)
+        config_for_homogenization["fine"]["step"] = reversed_level_params[previous_level_index]
+        config_for_homogenization["coarse"]["step"] = reversed_level_params[current_level_index]
+
+        config_for_homogenization = DFMSim3D.configure_homogenization_geometry_params(config_for_homogenization)
+
+        # Update geometry boxes
+        sub_domain_box = config_for_homogenization["sim_config"]["geometry"]["subdomain_box"]
+
+        domain_box = [
+            orig_domain_box[0] + sub_domain_box[0],
+            orig_domain_box[1] + sub_domain_box[1],
+            orig_domain_box[2] + sub_domain_box[2],
+        ]
+        config_for_homogenization["sim_config"]["geometry"]["domain_box"] = domain_box
+        config_for_homogenization["sim_config"]["geometry"]["hom_domain_box"] = domain_box
+
+        print("use larger domain domain box", domain_box)
+
+        # Split DFN into homogenization and fine lists
+        dfn_to_homogenization_list = []
+        dfn_to_fine_list = []
+
+        for fr in dfn:
+            if reversed_level_params[previous_level_index] <= fr.r <= reversed_level_params[current_level_index]:
+                print("to hom fr.r", fr.r)
+                dfn_to_homogenization_list.append(fr)
+            elif reversed_level_params[current_level_index] < fr.r < orig_domain_box[0]:
+                print("coarse/new fine fr.r", fr.r)
+                dfn_to_fine_list.append(fr)
+
+        # Generate SRF at the finest level
+        if previous_level_index == 0:
+            # Define FEM grid for conditional SRF generation
+            hom_boxes_per_domain = config["sim_config"]["geometry"]["n_nonoverlap_subdomains"]
+            n_steps_cond_grid_size = int(hom_boxes_per_domain * 16)
+            n_steps_cond_grid = (n_steps_cond_grid_size,) * 3
+
+            fem_grid_cond = fem.fem_grid(
+                n_steps_cond_grid_size,
+                n_steps_cond_grid,
+                fem.Fe.Q(dim=3),
+                origin=-n_steps_cond_grid_size / 2,
+            )
+            print("fine SRF FEM GRID COND", fem_grid_cond)
+
+            # SRF generation using gstools if enabled
+            if config["sim_config"].get("gstools_effective", False):
+                print("gstools effective")
+                femgrid_barycenters = fem_grid_cond.grid.barycenters()
+
+                bulk_cond_values, bulk_cond_points = DFMSim3D.generate_grid_cond(
+                    (femgrid_barycenters[:, 0],
+                     femgrid_barycenters[:, 1],
+                     femgrid_barycenters[:, 2]),
+                    config,
+                    seed=sample_seed,
+                    mode="fft",
+                )
+                bulk_cond_points = femgrid_barycenters
+            else:
+                bulk_cond_values, bulk_cond_points = DFMSim3D.generate_grid_cond(
+                    fem_grid_cond.grid.barycenters(),
+                    config,
+                    seed=sample_seed,
+                )
+
+        elif previous_level_index in config["sim_config"]["levels_fine_srf_from_population"]:
+            # Generate SRF from precomputed tensor population
+            bulk_model = SRFFromTensorPopulation(config)
+            bulk_cond_values, bulk_cond_points = bulk_model.generate_field(
+                reuse_sample=False,
+                location_population=False,
+            )
+
+        # -----------------
+        # Upscaling process
+        # -----------------
+        cond_tensors_for_coarse, _ = DFMSim3D.coarse_bulk_srf_generation(
+            config_for_homogenization,
+            bulk_cond_values,
+            bulk_cond_points,
+            dfn_to_homogenization_list,
+        )
+
+        # Flatten dictionary into arrays
+        bulk_cond_values = np.squeeze(np.array(list(cond_tensors_for_coarse.values())))
+        bulk_cond_points = np.array(list(cond_tensors_for_coarse.keys()))
+
+        return bulk_cond_values, bulk_cond_points
 
     @staticmethod
     def coarse_bulk_srf_generation(config, bulk_cond_values, bulk_cond_points, dfn_to_homogenization_list, no_homogenization_flag=False):
+        print("##############")
+        print("coarse_bulk_srf_generation")
+        print("###############")
         sim_config = config["sim_config"]
         subdomain_box = config["sim_config"]["geometry"]["subdomain_box"]
         hom_block_centers = config["sim_config"]["geometry"]["hom_block_centers"]
@@ -3027,6 +2833,14 @@ class DFMSim3D(Simulation):
         n_subdomains_per_axes = config["sim_config"]["geometry"]["n_subdomains_per_axes"]
         hom_domain_box = config["sim_config"]["geometry"]["hom_domain_box"]
         pred_cond_tensors_homo = None
+
+        print("bulk_cond_values.shape ", bulk_cond_values.shape)
+
+        print("subdomain_box: {}, hom_block_centers: {}, n_nonoverlap_subdomains: {}, n_subdomains_per_axes: {}, hom_domain_box: {}".format(subdomain_box,
+                                                                                                                                            hom_block_centers,
+                                                                                                                                            n_nonoverlap_subdomains,
+                                                                                                                                            n_subdomains_per_axes,
+                                                                                                                                            hom_domain_box) )
 
         # Do not carry out homogenization at all
         if no_homogenization_flag:
@@ -3039,6 +2853,8 @@ class DFMSim3D(Simulation):
         # Use Surrogate
         if "nn_path" in config["sim_config"]:
             domain_size = config["sim_config"]["geometry"]["domain_box"]
+
+            print('domain_size ', domain_size)
 
             # Homogenization block size is fixed
             if "hom_box_fixed" in sim_config and sim_config["hom_box_fixed"]:
@@ -3127,7 +2943,7 @@ class DFMSim3D(Simulation):
 
 
     @staticmethod
-    def fine_bulk_srf_generation(config, fem_grid_cond_domain_size, sample_seed):
+    def fine_bulk_srf_generation(config, fem_grid_cond_domain_size, sample_seed, dfn=None):
         fine_step = config["fine"]["step"]
         coarse_step = config["coarse"]["step"]
         sim_config = config["sim_config"]
@@ -3215,8 +3031,8 @@ class DFMSim3D(Simulation):
 
 
         else:
-            raise Exception("Other methods are no longer supported")
-            # fr_media, bulk_cond_values, bulk_cond_points = DFMSim3D.fine_SRF_from_homogenization(dfn, config, sample_seed)
+            #raise Exception("Other methods are no longer supported")
+            bulk_cond_values, bulk_cond_points = DFMSim3D.fine_SRF_from_homogenization(dfn, config, sample_seed)
 
         return bulk_cond_values, bulk_cond_points, bulk_cond_values_for_fine_sample, bulk_cond_points_for_fine_sample
 
@@ -3382,30 +3198,14 @@ class DFMSim3D(Simulation):
         orig_domain_box = config["sim_config"]["geometry"]["orig_domain_box"]
         if coarse_step > 0 and "use_larger_domain" in config["sim_config"] and config["sim_config"]["use_larger_domain"]:
             sub_domain_box = config["sim_config"]["geometry"]["subdomain_box"]
-            #orig_frac_box = config["sim_config"]["geometry"]["fractures_box"]
-
-            #print("subdomain box ", subdomain_box)
-            #print("orig domain box ", orig_domain_box)
-
-            # config["sim_config"]["geometry"]["domain_box"] = [orig_domain_box[0] + 2 * sub_domain_box[0],
-            #                                                   orig_domain_box[1] + 2 * sub_domain_box[1],
-            #                                                   orig_domain_box[1] + 2 * sub_domain_box[1]]
-
             config["sim_config"]["geometry"]["domain_box"] = [orig_domain_box[0] + sub_domain_box[0],
                                                               orig_domain_box[1] + sub_domain_box[1],
-                                                              orig_domain_box[1] + sub_domain_box[1]]
+                                                              orig_domain_box[2] + sub_domain_box[2]]
             fem_grid_cond_domain_size = orig_domain_box[0] + sub_domain_box[0] + fine_step
-            hom_domain_box = [orig_domain_box[0] + sub_domain_box[0], orig_domain_box[1] + sub_domain_box[1], orig_domain_box[1] + sub_domain_box[1]]
-            # if config["sim_config"]["rasterize_at_once"]:
-            #     hom_domain_box = [orig_domain_box[0] + sub_domain_box[0]/2, orig_domain_box[1] + sub_domain_box[1]/2]
+            hom_domain_box = [orig_domain_box[0] + sub_domain_box[0], orig_domain_box[1] + sub_domain_box[1], orig_domain_box[2] + sub_domain_box[2]]
             print("use larger domain domain box ", config["sim_config"]["geometry"]["domain_box"])
 
             config["sim_config"]["geometry"]["hom_domain_box"] = hom_domain_box
-
-        # subdomain_box, n_nonoverlap_subdomains, n_subdomains_per_axes = DFMSim3D._calculate_subdomains(coarse_step, config["sim_config"]["geometry"])
-        # print("subdomain_box ", subdomain_box)
-        # print("n_nonoverlap_subdomains ", n_nonoverlap_subdomains)
-        # print("n_subdomains_per_axes ", n_subdomains_per_axes)
 
         dimensions = config["sim_config"]["geometry"]["orig_domain_box"]
 
@@ -3415,24 +3215,27 @@ class DFMSim3D(Simulation):
         fine_res = [0, 0, 0, 0, 0, 0]
         fine_sample_start_time = time.time()
 
+        print("list(np.squeeze(config[sim_config][level_parameters], axis=1))[-1] ", list(np.squeeze(config["sim_config"]["level_parameters"], axis=1))[-1])
+
         ### Discrete fracture network generation ###
         dfn = DFMSim3D.fracture_random_set(sample_seed, fr_range, sim_config["work_dir"], max_frac=geom["n_frac_limit"])
-        dfn = stochastic.FractureSet.from_list([
-            fr for fr in dfn
-            if (list(np.squeeze(config["sim_config"]["level_parameters"], axis=1))[-1] <= fr.r <= orig_domain_box[0])
-               and (fr.r >= fine_step)
-        ])
-        fr_media = FracturedMedia.fracture_cond_params(dfn, 1e-4, 0.00001)
         ##############################################
 
         ### Bulk conductivity generation ###
-        bulk_cond_values, bulk_cond_points, bulk_cond_values_for_fine_sample, bulk_cond_points_for_fine_sample = DFMSim3D.fine_bulk_srf_generation(config, fem_grid_cond_domain_size, sample_seed)
+        bulk_cond_values, bulk_cond_points, bulk_cond_values_for_fine_sample, bulk_cond_points_for_fine_sample = DFMSim3D.fine_bulk_srf_generation(config, fem_grid_cond_domain_size, sample_seed, dfn)
 
         if bulk_cond_values_for_fine_sample is None:
             bulk_cond_values_for_fine_sample = bulk_cond_values
             bulk_cond_points_for_fine_sample = bulk_cond_points
 
         #####################################
+
+        dfn = stochastic.FractureSet.from_list([
+            fr for fr in dfn
+            if (list(np.squeeze(config["sim_config"]["level_parameters"], axis=1))[-1] <= fr.r <= orig_domain_box[0])
+               and (fr.r >= fine_step)
+        ])
+        fr_media = FracturedMedia.fracture_cond_params(dfn, 1e-4, 0.00001)
 
         ### Simulation run ###
         if "flow_sim" in config["sim_config"] and config["sim_config"]["flow_sim"]:
