@@ -2804,7 +2804,7 @@ class DFMSim3D(Simulation):
 
         elif previous_level_index in config["sim_config"]["levels_fine_srf_from_population"]:
             # Generate SRF from precomputed tensor population
-            bulk_model = SRFFromTensorPopulation(config)
+            bulk_model = SRFFromTensorPopulation(config_for_homogenization)
             bulk_cond_values, bulk_cond_points = bulk_model.generate_field(
                 reuse_sample=False,
                 location_population=False,
