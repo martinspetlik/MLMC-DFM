@@ -199,6 +199,7 @@ class SRFFromTensorPopulation:
             Configuration dictionary containing file paths for the tensor population.
         """
         cond_pop_file = config_dict["fine"]["cond_tn_pop_file"]
+        print("cond_pop_file ", cond_pop_file)
         cond_pop_coords_file = config_dict["fine"]["cond_tn_pop_coords_file"]
         self._cond_tns = np.load(cond_pop_file)
         self._cond_tns_coords = np.load(cond_pop_coords_file)

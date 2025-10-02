@@ -2733,7 +2733,6 @@ class DFMSim3D(Simulation):
         config_for_homogenization = copy.deepcopy(config)
         config_for_homogenization["fine"]["step"] = reversed_level_params[previous_level_index]
         config_for_homogenization["coarse"]["step"] = reversed_level_params[current_level_index]
-
         config_for_homogenization = DFMSim3D.configure_homogenization_geometry_params(config_for_homogenization)
 
         # Update geometry boxes
@@ -2746,6 +2745,12 @@ class DFMSim3D(Simulation):
         ]
         config_for_homogenization["sim_config"]["geometry"]["domain_box"] = domain_box
         config_for_homogenization["sim_config"]["geometry"]["hom_domain_box"] = domain_box
+
+        import re
+        config_for_homogenization["fine"]["cond_tn_pop_file"] = re.sub(r"l_step_\d+", f'l_step_{config_for_homogenization["fine"]["step"]}', config_for_homogenization["fine"]["cond_tn_pop_file"])
+        config_for_homogenization["fine"]["cond_tn_pop_coords_file"] = re.sub(r"l_step_\d+",
+                                                                       f'l_step_{config_for_homogenization["fine"]["step"]}',
+                                                                       config_for_homogenization["fine"]["cond_tn_pop_coords_file"])
 
         print("use larger domain domain box", domain_box)
 
