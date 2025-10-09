@@ -56,8 +56,9 @@ class Net(nn.Module):
         self._pool_indices = pool_indices
         self._cnn_dropout_indices = cnn_dropout_indices
         self._fc_dropout_indices = fc_dropout_indices
-        self.kernel_size = (kernel_size, kernel_size)
-        self.stride = (stride, stride)
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.padding = padding
         self._global_pool = global_pool
         self._bias_reduction_layer_indices = bias_reduction_layer_indices
 
@@ -155,8 +156,6 @@ class Net(nn.Module):
 
     # --- Forward pass ---
     def forward(self, x):
-        verbose = False  # For debugging purposes
-
         def count_conv_params_per_layer(module):
             return {
                 name: sum(p.numel() for p in layer.parameters() if p.requires_grad)

@@ -55,11 +55,12 @@ class ProcessSimple:
         self.generate_samples_per_level = True
         # Use PBS sampling pool
         self.n_levels = 2
-        self._levels_fine_srf_from_population = [0]
+        self._levels_fine_srf_from_population = [] #[1]
         self.n_moments = 3
         # Number of MLMC levels
 
-        step_range = [10, 5]
+        step_range = [12.5, 5]
+        #step_range = [12, 8, 5]
         #step_range = [15, 10]
         #step_range = [20, 10]
 
@@ -67,7 +68,7 @@ class ProcessSimple:
 
         # Determine level parameters at each level (In this case, simulation step at each level) are set automatically
         self.level_parameters = estimator.determine_level_parameters(self.n_levels, step_range)
-        #self.level_parameters = [self.level_parameters[4]]
+        #self.level_parameters = [[12], [10], [5]]
 
         print("self.level_parameters ", self.level_parameters)
 
@@ -112,7 +113,7 @@ class ProcessSimple:
         if recollect:
             raise NotImplementedError("Not supported in released version")
         else:
-            self.generate_jobs(sampler, n_samples=[5, 5], renew=renew)#[1, 1, 1, 3, 3, 3, 3], renew=renew)
+            self.generate_jobs(sampler, n_samples=[5, 5], renew=renew, target_var=1e-4) #[1, 1, 1, 3, 3, 3, 3], renew=renew)
             #self.generate_jobs(sampler, n_samples=[100, 2],renew=renew, target_var=1e-5)
             self.all_collect(sampler)  # Check if all samples are finished
 
@@ -448,9 +449,10 @@ class ProcessSimple:
                             print("cond_tn_pop_file ", cond_tn_pop_file)
                             if cond_tn_pop_file is not None:
 
-                                if level_id - 1 in level_instance_obj.config_dict["sim_config"]["generate_srf_from_hom_location_population"] and\
-                                        level_instance_obj.config_dict["sim_config"]["generate_srf_from_hom_location_population"][level_id - 1]:
-                                    ProcessSimple.save_cond_tns_per_coord(level_instance_obj)
+                                if "generate_srf_from_hom_location_population" in level_instance_obj.config_dict["sim_config"]:
+                                    if level_id - 1 in level_instance_obj.config_dict["sim_config"]["generate_srf_from_hom_location_population"] and\
+                                            level_instance_obj.config_dict["sim_config"]["generate_srf_from_hom_location_population"][level_id - 1]:
+                                        ProcessSimple.save_cond_tns_per_coord(level_instance_obj)
 
                                 sample_cond_tns = []
                                 sample_pred_cond_tns = []
@@ -489,15 +491,11 @@ class ProcessSimple:
             sampler.ask_sampling_pool_for_samples(sleep=self.sample_sleep, timeout=self.sample_timeout)
             self.all_collect(sampler)
 
-            exit()
-
             if target_var is not None:
                 root_quantity = make_root_quantity(storage=sampler.sample_storage,
                                                    q_specs=sampler.sample_storage.load_result_format())
 
-                moments_fn = self.set_moments(root_quantity, sampler.sample_storage, n_moments=self.n_moments)
-                estimate_obj = estimator.Estimate(root_quantity, sample_storage=sampler.sample_storage,
-                                                  moments_fn=moments_fn)
+                estimate_obj = self.get_estimate_obj(root_quantity, sampler.sample_storage)
 
                 # New estimation according to already finished samples
                 variances, n_ops = estimate_obj.estimate_diff_vars_regression(sampler._n_scheduled_samples)
@@ -507,7 +505,7 @@ class ProcessSimple:
                 print("variances ", variances)
                 print("n ops ", n_ops)
                 print("n estimated ", n_estimated)
-
+                exit()
 
                 # Loop until number of estimated samples is greater than the number of scheduled samples
                 while not sampler.process_adding_samples(n_estimated, self.sample_sleep, self.adding_samples_coef,
@@ -516,9 +514,14 @@ class ProcessSimple:
                     variances, n_ops = estimate_obj.estimate_diff_vars_regression(sampler._n_scheduled_samples)
                     n_estimated = estimator.estimate_n_samples_for_target_variance(target_var, variances, n_ops,
                                                                                    n_levels=sampler.n_levels)
-    def set_moments(self, quantity, sample_storage, n_moments=5, quantile=0.01):
-        true_domain = estimator.estimate_domain(quantity, sample_storage, quantile=quantile)
-        return Legendre(n_moments, true_domain)
+
+    def get_estimate_obj(self, quantity, sample_storage, quantile=0.001):
+        true_domain = mlmc.estimator.Estimate.estimate_domain(quantity, sample_storage, quantile=quantile)
+        moments_fn = Monomial(self.n_moments, true_domain)  # , ref_domain=true_domain)
+        estimate_obj = mlmc.estimator.Estimate(quantity=quantity, sample_storage=sample_storage, moments_fn=moments_fn)
+
+        return estimate_obj
+
 
     def all_collect(self, sampler):
         """
@@ -652,462 +655,472 @@ class ProcessSimple:
         time_mean = cond_tn_quantity[1]  # times: [1]
         location_mean = time_mean['0']  # locations: ['0']
         #print("location mean ", location_mean)
-        k_xx = location_mean[2]
+        k_xx = location_mean[0]
         q_value = k_xx #cond_tn_quantity#k_xx
         #q_value = np.array([location_mean[0], location_mean[1], location_mean[2]])
 
-        print("q_value ", q_value)
-
-        # @TODO: How to estimate true_domain?
-        quantile = 1e-3
-        true_domain = mlmc.estimator.Estimate.estimate_domain(q_value, sample_storage, quantile=quantile)
-        #true_domain = (0.0001033285847, 0.15110546971700062)
-        #true_domain = (0.0001033285847, 0.15110546971700062)
-        print("true domain ", true_domain)
-        #true_domain = (3.61218304e-07, 3.645725840000398e-05)
-        #true_domain = (4.1042996300000003e-07, 2.9956777900000792e-05)
-        #true_domain = (3.61218304e-07, 2.9956777900000792e-05)
-        #moments_fn = Legendre(self.n_moments, true_domain)
-        moments_fn = Monomial(self.n_moments, true_domain)#, ref_domain=true_domain)
-
-        # n_ops = np.array(sample_storage.get_n_ops())
-        # print("n ops ", n_ops)
-        # print("n ops ", n_ops[:, 0] / n_ops[:, 1])
-
-        print("sample storage n collected ", sample_storage.get_n_collected())
-
-        estimate_obj = mlmc.estimator.Estimate(quantity=q_value, sample_storage=sample_storage, moments_fn=moments_fn)
-        estimate_obj_squared = mlmc.estimator.Estimate(quantity=np.power(q_value, 2), sample_storage=sample_storage, moments_fn=moments_fn)
-
-        # ###################
-        # ###################
-        # # Central moments #
-        # ###################
-        # ###################
-        # means = estimate_mean(root_quantity)
-        #
-        # # moments_fn = Legendre(n_moments, true_domain)
-        # moments_fn = Monomial(self.n_moments, true_domain)
-        #
-        # moments_quantity = moments(root_quantity, moments_fn=moments_fn, mom_at_bottom=True)
-        # moments_mean = estimate_mean(moments_quantity)
-        #
-        # cond_tn_quantity = moments_mean["cond_tn"]
-        # time_mean = cond_tn_quantity[1]  # times: [1]
-        # location_mean = time_mean['0']  # locations: ['0']
-        # # print("location mean ", location_mean)
-        # k_xx = location_mean[2]
-        # q_value = k_xx
-        # print("q_value ", q_value.mean)
-        # values_mean = q_value  # result shape: (1, 1)
-        # value_mean = values_mean[0]
-        # assert value_mean.mean == 1
-        #
-        # true_domain = [-10, 10]  # keep all values on the original domain
-        # central_moments_fn = Monomial(self.n_moments, true_domain, ref_domain=true_domain)
-        # central_moments_quantity = moments(root_quantity, moments_fn=central_moments_fn, mom_at_bottom=True)
-        # central_moments_mean = estimate_mean(central_moments_quantity)
-        #
-        # print("central moments mean ", central_moments_mean.mean)
-        #
-        # ############
-        # ############
-        # ############
-
-        ###############################
-        ###############################
-        # Pure data MEAN and VARIANCE #
-        ###############################
-        ###############################
-        squared_root_quantity = np.power(q_value, 2)
-        means_root_quantity = estimate_mean(q_value)
-        means_squared_root_quantity = estimate_mean(squared_root_quantity)
-
-        fine_means_root_quantity = estimate_mean(q_value, form="fine")
-        coarse_means_root_quantity = estimate_mean(q_value, form="coarse")
-
-        print("means_root_quantity.l_means ", means_root_quantity.l_means)
-        print("fine_means_root_quantity.l_means ", fine_means_root_quantity.l_means)
-        print("coarse_means_root_quantity.l_means ", coarse_means_root_quantity.l_means)
-
-        variance = means_squared_root_quantity.mean - np.power(means_root_quantity.mean, 2)
-
-        print("COLLECTED VALUES MEAN: {}, VARIANCE: {}".format(means_root_quantity.mean, variance))
-
-        # means, vars = estimate_obj.estimate_moments(moments_fn)
-        # means_squared, vars = estimate_obj_squared.estimate_moments(moments_fn)
-        #
-        # print('means ', means)
-        # print("means squared ", means_squared)
-        #
-        # variance = np.squeeze(means_squared)[1] - (np.squeeze(means)[1] ** 2)
-        #
-        # print("variance ", variance)
-        #
-
-        ############
-        ############
-        ############
-
-
-        #############
-        # subsample #
-        #############
-        import mlmc.quantity.quantity_estimate as qe
-        sample_vector = [10, 10, 10]
-        # root_quantity_subsamples = root_quantity.subsample(sample_vector)  # out of [100, 80, 50, 30, 10]
-        # moments_quantity = qe.moments(root_quantity_subsamples, moments_fn=moments_fn, mom_at_bottom=True)
-        # mult_chunks_moments_mean = estimate_mean(moments_quantity)
-        # mult_chunks_length_mean = mult_chunks_moments_mean['length']
-        # mult_chunks_time_mean = mult_chunks_length_mean[1]
-        # mult_chunks_location_mean = mult_chunks_time_mean['10']
-        # mult_chunks_value_mean = mult_chunks_location_mean[0]
-        # quantity_subsample = estimate_obj.quantity.select(estimate_obj.quantity.subsample(sample_vec=sample_vector))
-        # moments_quantity = qe.moments(quantity_subsample, moments_fn=moments_fn, mom_at_bottom=False)
-        # q_mean = qe.estimate_mean(moments_quantity)
+        print("result format ", sample_storage.load_result_format()[0].shape[0])
+
+        for q_idx in range(sample_storage.load_result_format()[0].shape[0]):
+            print("q_idx ", q_idx)
+
+            q_value = location_mean[q_idx]
+            print("q_value ", q_value)
+
+            # @TODO: How to estimate true_domain?
+            quantile = 1e-3
+            true_domain = mlmc.estimator.Estimate.estimate_domain(q_value, sample_storage, quantile=quantile)
+            print("calculated true domain ", true_domain)
+            #true_domain = (0.0001033285847, 0.15110546971700062)
+            true_domain = (0.0001033285847, 0.15110546971700062) # outflow
+            #true_domain = (9.585054483236782e-05, 0.01004395027124762)  # cond tn
+            print("true domain ", true_domain)
+            #true_domain = (3.61218304e-07, 3.645725840000398e-05)
+            #true_domain = (4.1042996300000003e-07, 2.9956777900000792e-05)
+            #true_domain = (3.61218304e-07, 2.9956777900000792e-05)
+            #moments_fn = Legendre(self.n_moments, true_domain)
+            moments_fn = Monomial(self.n_moments, true_domain)#, ref_domain=true_domain)
+
+            # n_ops = np.array(sample_storage.get_n_ops())
+            # print("n ops ", n_ops)
+            # print("n ops ", n_ops[:, 0] / n_ops[:, 1])
+
+            print("sample storage n collected ", sample_storage.get_n_collected())
+
+            estimate_obj = mlmc.estimator.Estimate(quantity=q_value, sample_storage=sample_storage, moments_fn=moments_fn)
+            estimate_obj_squared = mlmc.estimator.Estimate(quantity=np.power(q_value, 2), sample_storage=sample_storage, moments_fn=moments_fn)
+
+            # cons_check_val = mlmc.estimator.consistency_check(q_value, sample_storage=sample_storage)
+            # print("consistency check val ", cons_check_val)
+            # exit()
+
+            # ###################
+            # ###################
+            # # Central moments #
+            # ###################
+            # ###################
+            # means = estimate_mean(root_quantity)
+            #
+            # # moments_fn = Legendre(n_moments, true_domain)
+            # moments_fn = Monomial(self.n_moments, true_domain)
+            #
+            # moments_quantity = moments(root_quantity, moments_fn=moments_fn, mom_at_bottom=True)
+            # moments_mean = estimate_mean(moments_quantity)
+            #
+            # cond_tn_quantity = moments_mean["cond_tn"]
+            # time_mean = cond_tn_quantity[1]  # times: [1]
+            # location_mean = time_mean['0']  # locations: ['0']
+            # # print("location mean ", location_mean)
+            # k_xx = location_mean[2]
+            # q_value = k_xx
+            # print("q_value ", q_value.mean)
+            # values_mean = q_value  # result shape: (1, 1)
+            # value_mean = values_mean[0]
+            # assert value_mean.mean == 1
+            #
+            # true_domain = [-10, 10]  # keep all values on the original domain
+            # central_moments_fn = Monomial(self.n_moments, true_domain, ref_domain=true_domain)
+            # central_moments_quantity = moments(root_quantity, moments_fn=central_moments_fn, mom_at_bottom=True)
+            # central_moments_mean = estimate_mean(central_moments_quantity)
+            #
+            # print("central moments mean ", central_moments_mean.mean)
+            #
+            # ############
+            # ############
+            # ############
+
+            ###############################
+            ###############################
+            # Pure data MEAN and VARIANCE #
+            ###############################
+            ###############################
+            squared_root_quantity = np.power(q_value, 2)
+            means_root_quantity = estimate_mean(q_value)
+            means_squared_root_quantity = estimate_mean(squared_root_quantity)
+
+            fine_means_root_quantity = estimate_mean(q_value, form="fine")
+            coarse_means_root_quantity = estimate_mean(q_value, form="coarse")
+
+            print("means_root_quantity.l_means ", means_root_quantity.l_means)
+            print("fine_means_root_quantity.l_means ", fine_means_root_quantity.l_means)
+            print("coarse_means_root_quantity.l_means ", coarse_means_root_quantity.l_means)
+
+            variance = means_squared_root_quantity.mean - np.power(means_root_quantity.mean, 2)
+
+            print("COLLECTED VALUES MEAN: {}, VARIANCE: {}".format(means_root_quantity.mean, variance))
+
+            # means, vars = estimate_obj.estimate_moments(moments_fn)
+            # means_squared, vars = estimate_obj_squared.estimate_moments(moments_fn)
+            #
+            # print('means ', means)
+            # print("means squared ", means_squared)
+            #
+            # variance = np.squeeze(means_squared)[1] - (np.squeeze(means)[1] ** 2)
+            #
+            # print("variance ", variance)
+            #
+
+            ############
+            ############
+            ############
 
-        means, vars = estimate_obj.estimate_moments(moments_fn)
 
-        moments_quantity = qe.moments(q_value, moments_fn)
-        estimate_obj_moments_quantity = mlmc.estimator.Estimate(quantity=moments_quantity, sample_storage=sample_storage, moments_fn=moments_fn)
+            #############
+            # subsample #
+            #############
+            import mlmc.quantity.quantity_estimate as qe
+            sample_vector = [10, 10, 10]
+            # root_quantity_subsamples = root_quantity.subsample(sample_vector)  # out of [100, 80, 50, 30, 10]
+            # moments_quantity = qe.moments(root_quantity_subsamples, moments_fn=moments_fn, mom_at_bottom=True)
+            # mult_chunks_moments_mean = estimate_mean(moments_quantity)
+            # mult_chunks_length_mean = mult_chunks_moments_mean['length']
+            # mult_chunks_time_mean = mult_chunks_length_mean[1]
+            # mult_chunks_location_mean = mult_chunks_time_mean['10']
+            # mult_chunks_value_mean = mult_chunks_location_mean[0]
+            # quantity_subsample = estimate_obj.quantity.select(estimate_obj.quantity.subsample(sample_vec=sample_vector))
+            # moments_quantity = qe.moments(quantity_subsample, moments_fn=moments_fn, mom_at_bottom=False)
+            # q_mean = qe.estimate_mean(moments_quantity)
 
-        print("vars ", vars)
-        print('means ', means)
+            means, vars = estimate_obj.estimate_moments(moments_fn)
 
-        # moments_fn = self.set_moments(q_value, sample_storage, n_moments=self.n_moments, quantile=quantile)
-        # estimate_obj = estimator.Estimate(q_value, sample_storage=sample_storage,
-        #                                   moments_fn=moments_fn)
+            moments_quantity = qe.moments(q_value, moments_fn)
+            estimate_obj_moments_quantity = mlmc.estimator.Estimate(quantity=moments_quantity, sample_storage=sample_storage, moments_fn=moments_fn)
 
-        # New estimation according to already finished samples
-        variances, n_ops = estimate_obj.estimate_diff_vars_regression(sample_storage.get_n_collected())
+            print("vars ", vars)
+            print('means ', means)
 
-        # n_ops[2] = 200
-        # n_ops[1] = 100
-        #
-        # print("n ops ", n_ops)
-        n_estimated = estimator.estimate_n_samples_for_target_variance(target_var, variances, n_ops,
-                                                                       n_levels=self.n_levels)
+            # moments_fn = self.set_moments(q_value, sample_storage, n_moments=self.n_moments, quantile=quantile)
+            # estimate_obj = estimator.Estimate(q_value, sample_storage=sample_storage,
+            #                                   moments_fn=moments_fn)
 
-        #n_ops = [64, 150, 300]
-        #n_ops[0] = 85
+            # New estimation according to already finished samples
+            variances, n_ops = estimate_obj.estimate_diff_vars_regression(sample_storage.get_n_collected())
 
-        #n_ops = [36, 75, 120]
+            # n_ops[2] = 200
+            # n_ops[1] = 100
+            #
+            # print("n ops ", n_ops)
+            n_estimated = estimator.estimate_n_samples_for_target_variance(target_var, variances, n_ops,
+                                                                           n_levels=self.n_levels)
 
-        #n_ops = [36.23067711011784, 848.5677567292186, 3115.1620610555015]
+            #n_ops = [64, 150, 300]
+            #n_ops[0] = 85
 
-        #n_ops = [50.74231049047417, 150.8056385226611, 300.4481985032301]
+            #n_ops = [36, 75, 120]
 
-        print("level variances ", variances)
-        print("n ops ", n_ops)
+            #n_ops = [36.23067711011784, 848.5677567292186, 3115.1620610555015]
 
-        print("n estimated ", n_estimated)
+            #n_ops = [50.74231049047417, 150.8056385226611, 300.4481985032301]
 
-        #n_ops = [2.1530759945526734, 424.25148745817296, 2510.9868827356786]
-        #n_ops = [10, 25, 120]
-        #n_ops = [130, 150]
-        print("total cost ", np.sum(n_ops * n_estimated)) #np.array(sample_storage.get_n_collected())))
+            print("level variances ", variances)
+            print("n ops ", n_ops)
 
-        # moments_quantity = moments(root_quantity, moments_fn=moments_fn, mom_at_bottom=True)
-        # moments_mean = estimate_mean(moments_quantity)
-        # conductivity_mean = moments_mean['cond_tn']
-        # time_mean = conductivity_mean[1]  # times: [1]
-        # location_mean = time_mean['0']  # locations: ['0']
-        # values_mean = location_mean[0]  # result shape: (1,)
-        # value_mean = values_mean[0]
-        # assert value_mean.mean == 1
+            print("n estimated ", n_estimated)
 
-        l_0_samples = estimate_obj.get_level_samples(level_id=0, n_samples=sample_storage.get_n_collected()[0])
+            #n_ops = [2.1530759945526734, 424.25148745817296, 2510.9868827356786]
+            #n_ops = [10, 25, 120]
+            #n_ops = [130, 150]
+            print("total cost ", np.sum(n_ops * n_estimated)) #np.array(sample_storage.get_n_collected())))
 
-        if self.n_levels == 1:
-            print("l0 var", np.var(l_0_samples))
+            # moments_quantity = moments(root_quantity, moments_fn=moments_fn, mom_at_bottom=True)
+            # moments_mean = estimate_mean(moments_quantity)
+            # conductivity_mean = moments_mean['cond_tn']
+            # time_mean = conductivity_mean[1]  # times: [1]
+            # location_mean = time_mean['0']  # locations: ['0']
+            # values_mean = location_mean[0]  # result shape: (1,)
+            # value_mean = values_mean[0]
+            # assert value_mean.mean == 1
 
-            print("L0 mean {}".format(np.mean(l_0_samples)))
+            l_0_samples = estimate_obj.get_level_samples(level_id=0, n_samples=sample_storage.get_n_collected()[0])
 
-        elif self.n_levels == 2:
-            l_1_samples = estimate_obj.get_level_samples(level_id=1, n_samples=sample_storage.get_n_collected()[1])
-            l_1_samples = np.squeeze(l_1_samples)  # / div_coef
+            if self.n_levels == 1:
+                print("l0 var", np.var(l_0_samples))
 
-            print("mean l_1_samples fine ", np.mean(l_1_samples[:, 0]))
-            print("mean l_1_samples coarse ", np.mean(l_1_samples[:, 1]))
+                print("L0 mean {}".format(np.mean(l_0_samples)))
 
-            l_0_samples_moments = estimate_obj_moments_quantity.get_level_samples(level_id=0, n_samples=
-            sample_storage.get_n_collected()[0])
+            elif self.n_levels == 2:
+                l_1_samples = estimate_obj.get_level_samples(level_id=1, n_samples=sample_storage.get_n_collected()[1])
+                l_1_samples = np.squeeze(l_1_samples)  # / div_coef
 
-            mask = np.any(np.isnan(l_0_samples_moments), axis=0).any(axis=1)
-            l_0_samples_moments = l_0_samples_moments[..., ~mask, :]
-            l_0_samples_moments = l_0_samples_moments[1:, :, 0]
+                print("mean l_1_samples fine ", np.mean(l_1_samples[:, 0]))
+                print("mean l_1_samples coarse ", np.mean(l_1_samples[:, 1]))
 
-            # print("l0 samples moments ", l_0_samples_moments.shape)
+                l_0_samples_moments = estimate_obj_moments_quantity.get_level_samples(level_id=0, n_samples=
+                sample_storage.get_n_collected()[0])
 
-            l_1_samples_moments = estimate_obj_moments_quantity.get_level_samples(level_id=1, n_samples=
-            sample_storage.get_n_collected()[1])
-            mask = np.any(np.isnan(l_1_samples_moments), axis=0).any(axis=1)
-            l_1_samples_moments = l_1_samples_moments[..., ~mask, :]
+                mask = np.any(np.isnan(l_0_samples_moments), axis=0).any(axis=1)
+                l_0_samples_moments = l_0_samples_moments[..., ~mask, :]
+                l_0_samples_moments = l_0_samples_moments[1:, :, 0]
 
-            # print("l1 sample momoments shape ", l_1_samples_moments.shape)
+                # print("l0 samples moments ", l_0_samples_moments.shape)
 
-            l1_fine_moments = l_1_samples_moments[1:, :, 0]
-            l1_coarse_moments = l_1_samples_moments[1:, :, 1]
+                l_1_samples_moments = estimate_obj_moments_quantity.get_level_samples(level_id=1, n_samples=
+                sample_storage.get_n_collected()[1])
+                mask = np.any(np.isnan(l_1_samples_moments), axis=0).any(axis=1)
+                l_1_samples_moments = l_1_samples_moments[..., ~mask, :]
 
-            #print("l1 fine moments ", l1_fine_moments.shape)
-            #print("l1 coarse moments ", l1_coarse_moments)
+                # print("l1 sample momoments shape ", l_1_samples_moments.shape)
 
-            l1_fine_samples = l_1_samples[:, 0]
-            l1_coarse_samples = l_1_samples[:, 1]
+                l1_fine_moments = l_1_samples_moments[1:, :, 0]
+                l1_coarse_moments = l_1_samples_moments[1:, :, 1]
 
-            log = False
-            if log:
-                l1_fine_samples = np.log10(l1_fine_samples)
-                l1_fine_samples = l1_fine_samples[~np.isinf(l1_fine_samples)]
+                #print("l1 fine moments ", l1_fine_moments.shape)
+                #print("l1 coarse moments ", l1_coarse_moments)
 
-                l1_coarse_samples = np.log10(l1_coarse_samples)
-                l1_coarse_samples = l1_coarse_samples[~np.isinf(l1_coarse_samples)]
+                l1_fine_samples = l_1_samples[:, 0]
+                l1_coarse_samples = l_1_samples[:, 1]
 
-                l_0_samples = np.log10(l_0_samples)
-                l_0_samples = l_0_samples[~np.isinf(l_0_samples)]
+                log = False
+                if log:
+                    l1_fine_samples = np.log10(l1_fine_samples)
+                    l1_fine_samples = l1_fine_samples[~np.isinf(l1_fine_samples)]
 
-            l1_diff = l1_fine_samples - l1_coarse_samples
+                    l1_coarse_samples = np.log10(l1_coarse_samples)
+                    l1_coarse_samples = l1_coarse_samples[~np.isinf(l1_coarse_samples)]
 
-            #print("var l1_fine_moments ", np.var(l1_fine_moments, axis=1))
-            #print("var l1_coarse_moments ", np.var(l1_coarse_moments, axis=1))
+                    l_0_samples = np.log10(l_0_samples)
+                    l_0_samples = l_0_samples[~np.isinf(l_0_samples)]
 
-            moment_1_cov_matrix = np.cov(l1_fine_moments[0, :], l1_coarse_moments[0, :])
-            moment_2_cov_matrix = np.cov(l1_fine_moments[1, :], l1_coarse_moments[1, :])
-            print(" moment_1_cov_matrix  ",  moment_1_cov_matrix )
-            print(" moment_2_cov_matrix  ", moment_2_cov_matrix)
-            moment_1_tot_var = moment_1_cov_matrix[0, 0] +  moment_1_cov_matrix[1, 1] - 2*moment_1_cov_matrix[1, 0]
-            moment_2_tot_var = moment_2_cov_matrix[0, 0] + moment_2_cov_matrix[1, 1] - 2*moment_2_cov_matrix[1, 0]
+                l1_diff = l1_fine_samples - l1_coarse_samples
 
-            print("moment 1 tot var ", moment_1_tot_var)
-            print("moment 2 tot var ", moment_2_tot_var)
+                #print("var l1_fine_moments ", np.var(l1_fine_moments, axis=1))
+                #print("var l1_coarse_moments ", np.var(l1_coarse_moments, axis=1))
 
-            # print("l1 diff ", l1_diff)
-            print("l1 diff var", np.var(l1_diff))
-            print("l0 var", np.var(l_0_samples))
+                moment_1_cov_matrix = np.cov(l1_fine_moments[0, :], l1_coarse_moments[0, :])
+                moment_2_cov_matrix = np.cov(l1_fine_moments[1, :], l1_coarse_moments[1, :])
+                print(" moment_1_cov_matrix  ",  moment_1_cov_matrix )
+                print(" moment_2_cov_matrix  ", moment_2_cov_matrix)
+                moment_1_tot_var = moment_1_cov_matrix[0, 0] +  moment_1_cov_matrix[1, 1] - 2*moment_1_cov_matrix[1, 0]
+                moment_2_tot_var = moment_2_cov_matrix[0, 0] + moment_2_cov_matrix[1, 1] - 2*moment_2_cov_matrix[1, 0]
 
-            print("L0 mean {}, L1 coarse mean: {}".format(np.mean(l_0_samples), np.mean(l1_coarse_samples)))
-            self.compare_means(l_0_samples, l1_coarse_samples, title="L0 fine mean and L1 coarse mean")
+                print("moment 1 tot var ", moment_1_tot_var)
+                print("moment 2 tot var ", moment_2_tot_var)
 
-            fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(10, 10))
-            axes.hist(l1_coarse_samples, bins=100, density=True, label="L1 coarse")
-            axes.hist(np.squeeze(l_0_samples), bins=100, density=True, label="L0 samples", alpha=0.5)
-            fig.suptitle("L1 coarse L0 samples, log: {}".format(log))
-            fig.legend()
-            fig.savefig("L1_coarse_L0_samples.pdf")
-            plt.show()
-            #print("L1 fine mean {}, L2 coarse mean: {}".format(np.mean(l1_fine_samples), np.mean(l2_coarse_samples)))
-        else:
-            l_1_samples = estimate_obj.get_level_samples(level_id=1, n_samples=sample_storage.get_n_collected()[1])
-            l_1_samples = np.squeeze(l_1_samples)# / div_coef
+                # print("l1 diff ", l1_diff)
+                print("l1 diff var", np.var(l1_diff))
+                print("l0 var", np.var(l_0_samples))
 
-            l_0_samples_moments = estimate_obj_moments_quantity.get_level_samples(level_id=0, n_samples=sample_storage.get_n_collected()[0])
-
-            mask = np.any(np.isnan(l_0_samples_moments), axis=0).any(axis=1)
-            l_0_samples_moments = l_0_samples_moments[..., ~mask, :]
-            l_0_samples_moments = l_0_samples_moments[1:, :, 0]
-
-            #print("l0 samples moments ", l_0_samples_moments.shape)
-
-            l_1_samples_moments = estimate_obj_moments_quantity.get_level_samples(level_id=1, n_samples=sample_storage.get_n_collected()[1])
-            mask = np.any(np.isnan(l_1_samples_moments), axis=0).any(axis=1)
-            l_1_samples_moments = l_1_samples_moments[..., ~mask, :]
-
-            #print("l1 sample momoments shape ", l_1_samples_moments.shape)
-
-            l1_fine_moments = l_1_samples_moments[1:, :, 0]
-            l1_coarse_moments = l_1_samples_moments[1:, :, 1]
-
-            l_2_samples = estimate_obj.get_level_samples(level_id=2, n_samples=sample_storage.get_n_collected()[2])
-            l_2_samples = np.squeeze(l_2_samples) #/ div_coef
-            #print("squeezed l1 samples ", l_1_samples)
-            # print("l_1_samples[:, 0] ", l_1_samples[:, 0])
-            # print("l_1_samples[:, 1] ", l_1_samples[:, 1])
-
-            l_2_samples_moments = estimate_obj_moments_quantity.get_level_samples(level_id=2, n_samples=sample_storage.get_n_collected()[2])
-            mask = np.any(np.isnan(l_2_samples_moments), axis=0).any(axis=1)
-            l_2_samples_moments = l_2_samples_moments[..., ~mask, :]
-
-            #print("l1 sample momoments shape ", l_2_samples_moments.shape)
-
-            l2_fine_moments = l_2_samples_moments[1:, :, 0]
-            l2_coarse_moments = l_2_samples_moments[1:, :, 1]
-
-            if self.n_levels == 4:
-                l_3_samples = estimate_obj.get_level_samples(level_id=3, n_samples=sample_storage.get_n_collected()[3])
-                l_3_samples = np.squeeze(l_3_samples)
-
-                l3_fine_samples = l_3_samples[:, 0]
-                l3_coarse_samples = l_3_samples[:, 1]
-
-
-                l_3_samples_moments = estimate_obj_moments_quantity.get_level_samples(level_id=3, n_samples=
-                sample_storage.get_n_collected()[3])
-                mask = np.any(np.isnan(l_3_samples_moments), axis=0).any(axis=1)
-                l_3_samples_moments = l_3_samples_moments[..., ~mask, :]
-                l3_fine_moments = l_3_samples_moments[1:, :, 0]
-                l3_coarse_moments = l_3_samples_moments[1:, :, 1]
-
-
-            #l_3_samples = estimate_obj.get_level_samples(level_id=3)
-            #l_3_samples = np.squeeze(l_3_samples)
-
-            # l1_fine_samples = l_1_samples[1:10, 0]
-            # l1_coarse_samples = l_1_samples[1:10, 1]
-
-            l1_fine_samples = l_1_samples[:, 0]
-            l1_coarse_samples = l_1_samples[:, 1]
-
-            l2_fine_samples = l_2_samples[:, 0]
-            l2_coarse_samples = l_2_samples[:, 1]
-
-            # l3_fine_samples = l_3_samples[:, 0]
-            # l3_coarse_samples = l_3_samples[:, 1]
-
-            #l3_diff = l3_fine_samples - l3_coarse_samples
-            l2_diff = l2_fine_samples - l2_coarse_samples
-            l1_diff = l1_fine_samples - l1_coarse_samples
-
-            log = True
-            if log:
-                l2_coarse_samples = np.log10(l2_coarse_samples)
-                l2_coarse_samples =l2_coarse_samples[~np.isinf(l2_coarse_samples)]
-
-                l1_fine_samples = np.log10(l1_fine_samples)
-                l1_fine_samples = l1_fine_samples[~np.isinf(l1_fine_samples)]
-
-                l1_coarse_samples = np.log10(l1_coarse_samples)
-                l1_coarse_samples = l1_coarse_samples[~np.isinf(l1_coarse_samples)]
-
-                l_0_samples = np.log10(l_0_samples)
-                l_0_samples = l_0_samples[~np.isinf(l_0_samples)]
-
-                #l_0_samples += 0.03
-
-                # l1_coarse_samples = l1_coarse_samples[:100]
-                # l_0_samples = l_0_samples[:100]
-
-            print("min l1_fine_samples ", np.min(l1_fine_samples))
-
-            fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(10, 10))
-            axes.hist(l2_diff, bins=100, density=True)
-            fig.suptitle("L2 diff")
-            fig.legend()
-            plt.show()
-
-            fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(10, 10))
-            axes.hist(l2_coarse_samples, bins=100, density=True, label="L2 coarse")
-            axes.hist(l1_fine_samples, bins=100, density=True, label="L1 fine", alpha=0.5)
-            fig.suptitle("L2 coarse L1 fine samples, log: {}".format(log))
-            fig.legend()
-            fig.savefig("L2_coarse_L1_fine_samples.pdf")
-            plt.show()
-
-            # fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(10, 10))
-            # axes.hist(l1_fine_samples, bins=100, density=True)
-            # fig.suptitle("L1 fine samples, log: {}".format(log))
-            # plt.show()
-
-
-            fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(10, 10))
-            axes.hist(l1_coarse_samples, bins=100, density=True, label="L1 coarse")
-            axes.hist(np.squeeze(l_0_samples), bins=100,  density=True, label="L0 samples", alpha=0.5)
-            fig.suptitle("L1 coarse L0 samples, log: {}".format(log))
-            fig.legend()
-            fig.savefig("L1_coarse_L0_samples.pdf")
-            plt.show()
-
-            # fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(10, 10))
-            # axes.hist(np.squeeze(l_0_samples), bins=100, density=True)
-            # fig.suptitle("L0 samples, log: {}".format(log))
-            # plt.show()
-
-            #print("l1 diff ", l1_diff)
-            #print("l2 diff ", l2_diff)
-
-            print("l1 diff var", np.var(l1_diff))
-            print("l2 diff var", np.var(l2_diff))
-
-            print("l0 var", np.var(l_0_samples))
-
-            l_0_samples = np.squeeze(l_0_samples)
-            l_0_samples = l_0_samples[:np.min([len(l_0_samples), len(l1_coarse_samples)])]
-            l1_coarse_samples = l1_coarse_samples[:np.min([len(l_0_samples), len(l1_coarse_samples)])]
-
-            print("L0 mean {}, L1 coarse mean: {}".format(np.mean(l_0_samples), np.mean(l1_coarse_samples)))
-            print("L0 std {}, L1 coarse std: {}".format(np.std(l_0_samples), np.std(l1_coarse_samples)))
-            print("L1 fine mean {}, L2 coarse mean: {}".format(np.mean(l1_fine_samples), np.mean(l2_coarse_samples)))
-            print("L1 fine std {}, L2 coarse std: {}".format(np.std(l1_fine_samples), np.std(l2_coarse_samples)))
-
-            print("l0 samples shape ", l_0_samples.shape)
-
-            print("np.min([len(l_0_samples), len(l1_coarse_samples)]) ", np.min([len(l_0_samples), len(l1_coarse_samples)]))
-
-            self.compare_means(l_0_samples, l1_coarse_samples, title="L0 fine mean and L1 coarse mean")
-            self.compare_means(l1_fine_samples, l2_coarse_samples, title="L1 fine mean and L2 coarse mean")
-
-            if self.n_levels == 4:
-                self.compare_means(l2_fine_samples, l3_coarse_samples, title="L2 fine mean and L3 coarse mean")
-
-            print("============== MOMENTS MEAN COMPARISON ===================")
-
-
-            self.compare_means(l_0_samples_moments[0], l1_coarse_moments[0], title="Moments 0 L0 fine and L1 coarse ")
-            self.compare_means(l_0_samples_moments[1], l1_coarse_moments[1], title="Moments 1 L0 fine and L1 coarse ")
-            self.compare_means(l1_fine_moments[0], l2_coarse_moments[0], title="Moments 0 L1 fine and L2 coarse ")
-            self.compare_means(l1_fine_moments[1], l2_coarse_moments[1], title="Moments 1 L1 fine and L2 coarse ")
-
-            if log:
-                m0_l1_coarse_moments = np.log10(l1_coarse_moments[0])
-                m0_l0_samples_moments = np.log10(np.squeeze(l_0_samples_moments[0]))
+                print("L0 mean {}, L1 coarse mean: {}".format(np.mean(l_0_samples), np.mean(l1_coarse_samples)))
+                self.compare_means(l_0_samples, l1_coarse_samples, title="L0 fine mean and L1 coarse mean")
 
                 fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(10, 10))
-                axes.hist(m0_l1_coarse_moments, bins=100, density=True, label="moment 0 L1 coarse")
-                axes.hist(m0_l0_samples_moments, bins=100, density=True, label="moment 0 L0 samples", alpha=0.5)
-                fig.suptitle("moments 0 L1 coarse L0 samples, log: {}".format(log))
+                axes.hist(l1_coarse_samples, bins=100, density=True, label="L1 coarse")
+                axes.hist(np.squeeze(l_0_samples), bins=100, density=True, label="L0 samples", alpha=0.5)
+                fig.suptitle("L1 coarse L0 samples, log: {}".format(log))
                 fig.legend()
-                fig.savefig("moments_0_L1_coarse_L0_samples.pdf")
+                fig.savefig("L1_coarse_L0_samples.pdf")
+                plt.show()
+                #print("L1 fine mean {}, L2 coarse mean: {}".format(np.mean(l1_fine_samples), np.mean(l2_coarse_samples)))
+            else:
+                l_1_samples = estimate_obj.get_level_samples(level_id=1, n_samples=sample_storage.get_n_collected()[1])
+                l_1_samples = np.squeeze(l_1_samples)# / div_coef
+
+                l_0_samples_moments = estimate_obj_moments_quantity.get_level_samples(level_id=0, n_samples=sample_storage.get_n_collected()[0])
+
+                mask = np.any(np.isnan(l_0_samples_moments), axis=0).any(axis=1)
+                l_0_samples_moments = l_0_samples_moments[..., ~mask, :]
+                l_0_samples_moments = l_0_samples_moments[1:, :, 0]
+
+                #print("l0 samples moments ", l_0_samples_moments.shape)
+
+                l_1_samples_moments = estimate_obj_moments_quantity.get_level_samples(level_id=1, n_samples=sample_storage.get_n_collected()[1])
+                mask = np.any(np.isnan(l_1_samples_moments), axis=0).any(axis=1)
+                l_1_samples_moments = l_1_samples_moments[..., ~mask, :]
+
+                #print("l1 sample momoments shape ", l_1_samples_moments.shape)
+
+                l1_fine_moments = l_1_samples_moments[1:, :, 0]
+                l1_coarse_moments = l_1_samples_moments[1:, :, 1]
+
+                l_2_samples = estimate_obj.get_level_samples(level_id=2, n_samples=sample_storage.get_n_collected()[2])
+                l_2_samples = np.squeeze(l_2_samples) #/ div_coef
+                #print("squeezed l1 samples ", l_1_samples)
+                # print("l_1_samples[:, 0] ", l_1_samples[:, 0])
+                # print("l_1_samples[:, 1] ", l_1_samples[:, 1])
+
+                l_2_samples_moments = estimate_obj_moments_quantity.get_level_samples(level_id=2, n_samples=sample_storage.get_n_collected()[2])
+                mask = np.any(np.isnan(l_2_samples_moments), axis=0).any(axis=1)
+                l_2_samples_moments = l_2_samples_moments[..., ~mask, :]
+
+                #print("l1 sample momoments shape ", l_2_samples_moments.shape)
+
+                l2_fine_moments = l_2_samples_moments[1:, :, 0]
+                l2_coarse_moments = l_2_samples_moments[1:, :, 1]
+
+                if self.n_levels == 4:
+                    l_3_samples = estimate_obj.get_level_samples(level_id=3, n_samples=sample_storage.get_n_collected()[3])
+                    l_3_samples = np.squeeze(l_3_samples)
+
+                    l3_fine_samples = l_3_samples[:, 0]
+                    l3_coarse_samples = l_3_samples[:, 1]
+
+
+                    l_3_samples_moments = estimate_obj_moments_quantity.get_level_samples(level_id=3, n_samples=
+                    sample_storage.get_n_collected()[3])
+                    mask = np.any(np.isnan(l_3_samples_moments), axis=0).any(axis=1)
+                    l_3_samples_moments = l_3_samples_moments[..., ~mask, :]
+                    l3_fine_moments = l_3_samples_moments[1:, :, 0]
+                    l3_coarse_moments = l_3_samples_moments[1:, :, 1]
+
+
+                #l_3_samples = estimate_obj.get_level_samples(level_id=3)
+                #l_3_samples = np.squeeze(l_3_samples)
+
+                # l1_fine_samples = l_1_samples[1:10, 0]
+                # l1_coarse_samples = l_1_samples[1:10, 1]
+
+                l1_fine_samples = l_1_samples[:, 0]
+                l1_coarse_samples = l_1_samples[:, 1]
+
+                l2_fine_samples = l_2_samples[:, 0]
+                l2_coarse_samples = l_2_samples[:, 1]
+
+                # l3_fine_samples = l_3_samples[:, 0]
+                # l3_coarse_samples = l_3_samples[:, 1]
+
+                #l3_diff = l3_fine_samples - l3_coarse_samples
+                l2_diff = l2_fine_samples - l2_coarse_samples
+                l1_diff = l1_fine_samples - l1_coarse_samples
+
+                log = True
+                if log:
+                    l2_coarse_samples = np.log10(l2_coarse_samples)
+                    l2_coarse_samples =l2_coarse_samples[~np.isinf(l2_coarse_samples)]
+
+                    l1_fine_samples = np.log10(l1_fine_samples)
+                    l1_fine_samples = l1_fine_samples[~np.isinf(l1_fine_samples)]
+
+                    l1_coarse_samples = np.log10(l1_coarse_samples)
+                    l1_coarse_samples = l1_coarse_samples[~np.isinf(l1_coarse_samples)]
+
+                    l_0_samples = np.log10(l_0_samples)
+                    l_0_samples = l_0_samples[~np.isinf(l_0_samples)]
+
+                    #l_0_samples += 0.03
+
+                    # l1_coarse_samples = l1_coarse_samples[:100]
+                    # l_0_samples = l_0_samples[:100]
+
+                print("min l1_fine_samples ", np.min(l1_fine_samples))
+
+                fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(10, 10))
+                axes.hist(l2_diff, bins=100, density=True)
+                fig.suptitle("L2 diff")
+                fig.legend()
                 plt.show()
 
+                fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(10, 10))
+                axes.hist(l2_coarse_samples, bins=100, density=True, label="L2 coarse")
+                axes.hist(l1_fine_samples, bins=100, density=True, label="L1 fine", alpha=0.5)
+                fig.suptitle("L2 coarse L1 fine samples, log: {}".format(log))
+                fig.legend()
+                fig.savefig("L2_coarse_L1_fine_samples.pdf")
+                plt.show()
 
-                print("moments 0 L0 mean {}, L1 coarse mean: {}".format(np.mean(m0_l0_samples_moments), np.mean(m0_l1_coarse_moments)))
-                print("moments 0 L0 std {}, L1 coarse std: {}".format(np.std(m0_l0_samples_moments), np.std(m0_l1_coarse_moments)))
-                self.compare_means(m0_l0_samples_moments, m0_l1_coarse_moments, title="Moments 0 L0 fine and L1 coarse ")
+                # fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(10, 10))
+                # axes.hist(l1_fine_samples, bins=100, density=True)
+                # fig.suptitle("L1 fine samples, log: {}".format(log))
+                # plt.show()
 
 
+                fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(10, 10))
+                axes.hist(l1_coarse_samples, bins=100, density=True, label="L1 coarse")
+                axes.hist(np.squeeze(l_0_samples), bins=100,  density=True, label="L0 samples", alpha=0.5)
+                fig.suptitle("L1 coarse L0 samples, log: {}".format(log))
+                fig.legend()
+                fig.savefig("L1_coarse_L0_samples.pdf")
+                plt.show()
 
-        sample_vec = [100, 75, 50, 25]
-        #sample_vec = [10, 7, 5]
-        #sample_vec = [4462,  213,  164]
-        #sample_vec = [250, 100]
-        #sample_vec = [10000]
-        #sample_vec = [1785,   80,   21]
-        bs_n_estimated = estimate_obj.bs_target_var_n_estimated(target_var=target_var, sample_vec=sample_vec, n_subsamples=10)
-        print("mean bs l vars ", estimate_obj.mean_bs_l_vars)
-        print("bs n estimated ", bs_n_estimated)
-        print("bs total cost ",  np.sum(n_ops * bs_n_estimated))
+                # fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(10, 10))
+                # axes.hist(np.squeeze(l_0_samples), bins=100, density=True)
+                # fig.suptitle("L0 samples, log: {}".format(log))
+                # plt.show()
 
-        ####################
-        # Diagnostic plots #
-        ####################
-        print("estimate_obj.moments_mean_obj.l_vars ", estimate_obj.moments_mean_obj.l_vars.shape)
-        print("bs means ", estimate_obj.bs_mean)
-        print("mean bs mean ", estimate_obj.mean_bs_mean)
-        print("mean bs var ", estimate_obj.mean_bs_var)
-        dp.log_var_per_level(estimate_obj.moments_mean_obj.l_vars, moments=range(self.n_moments))
-        dp.log_mean_per_level(estimate_obj.moments_mean_obj.l_means, moments=range(self.n_moments))
-        dp.sample_cost_per_level(n_ops)
-        dp.variance_to_cost_ratio(estimate_obj.moments_mean_obj.l_vars, n_ops, moments=range(self.n_moments))
-        dp.kurtosis_per_level(estimate_obj.moments_mean_obj.mean, estimate_obj.moments_mean_obj.l_means, moments=range(self.n_moments))
+                #print("l1 diff ", l1_diff)
+                #print("l2 diff ", l2_diff)
 
-        # from mlmc.plot.plots import Distribution
-        # distr_obj, result, _, _ = estimate_obj.construct_density()
-        # distr_plot = Distribution(title="distributions", error_plot=None)
-        # distr_plot.add_distribution(distr_obj)
-        #
-        # samples = estimate_obj.get_level_samples(level_id=0)[..., 0]
-        # #print("samples ", samples)
-        # distr_plot.add_raw_samples(np.squeeze(samples))  # add histogram
-        # distr_plot.show()
+                print("l1 diff var", np.var(l1_diff))
+                print("l2 diff var", np.var(l2_diff))
+
+                print("l0 var", np.var(l_0_samples))
+
+                l_0_samples = np.squeeze(l_0_samples)
+                l_0_samples = l_0_samples[:np.min([len(l_0_samples), len(l1_coarse_samples)])]
+                l1_coarse_samples = l1_coarse_samples[:np.min([len(l_0_samples), len(l1_coarse_samples)])]
+
+                print("L0 mean {}, L1 coarse mean: {}".format(np.mean(l_0_samples), np.mean(l1_coarse_samples)))
+                print("L0 std {}, L1 coarse std: {}".format(np.std(l_0_samples), np.std(l1_coarse_samples)))
+                print("L1 fine mean {}, L2 coarse mean: {}".format(np.mean(l1_fine_samples), np.mean(l2_coarse_samples)))
+                print("L1 fine std {}, L2 coarse std: {}".format(np.std(l1_fine_samples), np.std(l2_coarse_samples)))
+
+                print("l0 samples shape ", l_0_samples.shape)
+
+                print("np.min([len(l_0_samples), len(l1_coarse_samples)]) ", np.min([len(l_0_samples), len(l1_coarse_samples)]))
+
+                self.compare_means(l_0_samples, l1_coarse_samples, title="L0 fine mean and L1 coarse mean")
+                self.compare_means(l1_fine_samples, l2_coarse_samples, title="L1 fine mean and L2 coarse mean")
+
+                if self.n_levels == 4:
+                    self.compare_means(l2_fine_samples, l3_coarse_samples, title="L2 fine mean and L3 coarse mean")
+
+                print("============== MOMENTS MEAN COMPARISON ===================")
+
+
+                self.compare_means(l_0_samples_moments[0], l1_coarse_moments[0], title="Moments 0 L0 fine and L1 coarse ")
+                self.compare_means(l_0_samples_moments[1], l1_coarse_moments[1], title="Moments 1 L0 fine and L1 coarse ")
+                self.compare_means(l1_fine_moments[0], l2_coarse_moments[0], title="Moments 0 L1 fine and L2 coarse ")
+                self.compare_means(l1_fine_moments[1], l2_coarse_moments[1], title="Moments 1 L1 fine and L2 coarse ")
+
+                if log:
+                    m0_l1_coarse_moments = np.log10(l1_coarse_moments[0])
+                    m0_l0_samples_moments = np.log10(np.squeeze(l_0_samples_moments[0]))
+
+                    fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(10, 10))
+                    axes.hist(m0_l1_coarse_moments, bins=100, density=True, label="moment 0 L1 coarse")
+                    axes.hist(m0_l0_samples_moments, bins=100, density=True, label="moment 0 L0 samples", alpha=0.5)
+                    fig.suptitle("moments 0 L1 coarse L0 samples, log: {}".format(log))
+                    fig.legend()
+                    fig.savefig("moments_0_L1_coarse_L0_samples.pdf")
+                    plt.show()
+
+
+                    print("moments 0 L0 mean {}, L1 coarse mean: {}".format(np.mean(m0_l0_samples_moments), np.mean(m0_l1_coarse_moments)))
+                    print("moments 0 L0 std {}, L1 coarse std: {}".format(np.std(m0_l0_samples_moments), np.std(m0_l1_coarse_moments)))
+                    self.compare_means(m0_l0_samples_moments, m0_l1_coarse_moments, title="Moments 0 L0 fine and L1 coarse ")
+
+            sample_vec = [250, 125, 75, 50]
+            #sample_vec = [10, 7, 5]
+            #sample_vec = [4462,  213,  164]
+            #sample_vec = [250, 100]
+            #sample_vec = [10000]
+            #sample_vec = [1785,   80,   21]
+            bs_n_estimated = estimate_obj.bs_target_var_n_estimated(target_var=target_var, sample_vec=sample_vec, n_subsamples=10)
+            print("mean bs l vars ", estimate_obj.mean_bs_l_vars)
+            print("bs n estimated ", bs_n_estimated)
+            print("bs total cost ",  np.sum(n_ops * bs_n_estimated))
+
+            ####################
+            # Diagnostic plots #
+            ####################
+            print("estimate_obj.moments_mean_obj.l_vars ", estimate_obj.moments_mean_obj.l_vars.shape)
+            print("bs means ", estimate_obj.bs_mean)
+            print("mean bs mean ", estimate_obj.mean_bs_mean)
+            print("mean bs var ", estimate_obj.mean_bs_var)
+            dp.log_var_per_level(estimate_obj.moments_mean_obj.l_vars, moments=range(1, self.n_moments))
+            dp.log_mean_per_level(estimate_obj.moments_mean_obj.l_means, moments=range(1, self.n_moments))
+            dp.sample_cost_per_level(n_ops)
+            dp.variance_to_cost_ratio(estimate_obj.moments_mean_obj.l_vars, n_ops, moments=range(1, self.n_moments))
+            dp.kurtosis_per_level(estimate_obj.moments_mean_obj.mean, estimate_obj.moments_mean_obj.l_means, moments=range(self.n_moments))
+
+            # from mlmc.plot.plots import Distribution
+            # distr_obj, result, _, _ = estimate_obj.construct_density()
+            # distr_plot = Distribution(title="distributions", error_plot=None)
+            # distr_plot.add_distribution(distr_obj)
+            #
+            # samples = estimate_obj.get_level_samples(level_id=0)[..., 0]
+            # #print("samples ", samples)
+            # distr_plot.add_raw_samples(np.squeeze(samples))  # add histogram
+            # distr_plot.show()
 
 
     @staticmethod

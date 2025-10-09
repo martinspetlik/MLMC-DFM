@@ -2769,7 +2769,7 @@ class DFMSim3D(Simulation):
         # Generate SRF at the finest level
         if previous_level_index == 0:
             # Define FEM grid for conditional SRF generation
-            hom_boxes_per_domain = config["sim_config"]["geometry"]["n_nonoverlap_subdomains"]
+            hom_boxes_per_domain = config_for_homogenization["sim_config"]["geometry"]["n_nonoverlap_subdomains"]
             n_steps_cond_grid_size = int(hom_boxes_per_domain * 16)
             n_steps_cond_grid = (n_steps_cond_grid_size,) * 3
 
@@ -2782,7 +2782,7 @@ class DFMSim3D(Simulation):
             print("fine SRF FEM GRID COND", fem_grid_cond)
 
             # SRF generation using gstools if enabled
-            if config["sim_config"].get("gstools_effective", False):
+            if config_for_homogenization["sim_config"].get("gstools_effective", False):
                 print("gstools effective")
                 femgrid_barycenters = fem_grid_cond.grid.barycenters()
 
@@ -2790,7 +2790,7 @@ class DFMSim3D(Simulation):
                     (femgrid_barycenters[:, 0],
                      femgrid_barycenters[:, 1],
                      femgrid_barycenters[:, 2]),
-                    config,
+                    config_for_homogenization,
                     seed=sample_seed,
                     mode="fft",
                 )
@@ -2823,6 +2823,9 @@ class DFMSim3D(Simulation):
         # Flatten dictionary into arrays
         bulk_cond_values = np.squeeze(np.array(list(cond_tensors_for_coarse.values())))
         bulk_cond_points = np.array(list(cond_tensors_for_coarse.keys()))
+
+        print("bulk cond values ", bulk_cond_values)
+        print("bulk cond points ", bulk_cond_points)
 
         return bulk_cond_values, bulk_cond_points
 
@@ -3229,6 +3232,7 @@ class DFMSim3D(Simulation):
         ### Bulk conductivity generation ###
         bulk_cond_values, bulk_cond_points, bulk_cond_values_for_fine_sample, bulk_cond_points_for_fine_sample = DFMSim3D.fine_bulk_srf_generation(config, fem_grid_cond_domain_size, sample_seed, dfn)
 
+        print("bulk_cond_values_for_fine_sample ", bulk_cond_values_for_fine_sample)
         if bulk_cond_values_for_fine_sample is None:
             bulk_cond_values_for_fine_sample = bulk_cond_values
             bulk_cond_points_for_fine_sample = bulk_cond_points
