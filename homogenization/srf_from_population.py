@@ -72,19 +72,19 @@ class SRFFromTensorPopulation:
         print("coarse step ", coarse_step)
 
         # Default homogenization block sizes
-        hom_block_size = int(coarse_step * 1.5)
+        hom_block_size = coarse_step * 1.5
         level_parameters = list(np.squeeze(config_dict["sim_config"]["level_parameters"], axis=1))
 
         # Identify fine level index and previous level parameters
         current_level_index = level_parameters.index(fine_step)
         previous_level_fine_step = level_parameters[current_level_index + 1]
-        previous_level_hom_block_size = int(fine_step * 1.5) # Coarse step on the previous level * 1.5
+        previous_level_hom_block_size = fine_step * 1.5 # Coarse step on the previous level * 1.5
 
         # Override with multiplier if provided
         if "hom_box_fine_step_mult" in config_dict["sim_config"]:
             mult = config_dict["sim_config"]["hom_box_fine_step_mult"]
-            hom_block_size = int(fine_step * mult)
-            previous_level_hom_block_size = int(previous_level_fine_step * mult)
+            hom_block_size = fine_step * mult
+            previous_level_hom_block_size = previous_level_fine_step * mult
 
         # Compute expanded domain size
         orig_domain_box = config_dict["sim_config"]["geometry"]["orig_domain_box"]
