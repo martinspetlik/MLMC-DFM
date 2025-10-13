@@ -3022,24 +3022,7 @@ class DFMSim3D(Simulation):
             print('bulk_cond_points_for_fine_sample ', bulk_cond_points_for_fine_sample)
             print("bulk_cond_points_for_fine_sample.shape ", bulk_cond_points_for_fine_sample.shape)
 
-            fine_samples_dir = os.path.join(config["fine"]["common_files_dir"], "fine_samples")
-            if not os.path.exists(fine_samples_dir):
-                os.mkdir(fine_samples_dir)
-
-            # Make dictionary
-            coord_value_dict = {tuple(c): v for c, v in
-                                zip(bulk_cond_points_for_fine_sample, bulk_cond_values_for_fine_sample)}
-
-            DFMSim3D._save_tensor_values(coord_value_dict,
-                                         file=os.path.join(fine_samples_dir,
-                                                           DFMSim3D.COND_TN_VALUES_FILE))
-            DFMSim3D._save_tensor_coords(coord_value_dict,
-                                         file=os.path.join(fine_samples_dir,
-                                                           DFMSim3D.COND_TN_COORDS_FILE))
-
-
         else:
-            #raise Exception("Other methods are no longer supported")
             bulk_cond_values, bulk_cond_points = DFMSim3D.fine_SRF_from_homogenization(dfn, config, sample_seed)
 
         return bulk_cond_values, bulk_cond_points, bulk_cond_values_for_fine_sample, bulk_cond_points_for_fine_sample

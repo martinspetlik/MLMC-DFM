@@ -103,47 +103,53 @@ class SRFFromTensorPopulation:
     @staticmethod
     def expand_domain_centers_1d(orig_points, new_domain, tol=1e-9, step_override=None):
         """
-        Compute 1D centers of homogenization blocks for an expanded cubic domain.
+        Keep all original centers and extend outward to fill the new cubic domain.
 
         :param orig_points: array-like, shape (N, 3)
-            Original coordinates of block centers.
         :param new_domain: float
-            Side length of the new cubic domain.
         :param tol: float, optional
-            Tolerance for floating-point comparisons. Default is 1e-9.
         :param step_override: float or None, optional
-            If provided, use this step directly instead of inferring it.
-        :return: np.ndarray
-            Sorted 1D array of block centers along one axis.
+        :return: np.ndarray of extended 1D centers
         """
         pts = np.asarray(orig_points, dtype=float)
         if pts.ndim != 2 or pts.shape[1] != 3:
             raise ValueError("orig_points must be array-like with shape (N, 3).")
 
+        x = np.sort(np.unique(pts[:, 0]))
         L_new = float(new_domain) / 2.0
 
-        # --- infer step size if not explicitly provided ---
+        # infer step
         if step_override is None:
-            x = np.abs(pts[:, 0])
-            x = x[np.isfinite(x)]
-            x = x[np.abs(x) > tol]
-            if x.size == 0:
-                raise ValueError("Cannot infer step: no valid coordinates found.")
-            xv, cnt = np.unique(np.round(x, 8), return_counts=True)
-            # choose most frequent positive step (largest if tie)
-            step = float(np.max(xv[cnt == cnt.max()]))
+            diffs = np.diff(x)
+            diffs = diffs[np.abs(diffs) > tol]
+            if len(diffs) == 0:
+                raise ValueError("Cannot infer step size.")
+            step = float(np.median(diffs))
         else:
             step = float(step_override)
 
-        if step <= 0 or step > 2 * L_new + tol:
-            raise ValueError(f"Invalid step size inferred/override: {step}")
+        if step <= 0:
+            raise ValueError(f"Invalid step size: {step}")
 
-        # --- construct centers along axis ---
-        centers_pos = list(np.arange(step, L_new - tol, step))
-        if len(centers_pos) == 0 or abs(centers_pos[-1] - L_new) > tol:
-            centers_pos.append(L_new)
+        # extend to left
+        xmin = x[0]
+        while xmin - step >= -L_new - tol:
+            xmin -= step
+            x = np.insert(x, 0, xmin)
 
-        centers = sorted(set([-v for v in centers_pos] + [0.0] + centers_pos))
+        # extend to right
+        xmax = x[-1]
+        while xmax + step <= L_new + tol:
+            xmax += step
+            x = np.append(x, xmax)
+
+        # snap exact boundaries if close
+        if abs(x[0] + L_new) > tol and -L_new > x[0] - step / 2:
+            x[0] = -L_new
+        if abs(x[-1] - L_new) > tol and L_new < x[-1] + step / 2:
+            x[-1] = L_new
+
+        centers = np.round(x, 8)
         return np.array(centers, dtype=float)
 
     @staticmethod
