@@ -30,10 +30,8 @@ import scipy.stats as stats
 import matplotlib.pyplot as plt
 
 
-class ProcessSimple:
+class PostProcess:
     """
-    Clean MLMC processing pipeline – single class version (refactored).
-
     Steps:
         1. Load storage & root quantity
         2. Select observable q_value
@@ -269,4 +267,4 @@ class ProcessSimple:
 
 
 if __name__ == "__main__":
-    ProcessSimple()
+    PostProcess()
