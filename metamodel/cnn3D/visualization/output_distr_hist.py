@@ -66,7 +66,7 @@ def plot_dist_hist(
     # Labels, legend
     ax.set_xlabel("Value", fontsize=fontsize)
     ax.set_ylabel("Density", fontsize=fontsize)
-    ax.legend(frameon=False, fontsize=fontsize)
+    ax.legend(fontsize=fontsize)
 
     # Make x-ticks nice and readable
     ax.xaxis.set_major_locator(ticker.MaxNLocator(nbins=6, prune='both'))
@@ -110,6 +110,6 @@ print("all_data_np[0] ", all_data_np[0])
 
 
 plot_dist_hist(all_data_np, cols=(0, 1, 2), labels=(r'$ \log_{10}(k_{xx}) $', r'$ \log_{10}(k_{yy}) $', r'$ \log_{10}(k_{zz}) $'), filename="data_xx_yy_zz_new.pdf", use_log=True, fontsize=17, fontsize_ticks=15)
-plot_dist_hist(all_data_np, cols=(3, 4, 5), labels=(r'$k_{xx}$', r'$k_{yy}$', r'$k_{zz}$', r'$k_{yz}$', r'$k_{xz}$', r'$k_{xy}$'), filename="data_yz_xz_xy_new.pdf", use_log=False, fontsize=17, fontsize_ticks=15)
+plot_dist_hist(all_data_np, cols=(3, 4, 5), labels=(r'$k_{yz}$', r'$k_{xz}$', r'$k_{xy}$'), filename="data_yz_xz_xy_new.pdf", use_log=False, fontsize=17, fontsize_ticks=15)
 
 print("all_data_np.shape ", all_data_np.shape)

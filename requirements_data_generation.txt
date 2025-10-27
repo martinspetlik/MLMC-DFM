@@ -1,12 +1,12 @@
-numpy==1.21.0
-scipy==1.7.0
+numpy
+scipy
 pyyaml
 attrs
 pybind11
 bih==1.0.2
 pyvista
 git+https://github.com/GeoMop/bgem.git@MS_homo
-git+https://github.com/GeoMop/MLMC.git@MS_dfm_experiments
+mlmc
 matplotlib
 zarr
 torchvision==0.14.0

@@ -2760,10 +2760,8 @@ class DFMSim3D(Simulation):
 
         for fr in dfn:
             if reversed_level_params[previous_level_index] <= fr.r <= reversed_level_params[current_level_index]:
-                print("to hom fr.r", fr.r)
                 dfn_to_homogenization_list.append(fr)
             elif reversed_level_params[current_level_index] < fr.r < orig_domain_box[0]:
-                print("coarse/new fine fr.r", fr.r)
                 dfn_to_fine_list.append(fr)
 
         # Generate SRF at the finest level
