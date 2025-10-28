@@ -21,11 +21,14 @@ This repository consists of three components:
    - Applies trained models for prediction on a given dataset
    - Provides visualization tools and evaluation scripts
 
-4. **MLMC run with Surrogates**  
-   - Uses trained CNN surrogates for upscaling hydraulic conductivity within MLMC levels
+4. **MLMC Run with Surrogates**  
+   - Integrates trained CNN surrogates into **Multilevel Monte Carlo (MLMC)** simulations.  
+   - Enables efficient upscaling of hydraulic conductivity across MLMC levels.
 
-5. **MLMC postprocessing**  
-   - MLMC postprocessing using mainly mlmc library, includes mean and variance estimation of derived quantities, diagnostics plots, ...
+5. **MLMC Postprocessing**  
+   - Uses the **mlmc** library for analysis of simulation results.  
+   - Provides tools for estimating the mean and variance of derived quantities, along with diagnostic plots and statistical summaries.
+
 
 
 
@@ -59,7 +62,7 @@ export PYTHONPATH=.
 
 ---
 
-## 📦 Dataset Generation
+## 🧱 Dataset Generation
 
 > **Prerequisite:** Ensure that both [Flow123d](https://flow123d.github.io/) and [GMSH](https://gmsh.info/) are installed and accessible from the command line.
 
