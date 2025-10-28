@@ -4,23 +4,6 @@ import numpy as np
 import argparse
 import mlmc
 from mlmc.sample_storage_hdf import SampleStorageHDF
-from mlmc.moments import Legendre, Monomial
-from mlmc.quantity.quantity import make_root_quantity
-from mlmc.quantity.quantity_estimate import estimate_mean, moments
-from mlmc import estimator
-from mlmc.plot import diagnostic_plots as dp
-import scipy.stats as stats
-import matplotlib.pyplot as plt
-
-from scipy.spatial.distance import pdist, squareform
-from scipy.optimize import curve_fit
-
-import os
-import sys
-import numpy as np
-import argparse
-import mlmc
-from mlmc.sample_storage_hdf import SampleStorageHDF
 from mlmc.moments import Monomial
 from mlmc.quantity.quantity import make_root_quantity
 from mlmc.quantity.quantity_estimate import estimate_mean, moments
@@ -48,7 +31,7 @@ class PostProcess:
         args = parser.parse_args(sys.argv[1:])
         self.work_dir = os.path.abspath(args.work_dir)
 
-        self.n_levels = 3
+        self.n_levels = 2
         self.n_moments = 3
         self.target_var = 1e-6
 
