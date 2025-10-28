@@ -1,0 +1,55 @@
+flow123d_version: 3.9.0
+problem: !Coupling_Sequential
+  description: Steady flow through heterogeneous media, compute resulting flux.
+  mesh:
+    mesh_file: <mesh_file>
+    regions: 
+      - !From_Label
+        name: .fr_side_x0
+        # region not defined in the mesh
+        mesh_label: .fractures_side_x0
+        allow_empty: true
+      - !From_Label
+        name: .fr_side_x1
+        # region not defined in the mesh
+        mesh_label: .fractures_side_x1
+        allow_empty: true
+  flow_equation: !Flow_Darcy_LMH
+    output_specific:
+    nonlinear_solver:
+      linear_solver: !Petsc
+        a_tol: 1.0e-12
+        r_tol: 1.0e-12
+        options: -ksp_type cg -pc_type hypre -pc_hypre_type boomeramg -pc_hypre_boomeramg_coarsen_type HMIS -pc_hypre_boomeramg_strong_threshold 0.5
+    gravity: [0,0,0]
+    input_fields:
+      - region: <input_regions>
+        conductivity: 1.0
+        sigma: 0.001
+        anisotropy: !FieldFE
+          #input_discretization: element_data
+          #interpolation: identic_mesh
+          mesh_data_file: <mesh_file>
+          field_name: conductivity
+          default_value: 1e-15
+        cross_section: !FieldFE
+          #input_discretization: element_data
+          #interpolation: identic_mesh
+          mesh_data_file: <mesh_file>
+          field_name: cross_section
+          default_value: 1.0
+      - region: [.side_x0, .fr_side_x0]
+        bc_type: dirichlet
+        bc_pressure: 1
+      - region: [.side_x1, .fr_side_x1]
+        bc_type: dirichlet     
+        bc_pressure: 0
+    output:
+      fields:
+        - conductivity
+        - pressure_p0
+        - velocity_p0
+    balance: {}
+    output_stream:
+      format: !gmsh
+
