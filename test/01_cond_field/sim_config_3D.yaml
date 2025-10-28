@@ -1,0 +1,398 @@
+
+seed: 98765 #9632 #8999 #12345 58527 26339 28219 50379 69244 50363 12614 20257 47641 94828 8999 68042 95643 37928 12140 80048 23438 95679 40474 
+
+run_local: true
+
+flow_executable:
+  - /home/martin/flow123d/bin/fterm
+  - --no-term
+  - rel
+  - run
+finish_sleep: 0
+metacentrum: false
+gmsh_executable: /home/martin/Documents/gmsh4/bin/gmsh
+#gmsh_executable: /home/martin/gmsh/bin/gmsh
+n_finer_level_samples: 2
+
+mesh_window: false
+
+
+# reuse existing sample directories and existing results
+# None - clean dir
+# False - keep dir, rerun process.py
+# True - reuse existing results
+#reuse_samples: true
+
+flow_model: "01_conductivity.yaml"
+subscale_model: "flow_templ.yaml"
+
+
+# case 1
+fracture_model:
+    aperture_per_size: 1e-4 #1e-6
+    water_viscosity: 1.3e-3 #[Pa s] decrease from 1.8mPa.s at 0deg to 1.3mPa.s at 10deg,
+    water_density: 1000
+    gravity_accel: 9.8
+    #target_sigma: 100
+    #target_sigma: 1000
+    
+#levels:
+#  - n_samples: 4
+#    step: 100
+#    bulk_conductivity:
+#        choose_from_finer_level: True
+#
+#  - n_samples: 4
+#    step: 20  #10 # zkusit i s 5
+
+bulk_conductivity:
+    corr_lengths_x: [10, 10, 10]
+    corr_lengths_y: [10, 10, 10]
+    corr_lengths_z: [10, 10, 10]
+    anis_angles: [0, 0, 0]
+    #rotation: 0.7854
+    #anisotropy: 10 
+    #marginal_distr:
+    #    n_marginals: 2
+    #    marginal_0:
+    #        mean_log_conductivity: -6
+    #        std_log_conductivity: 0.5
+    #    marginal_1:
+    #        mean_log_conductivity: -5.8
+    #        std_log_conductivity: 0.5
+     #   corr_coeff: 0.8
+#        n_marginals: 2
+#        marginal_0:
+#          mean_log_conductivity: -6
+#          std_log_conductivity: 0.5
+#        marginal_1:
+#          mean_log_conductivity: -5.8
+#          std_log_conductivity: 0.5
+#        corr_coeff: 0.2
+    # Bivariate log normal distribution for the tensor eigen values
+    mean_log_conductivity: [-4, -3.8, -3.9]
+    #mean_log_conductivity: [-6, -5.8, -5.9]
+    #cov_log_conductivity: [[1e-16, 0], [0, 1e-16]] # [[0.2,0.07],[0.07,0.2]]
+    #mean_log_conductivity: [ -2, -2 ]
+    #cov_log_conductivity: [[0.2, 0.07, 0.07],
+    #                       [0.07, 0.2, 0.07],
+    #                       [0.07, 0.07, 0.2]] # marginal 1: std=0.447
+                                                    # marginal 2: std=0.447
+                                                    # corr coeff 0.2
+
+    #cov_log_conductivity: [[0.25, 0.2],[0.2, 0.25]] # marginal 1: std=0.5
+                                                    # marginal 2: std=0.5
+                                                    # corr coeff 0.8
+    cov_log_conductivity: [[0.25, 0.2, 0.2],
+                           [0.2, 0.25, 0.2],
+                           [0.2, 0.2, 0.25]]
+    # Von Mises for the rotation.
+    # Rotation angle of the first eigen vector. Counter clockwise from the axis X.
+    # dispersion == 'inf' -> uniform distribution on interval (0, 2pi)
+    # dispersion == 0 -> used constant value `angle_mean`.
+    angle_mean: 0
+    angle_concentration: 0
+
+
+# case 2
+#levels:
+  #- n_samples: 3
+    #step: 100
+    #bulk_conductivity:
+        ## log10 used
+        #mean_log_conductivity: [-9.97926069, -9.41656073]
+        #cov_log_conductivity: [[0.0056176,  0.0022999 ], [0.0022999,  0.04078208]]
+  #- n_samples: 30
+    #step: 10
+    #bulk_conductivity:
+        ## log10 used
+        #mean_log_conductivity: [-9, -9]
+        #cov_log_conductivity: None
+
+#aperture_per_size: 5e-7   # taken from WGC: initial cross_section: 5e-5m, fracture size about 100m
+#water_viscosity: 8.9e-4
+#water_density: 997
+#gravity_accel: 9.80665
+# seems that realistic fracture conductivity about 40x higher then in case 1
+# however the background conductivity is also 10x higher, so we get reasonable 4x increase of the ratio
+
+
+
+
+copy_files: []
+
+#bulk_conductivity: 1e-10
+
+#bulk_conductivity: 1e-9
+
+# number of pressure gradient directions to apply in order to get effective tensor,  min 2
+n_pressure_loads: 2
+#gstools: true #false
+#gstools_vector: true
+gstools_effective: true
+use_larger_domain: true
+generate_hom_samples: false
+generate_hom_samples_split: false #true
+flow_sim: true
+no_homogenization_flag: false
+#nn_path: "/home/martin/Documents/MLMC-DFM/optuna_runs/karolina/5LMC_L1_overlap/cl_0_cl_5_cl_15/pooling/exp_17_log_output/seed_36974"
+#nn_path: "/home/martin/Documents/MLMC-DFM/optuna_runs/karolina/5LMC_L1_overlap/cl_0/pooling/exp_17_s_98765/seed_98765"
+#nn_path: "/home/martin/Documents/MLMC-DFM/optuna_runs/karolina/5LMC_L1_overlap/rho_10_0_no_sigma_rast_3/pooling/exp_21/seed_36974"
+#nn_path: "/home/martin/Documents/MLMC-DFM/optuna_runs/karolina/5LMC_L1_overlap/rho_10_0_no_sigma_step_4_325_1_871/pooling/exp_21/seed_36974"
+#nn_path: "/home/martin/Documents/MLMC-DFM/optuna_runs/karolina/MLMC-DFM_general_dataset_2/pooling/exp_26_4_init_norm/seed_36974"
+#nn_path:  "/home/martin/Documents/MLMC-DFM/optuna_runs/karolina/5LMC_L1_overlap/rho_10_0_no_sigma_for_step_range_20_1_5/pooling/exp_21_log_out/seed_36974"
+#nn_path: "/home/martin/Documents/MLMC-DFM/optuna_runs/3D_cnn/lumi/cond_frac_1_5/cond_nearest_interp/fractures_diag_cond/dataset_2_save_bulk_avg_n_frac_2500_cl_0_10_25_seed_merge_new/init_norm/exp_12_14/seed_12345"
+#nn_path_for_block_hom: "/home/martin/Documents/MLMC-DFM/optuna_runs/3D_cnn/lumi/cond_frac_1_5/cond_nearest_interp/fractures_diag_cond/dataset_2_save_bulk_avg_n_frac_2500_cl_0_10_25_seed_merge_new/init_norm/exp_12_14/seed_12345"
+nn_path: "/home/martin/Documents/MLMC-DFM/optuna_runs/3D_cnn/lumi/cond_frac_1_5/cond_nearest_interp/fractures_diag_cond/dataset_2_save_bulk_avg_n_frac_2500_cl_0_10_25_seed_merge_new/init_norm/exp_12_14/seed_12345"
+create_dataset_script: "/home/martin/Documents/MLMC-DFM/create_dataset.sh"
+bulk_fine_sample_model: "srf_gstools" #"svd" #"gmm" #"choice" #"srf_gstools"
+rasterize_at_once: false #true
+#run_only_hom: true
+
+
+steps:
+ 50:
+#  0.809:
+#    geometry:
+#      fractures_box: [ 100, 100 ]
+#      domain_box: [ 100, 100 ]
+#      subdomain_box: [ 2.8, 2.8 ]
+#      n_subdomains: 4
+#
+#      #subdomain_box: [ 2.8, 2.8 ]
+#      #n_subdomains: 5329
+#  1.871:
+#    geometry:
+#      fractures_box: [ 100, 100 ]
+#      domain_box: [ 100, 100 ]
+#      #subdomain_box: [ 6.25, 6.25 ]
+##     n_subdomains: 9
+#      subdomain_box: [ 6.25, 6.25 ]
+#      n_subdomains: 1089
+# 4.325:
+#    geometry:
+#      fractures_box: [ 100, 100 ]
+#      domain_box: [ 100, 100 ]
+#      subdomain_box: [ 14.285714286, 14.285714286 ]
+#      n_subdomains: 25
+
+#      subdomain_box: [ 14.285714286, 14.285714286 ]
+#      n_subdomains: 225
+#
+#  10.0:
+#    geometry:
+#      fractures_box: [ 100, 100 ]
+#      domain_box: [ 100, 100 ]
+#      subdomain_box: [100, 100 ]
+#      n_subdomains: 4
+
+
+geometry:
+  #  side (meters)
+  #  fractures_box: [400, 400]
+  #  domain_box: [400, 400]
+  #  subdomain_box: [400, 400]
+  # 256x256 mesh
+  #fractures_box: [ 100, 100 ]
+  #domain_box: [ 100, 100 ]
+  #subdomain_box: [ 10.8, 10.8]
+  #n_subdomains: 85
+  
+  #outer_domain_box: [135.355339059, 135.355339059]
+  
+  #fractures_box: [ 40, 40 ]
+  #domain_box: [ 40, 40 ]
+  #orig_domain_box: [ 40, 40 ]
+  
+  #fractures_box: [ 65, 65 ]
+  #domain_box: [ 65, 65 ]
+  #orig_domain_box: [ 65, 65 ]
+  
+  #fractures_box: [ 105, 105 ]
+  #domain_box: [ 105, 105 ]
+  #orig_domain_box: [ 105, 105 ]
+  
+  #fractures_box: [ 75, 75 ]
+  #domain_box: [ 75, 75 ]
+  #orig_domain_box: [ 75, 75 ]
+  
+  #fractures_box: [ 60, 60, 60 ]
+  #domain_box: [ 60, 60, 60 ]
+  #orig_domain_box: [ 60, 60, 60 ]
+  
+  #fractures_box: [ 30, 30, 30 ]
+  #domain_box: [ 30, 30, 30 ]
+  #orig_domain_box: [ 30, 30, 30 ]
+  
+  fractures_box: [ 15, 15, 15 ]
+  domain_box: [ 15, 15, 15 ]
+  orig_domain_box: [ 15, 15, 15 ]
+  
+  #fractures_box: [ 100, 100 ]
+  #domain_box: [ 100, 100 ]
+  #orig_domain_box: [ 100, 100 ]
+  #fractures_box: [ 15, 15 ]
+  #domain_box: [ 15, 15]
+  #orig_domain_box: [ 15, 15 ]
+  n_voxels: [64, 64, 64] # [100, 100, 100] is to much to run on local
+  #fractures_box: [ 100, 100 ]
+  #domain_box: [ 100, 100 ]
+  #orig_domain_box: [ 100, 100 ]
+  #subdomain_box: [ 35.355339059, 35.355339059 ]
+  #n_subdomains: 4
+  subdomain_box: [ 15, 15, 15 ]
+  pixel_stride_div: 2
+  #n_subdomains: 25
+  #subdomain_box: [ 14.285714286, 14.285714286 ]
+  #n_subdomains: 4 #169
+  #fractures_box: [ 100, 100 ]
+  #domain_box: [ 100, 100 ]
+  #subdomain_box: [ 2, 2 ]
+  #n_subdomains: 2500
+  # 3x3 mesh
+  #fractures_box: [ 75, 75 ]
+  #domain_box: [ 75, 75 ]
+  #outer_polygon: [[0,0], [75,0], [75, 75], [0, 75]]
+  #subdomain_box: [ 75, 75 ]
+  #n_subdomains: 1 #25
+  fr_max_size: 100
+  #fractures_box: [140, 140]
+  #domain_box: [140, 140]
+  #fractures_box: [1000, 1000]
+  #domain_box: [1000, 1000]
+  #n_frac_limit: 1000
+
+  #pow_law_size_range: [0.05, 500]
+  #pow_law_size_range: [0.01, 100]
+  #pow_law_size_range: [0.1, 1000] #[0.1, 1000] # [10, 100]
+  #pow_law_size_exp: 2.8   # 3d exponent
+  rho_2D: false #false #2.5 #5.0 #10 #5 #false #3.5 #2.5 #2.5 #2.5
+  pow_law_size_exp: 3 #3   # 3d exponent
+  p_32: 2.5
+  # Mean total fracture surface for the full size range (pow_law_size_range).
+  # realistic value is about 0.5,
+  # p_32==64 continuous for exp 3.2
+  # p_32==4 almost continuous for exp 2.8
+  # One of possible reasons: SKB use disc radius for the fracture size. So
+
+  n_frac_limit: 1500 #1500 # 350 #350 #1350 #10 #false #1000
+  # Upper limit for the number of fractures.
+ 
+  pow_law_sample_range: [5, 100] 
+  #pow_law_sample_range: [4.326, 100]
+
+  #pow_law_sample_range: [1.871, 100]
+  #pow_law_sample_range: [1.871, 100]
+  #pow_law_sample_range: [0.809, 100]
+  
+
+  # Actual range of fracture sizes, the mean number of samples, is determined from the p32.
+
+  #pow_law_sample_range: [0.56, 140]
+  #pow_law_sample_range: [4, 1000]
+
+  #pow_law_sample_range: [0.56, 140]
+  #pow_law_sample_range: [4, 1000]
+
+  # 1331 fractures, exp 2.8, 2d-1d -> 65k elements;
+  #fracture_mesh_: 10
+
+  # Uniform distribution of the fracture centers near the existing surfaces
+  # in order to enhance connectivity.
+
+  #fracture_stats:
+      ## SKB data
+      #-   name: NS
+          #trend: 292
+          #plunge: 1
+          #concentration: 17.8
+          #power: 2.5
+          #r_min: 0.038
+          #r_max: 564
+          #p_32: 0.073
+      #-   name: NE
+          #trend: 326
+          #plunge: 2
+          #concentration: 14.3
+          #power: 2.7
+          #r_min: 0.038
+          #r_max: 564
+          #p_32: 0.319
+      #-   name: NW
+          #trend: 60
+          #plunge: 6
+          #concentration: 12.9
+          #power: 3.1
+          #r_min: 0.038
+          #r_max: 564
+          #p_32: 0.107
+      #-   name: EW
+          #trend: 15
+          #plunge: 2
+          #concentration: 14.0
+          #power: 3.1
+          #r_min: 0.038
+          #r_max: 564
+          #p_32: 0.088
+      #-   name: HZ
+          #trend: 5
+          #plunge: 86
+          #concentration: 15.2
+          #power: 2.38
+          #r_min: 0.038
+          #r_max: 564
+          #p_32: 0.543
+
+
+  # deep data <400m
+#  fracture_stats:
+#      # SKB data
+#      -   name: NS
+#          trend: 292
+#          plunge: 1
+#          concentration: 17.8
+#          power: 2.5
+#          r_min: 0.038
+#          r_max: 564
+#          p_32: 0.094
+#      -   name: NE
+#          trend: 326
+#          plunge: 2
+#          concentration: 14.3
+#          power: 2.7
+#          r_min: 0.038
+#          r_max: 564
+#          p_32: 0.163
+#      -   name: NW
+#          trend: 60
+#          plunge: 6
+#          concentration: 12.9
+#          power: 3.1
+#          r_min: 0.038
+#          r_max: 564
+#          p_32: 0.098
+#      -   name: EW
+#          trend: 15
+#          plunge: 2
+#          concentration: 14.0
+#          power: 3.1
+#          r_min: 0.038
+#          r_max: 564
+#          p_32: 0.039
+#      -   name: HZ
+#          trend: 5
+#          plunge: 86
+#          concentration: 15.2
+#          power: 2.38
+#          r_min: 0.038
+#          r_max: 564
+#          p_32: 0.141
+
+
+
+# base of the mesh file name
+mesh_name: random_fractures
+
+
+dfn_flow_params:
+  mesh: None

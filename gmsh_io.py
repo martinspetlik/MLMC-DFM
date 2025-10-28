@@ -88,6 +88,8 @@ class GmshIO:
             line = mshfile.readline()
             line = line.strip()
 
+            #print("readmode ", readmode)
+
             if line.startswith('$'):
                 if line == '$NOD' or line == '$Nodes':
                     readmode = 1
@@ -153,7 +155,8 @@ class GmshIO:
                         readmode = 0
 
                 # conductivity tensor
-                elif ftype == 0 and readmode > 1 and len(columns) == 10:
+                elif ftype == 0 and readmode > 1 and readmode != 3 and len(columns) == 10:
+                    #print("readmode: {}, ftype: {}".format(readmode, ftype))
                     # Version 1.0 or 2.0 Elements
                     try:
                         columns = [col for col in columns]
@@ -161,7 +164,10 @@ class GmshIO:
                         print('Element format error: ' + line)
                         readmode = 0
                     else:
+                        #print("len 10 columns ", columns)
+
                         id = columns[0]
+
                         #(id, type) = columns[0]
                         # if readmode == 2:
                         #     # Version 1.0 Elements
@@ -175,8 +181,34 @@ class GmshIO:
 
                         self.elements[id] = columns[1:]
 
-                elif ftype == 0 and readmode > 1 and len(columns) > 5:
+                elif ftype == 0 and readmode == 3 and len(columns) == 10:
+                    #print("readmode: {}, ftype: {}".format(readmode, ftype))
                     # Version 1.0 or 2.0 Elements
+                    try:
+                        columns = [int(col) for col in columns]
+                    except ValueError:
+                        print('Element format error: ' + line)
+                        readmode = 0
+                    else:
+                        #print("len 10 columns ", columns)
+
+                        (id, type) = columns[0:2]
+                        if readmode == 2:
+                            # Version 1.0 Elements
+                            tags = columns[2:4]
+                            nodes = columns[5:]
+                        else:
+                            #print("columns ", columns)
+                            # Version 2.0 Elements
+                            ntags = columns[2]
+                            tags = columns[3:3 + ntags]
+                            nodes = columns[3 + ntags:]
+                        self.elements[id] = (type, tags, nodes)
+
+                elif ftype == 0 and readmode > 1 and len(columns) > 5:
+                    #print("readmode: {}, ftype: {}".format(readmode, ftype))
+                    # Version 1.0 or 2.0 Elements
+                    #print("all columns ", columns)
                     try:
                         columns = [int(col) for col in columns]
                     except ValueError:
@@ -189,6 +221,7 @@ class GmshIO:
                             tags = columns[2:4]
                             nodes = columns[5:]
                         else:
+                            #print("columns ", columns)
                             # Version 2.0 Elements
                             ntags = columns[2]
                             tags = columns[3:3 + ntags]
@@ -196,6 +229,7 @@ class GmshIO:
                         self.elements[id] = (type, tags, nodes)
 
                 elif readmode == 3 and ftype == 1:
+
                     # el_type : num of nodes per element
                     tdict = {1: 2, 2: 3, 3: 4, 4: 4, 5: 5, 6: 6, 7: 5, 8: 3, 9: 6, 10: 9, 11: 10, 15: 1}
                     try:

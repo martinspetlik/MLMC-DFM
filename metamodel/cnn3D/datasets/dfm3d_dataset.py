@@ -1,181 +1,193 @@
-import os
-import re
-import copy
-import shutil
-
+import zarr
 import torch
-import sklearn
-import pandas as pd
-#from skimage import io, transform
 import numpy as np
-#import matplotlib.pyplot as plt
-from torch.utils.data import Dataset, DataLoader
-from torchvision import transforms, utils
+from torch.utils.data import Dataset
 
 
-class DFMDataset(Dataset):
-    """DFM models dataset"""
+class DFM3DDataset(Dataset):
+    """
+    PyTorch Dataset for Discrete Fracture-Matrix (DFM) 3D models.
+    Loads data from a Zarr file and supports transformations and splitting.
+    """
 
-    def __init__(self, zarr_file, input_transform=None, output_transform=None, init_transform=None,
-                 input_channels=None, output_channels=None, fractures_sep=False, cross_section=False, plot=False, init_norm_use_all_features=False):
-        self.zarr_file = zarr_file
+    def __init__(self, zarr_path, input_transform=None, output_transform=None, init_transform=None,
+                 input_channels=None, output_channels=None, fractures_sep=False, cross_section=False, plot=False,
+                 init_norm_use_all_features=False, mode="whole", train_size=None, val_size=None, test_size=None, return_centers_bulk_avg=False):
+        """
+        Initialize the DFM3DDataset by opening a Zarr file and optionally applying transformations.
+        :param zarr_path: str
+            Path to the Zarr file containing the dataset.
+        :param input_transform: callable, optional
+            Transformation to apply to input tensors.
+        :param output_transform: callable, optional
+            Transformation to apply to output tensors.
+        :param init_transform: callable, optional
+            Initialization transformation applied to both input and output tensors.
+        :param input_channels: list of int, optional
+            If provided, selects specific channels of the input tensor.
+        :param output_channels: list of int, optional
+            If provided, selects specific channels of the output tensor.
+        :param fractures_sep: bool, optional
+            Whether to separate fractures from bulk features (default False).
+        :param cross_section: bool, optional
+            Whether to use cross-section data (default False).
+        :param plot: bool, optional
+            Enable plotting during dataset initialization.
+        :param init_norm_use_all_features: bool, optional
+            Whether to use all features during initial normalization.
+        :param mode: str, optional
+            Dataset mode: 'whole', 'train', 'val', 'test'.
+        :param train_size: int, optional
+            Number of training samples if splitting the dataset.
+        :param val_size: int, optional
+            Number of validation samples if splitting the dataset.
+        :param test_size: int, optional
+            Number of test samples if splitting the dataset.
+        :param return_centers_bulk_avg: bool, optional
+            Whether to return centers and bulk average along with the tensors.
+        """
+        super(DFM3DDataset, self).__init__()
+        print("zarr path ", zarr_path)
 
-        # Access the 'inputs' and 'outputs' datasets
-        self.inputs = self.zarr_file['inputs']
-        self.outputs = self.zarr_file['outputs']
+        # Open Zarr file
+        zarr_file = zarr.open(zarr_path, mode='r')
+        self.data = zarr_file
 
-        # Read the channel names (optional, for reference)
-        self.input_channel_names = self.inputs.attrs['channel_names']
-        self.output_channel_names = self.outputs.attrs['channel_names']
+        # Load main datasets
+        self.inputs = zarr_file['inputs']
+        self.outputs = zarr_file['outputs']
 
+        # Optional datasets
+        self.bulk_avg = zarr_file['bulk_avg'] if "bulk_avg" in zarr_file else None
+        self.centers = zarr_file["centers"] if "centers" in zarr_file else None
+
+        # Store transformations
         self.init_transform = init_transform
         self.input_transform = input_transform
         self.output_transform = output_transform
 
+        # Dataset configuration flags
         self._input_channels = input_channels
         self._output_channels = output_channels
         self._fractures_sep = fractures_sep
         self._cross_section = cross_section
         self._init_transform_use_all_features = init_norm_use_all_features
-
-
+        self._return_centers_bulk_avg = return_centers_bulk_avg
         self.plot = plot
 
+        # Determine dataset splits
+        total_size = self.inputs.shape[0]
+        if mode != "whole":
+            train_size = train_size or int(total_size * 0.64)
+            val_size = val_size or int(total_size * 0.16)
+            test_size = test_size or int(total_size * 0.2)
+            print("total size: {}, train size: {}, val size: {}, test size: {}".format(total_size, train_size, val_size, test_size))
 
-    #@TODO: DataLoader should be responsible for shuffling
-    # def shuffle(self, seed):
-    #     np.random.seed(seed)
-    #     perm = np.random.permutation(len(self._bulk_file_paths))
-    #     self._bulk_file_paths = list(np.array(self._bulk_file_paths)[perm])
-    #     self._output_file_paths = list(np.array(self._output_file_paths)[perm])
-    #
-    #     if len(self._fracture_file_paths) == len(self._bulk_file_paths):
-    #         self._fracture_file_paths = list(np.array(self._fracture_file_paths)[perm])
-    #     if len(self._cross_section_file_paths) == len(self._bulk_file_paths):
-    #         self._cross_section_file_paths = list(np.array(self._cross_section_file_paths)[perm])
+        # Assign start/end indices for the dataset subset
+        if mode == "whole":
+            self.start = 0
+            self.end = total_size
+        elif mode == "train":
+            self.start = 0
+            self.end = train_size
+        elif mode == "val":
+            self.start = train_size
+            self.end = train_size + val_size
+        elif mode == "test":
+            self.start = train_size + val_size
+            self.end = train_size + val_size + test_size
+
+        # Ensure end does not exceed dataset size
+        self.end = np.min([self.end, total_size])
 
     def __len__(self):
-        # Return the number of samples
-        return self.inputs.shape[0]
+        """
+        Return the number of samples in the dataset slice.
+
+        :return: int
+            Number of samples
+        """
+        return self.end - self.start
 
     def __getitem__(self, idx):
+        """
+        Fetch a single sample from the dataset.
 
+        :param idx: int
+            Index of the sample within the selected dataset slice.
+        :return: tuple
+            input_tensor: torch.Tensor
+                Input features tensor.
+            output_tensor: torch.Tensor
+                Output tensor (targets).
+            centers: np.ndarray, optional
+                Coordinates of the subdomain centers (if return_centers_bulk_avg=True).
+            bulk_features_avg: float, optional
+                Average bulk feature for normalization (if return_centers_bulk_avg=True).
+        """
+        idx = idx + self.start
+
+        if idx > self.end:
+            raise IndexError(f"Index has to be between start: {self.start} and end: {self.end}")
+
+        # Load samples from Zarr arrays
         input_sample = self.inputs[idx]
         output_sample = self.outputs[idx]
+        bulk_avg = self.bulk_avg[idx] if self.bulk_avg is not None else None
+        centers = self.centers[idx] if self.centers is not None else None
+
+        # Ensure integer index (slicing not supported)
+        if isinstance(idx, (slice, list)):
+            raise NotImplementedError("Dataset index has to be int")
 
         # Convert to PyTorch tensors
         input_tensor = torch.tensor(input_sample, dtype=torch.float32)
         output_tensor = torch.tensor(output_sample, dtype=torch.float32)
 
-        #@TODO: refactor
-
-        if self.init_transform is not None:
-            bulk_features_avg = np.mean(bulk_features)
-            self._bulk_features_avg = bulk_features_avg
-
-        if cross_section_features is not None:
-            flatten_cross_section_features = cross_section_features.reshape(-1)
-            nan_indices = np.argwhere(np.isnan(flatten_cross_section_features))
-            flatten_cross_section_features[nan_indices] = 1
-            flatten_cross_section_features_channel = flatten_cross_section_features.reshape(bulk_features_shape[1:])
-
-        flatten_bulk_features = bulk_features.reshape(-1)
-        if fractures_features is not None:
-            if self._fractures_sep is False:
-                flatten_fracture_features = fractures_features.reshape(-1)
-                not_nan_indices = np.argwhere(~np.isnan(flatten_fracture_features))
-                #print("flatten_fracture_features[not_nan_indices] ", flatten_fracture_features[not_nan_indices])
-                # if len(not_nan_indices) == 0:
-                #     print("not nan indices ", not_nan_indices)
-                flatten_bulk_features[not_nan_indices] = flatten_fracture_features[not_nan_indices]
-            else:
-                flatten_fracture_features = fractures_features.reshape(-1)
-                nan_indices = np.argwhere(np.isnan(flatten_fracture_features))
-                flatten_fracture_features[nan_indices] = 0
-                fractures_channel = flatten_fracture_features[0, ...]
-        else:
-            print("fr Nan")
-
-        final_features = flatten_bulk_features.reshape(bulk_features_shape)
-
-
-        if self.init_transform is not None and self._init_transform_use_all_features:
-            bulk_features_avg = np.mean(final_features)
-            self._bulk_features_avg = bulk_features_avg
-
-        if self._fractures_sep:
-            final_features = np.concatenate((final_features, np.expand_dims(fractures_channel, axis=0)), axis=0)
-
-        if self._cross_section:
-            final_features = np.concatenate((final_features, np.expand_dims(flatten_cross_section_features_channel, axis=0)), axis=0)
-
-        final_features = torch.from_numpy(final_features)
-        output_features = torch.from_numpy(output_features)
-
+        # Select specific channels if provided
         if self._input_channels is not None:
-            final_features = final_features[self._input_channels]
-        if self._output_channels is not None and len(output_features) > 0:
-            output_features = output_features[self._output_channels]
+            input_tensor = input_tensor[self._input_channels]
+        if self._output_channels is not None and len(output_tensor) > 0:
+            output_tensor = output_tensor[self._output_channels]
 
+        # Apply initialization transform
         if self.init_transform is not None:
-            reshaped_output = torch.reshape(output_features, (*output_features.shape, 1, 1))
-            final_features, reshaped_output = self.init_transform((bulk_features_avg, final_features, reshaped_output, self._cross_section))
-        else:
-            reshaped_output = torch.reshape(output_features, (*output_features.shape, 1, 1))
+            bulk_features_avg = np.mean(bulk_avg)
+            self._bulk_features_avg = bulk_features_avg
+            input_tensor, output_tensor = self.init_transform(
+                (bulk_features_avg, input_tensor, output_tensor, self._cross_section)
+            )
 
-        # else:
-        #     print("else reshaped output ", reshaped_output)
+        # Reshape output for 3D convolution compatibility
+        reshaped_output = torch.reshape(output_tensor, (*output_tensor.shape, 1, 1))
 
-
-            #print("reshaped output shape", reshaped_output.shape)
-
-            #exit()
-
+        # Apply optional input/output transforms
         if self.input_transform is not None:
-            final_features = self.input_transform(final_features)
-        if self.output_transform is not None and len(output_features) > 0:
-            #print("self.output transform ", self.output_transform)
-            output_features = np.squeeze(self.output_transform(reshaped_output))
+            input_tensor = self.input_transform(input_tensor)
+        if self.output_transform is not None and len(output_tensor) > 0:
+            output_tensor = np.squeeze(self.output_transform(reshaped_output))
 
-        # if output_features[0] < -2:
-        #     print("bulk path ", bulk_path)
-        #     print("output features orig ", output_features_orig)
-        #     print("output_features ", output_features)
-        #     print("not_nan_indices ", not_nan_indices)
-        # else:
-        #     pass
-        #     #print("else output_features orig", output_features_orig)
+        # Check for NaN values
+        DFM3DDataset._check_nans(input_tensor, str_err=f"Input features contains NaN values, {idx}")
+        if len(output_tensor) > 0:
+            DFM3DDataset._check_nans(output_tensor, str_err=f"Output features contains NaN values, idx: {idx}")
 
+        if self._return_centers_bulk_avg:
+            return input_tensor, output_tensor, centers, bulk_features_avg
 
-        DFMDataset._check_nans(final_features, str_err="Input features contains NaN values, {}".format(bulk_path), file=bulk_path)
-
-        if len(output_features) > 0:
-            DFMDataset._check_nans(output_features, str_err="Output features contains NaN values, {}".format(output_path), file=output_path)
-
-
-        #print("final features shape ", final_features.shape)
-        #print("final features [3, :] ", final_features[1, :])
-
-        # if output_features is None:
-        #     output_features = torch.empty(1, dtype=None)
-        #     print("output features ", output_features)
-
-        # if self.plot:
-        #     #print("self. output transform ", len(self.output_transform))
-        #     if output_features[0] == 1:
-        #         print("output features ", output_features)
-        #         print("bulk_path ", bulk_path)
-        #     else:
-        #         pass
-        #         #print("else")
-
-        return final_features, output_features
+        return input_tensor, output_tensor
 
     @staticmethod
-    def _check_nans(final_features, str_err="Data contains NaN values", file=None):
+    def _check_nans(final_features, str_err="Data contains NaN values"):
+        """
+        Raise an error if NaNs are found in a tensor.
+        :param final_features: torch.Tensor
+            Tensor to check for NaNs.
+        :param str_err: str, optional
+            Error message to display if NaNs are detected.
+        """
         has_nan = torch.any(torch.isnan(final_features))
         if has_nan:
+            print("final_features ", final_features)
             print("str err ", str_err)
-            print("file ", os.path.dirname(file))
-            shutil.rmtree(os.path.dirname(file))
-            #raise ValueError(str_err)
+            raise ValueError(str_err)

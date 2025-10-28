@@ -1,0 +1,45 @@
+n_conv_layers: [4]
+max_channel: [[48, 144, 432, 1296]] 
+pool: ["avg"]
+pool_size: [2]
+kernel_size: [3]
+stride: [1]
+padding: [1]
+pool_stride: [2]
+pool_indices: [{0: "max", 1: "max", 2: "max", 3: "max", 4: "max"}]
+global_pool: ["avg"]
+use_batch_norm: [True]
+use_cnn_dropout: [False]
+use_fc_dropout: [False]
+#bias_reduction_layer_indices: [[0]]
+#cnn_dropout_indices: []
+#fc_dropout_indices: [[0], [0, 1]]
+##cnn_dropout_ratios:
+#fc_dropout_ratios: [[0.1, 0.1], [0.2, 0.2], [0.3, 0.3], [0.4, 0.4], [0.5, 0.5]]
+##dropout_ratio: [0.5]
+optimizer_name: ["Adam"]
+#L2_penalty: [0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1]
+n_hidden_layers: [3]
+max_hidden_neurons:  [[2048, 2048, 1024]]
+cnn_activation_name: ["relu"]
+hidden_activation_name: ["relu"]
+lr: [0.0025] #
+num_epochs: 2
+num_trials: 100
+random_seed: 12345
+batch_size_train: [64]
+n_train_samples: [48000]
+n_val_samples: [12000]
+n_test_samples: [0] #5000
+input_size: 64
+loss_function: [["MSE", []]]
+scheduler: [{'class': "ReduceLROnPlateau", 'patience': 10, 'factor': 0.5}]
+sampler_class: BruteForceSampler
+train: True
+output_bias: True
+fractures_sep: False
+init_norm: True
+log_input: True
+normalize_input: True
+log_output: True
+normalize_output: True
