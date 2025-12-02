@@ -133,13 +133,13 @@ class SRFFromTensorPopulation:
 
         # extend to left
         xmin = x[0]
-        while xmin - step >= -L_new - tol:
+        while xmin - step >= -np.ceil(L_new) - tol:
             xmin -= step
             x = np.insert(x, 0, xmin)
 
         # extend to right
         xmax = x[-1]
-        while xmax + step <= L_new + tol:
+        while xmax + step <= np.ceil(L_new) + tol:
             xmax += step
             x = np.append(x, xmax)
 

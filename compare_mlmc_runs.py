@@ -18,6 +18,9 @@ from matplotlib import ticker
 from scipy.spatial.distance import pdist, squareform
 from scipy.optimize import curve_fit
 
+#rng = np.random.default_rng(123)
+np.random.seed(12345) # 42
+
 
 def plot_bias(list_l_params, list_all_moments_mean_obj, ref_moments_mean_obj, levels=None, moment=1, err_l_vars=None, label_names=[], fontsize=17, fontsize_ticks=15):
     """
@@ -186,6 +189,11 @@ def compare_means(samples_a, samples_b, title=""):
         print("There is no significant difference between {}".format(title))
 
 
+def get_n_ops(mlmc_hdf_file):
+    sample_storage = SampleStorageHDF(file_path=mlmc_hdf_file)
+    return sample_storage.get_n_ops()
+
+
 def process(mlmc_file_path, mlmc_info={}, target_var=1e-6):
     n_moments = 3
     sample_storage = SampleStorageHDF(file_path=mlmc_file_path)
@@ -224,11 +232,8 @@ def process(mlmc_file_path, mlmc_info={}, target_var=1e-6):
     # true_domain = (4.1042996300000003e-07, 2.9956777900000792e-05)
     # true_domain = (3.61218304e-07, 2.9956777900000792e-05)
     #moments_fn = Legendre(n_moments, true_domain)
-    moments_fn = Monomial(n_moments, true_domain)#, ref_domain=true_domain)
+    moments_fn = Monomial(n_moments, true_domain, ref_domain=true_domain)
 
-    # n_ops = np.array(sample_storage.get_n_ops())
-    # print("n ops ", n_ops)
-    # print("n ops ", n_ops[:, 0] / n_ops[:, 1])
 
     print("sample storage n collected ", sample_storage.get_n_collected())
 
@@ -341,90 +346,15 @@ def process(mlmc_file_path, mlmc_info={}, target_var=1e-6):
 
     print("sample_storage.get_n_collected()[0] type ", type(sample_storage.get_n_collected()[0]))
 
-    # n_ops[2] = 200
-    # n_ops[1] = 100
-    #
-    # print("n ops ", n_ops)
-    n_estimated = estimator.estimate_n_samples_for_target_variance(target_var, variances, n_ops,
+    cost_file_n_ops = get_n_ops(mlmc_info["cost_file"])
+    print("cost_file_n_ops ", cost_file_n_ops)
+
+    n_estimated = estimator.estimate_n_samples_for_target_variance(target_var, variances, cost_file_n_ops,
                                                                    n_levels=n_levels)
 
     print("orig n estimated ", n_estimated)
+    print("total cost ", np.sum(cost_file_n_ops * n_estimated))  # np.array(sample_storage.get_n_collected())))
 
-    ### @TODO: RM ASAP
-    # q_value_subsample = q_value.subsample(np.array(n_estimated))
-    # true_domain_subsample = mlmc.estimator.Estimate.estimate_domain(q_value_subsample, sample_storage,
-    #                                                                  quantile=quantile)
-    # moments_fn_subsample = Monomial(n_moments, true_domain_subsample)
-    #
-    # moments_quantity = moments(q_value_subsample, moments_fn=moments_fn_subsample, mom_at_bottom=True)
-    # print("moments_quantity ", moments_quantity)
-    #
-    # moments_mean = estimate_mean(q_value_subsample)
-    # print("moments_mean.n_samples ", moments_mean.n_samples)
-    # print("n rm samples ", moments_mean._n_rm_samples)
-    # print("moments_mean.l_means ", moments_mean.l_means)
-
-    # moments_fn_subsample = Monomial(n_moments, true_domain_subsample, ref_domain=true_domain_subsample)
-    # # moments_fn_subsample = moments_fn
-    #
-    # estimate_obj_subsample = mlmc.estimator.Estimate(quantity=q_value_subsample, sample_storage=sample_storage,
-    #                                                  moments_fn=moments_fn_subsample)
-    # means, vars = estimate_obj_subsample.estimate_moments(moments_fn_subsample)
-    # moments_quantity = qe.moments(q_value_subsample, moments_fn_subsample)
-    # estimate_obj_moments_quantity = mlmc.estimator.Estimate(quantity=moments_quantity,
-    #                                                         sample_storage=sample_storage,
-    #                                                         moments_fn=moments_fn_subsample)
-    ########
-    ########
-
-    # print("n estimated ", n_estimated)
-    # chunk_spec = next(sample_storage.chunks(level_id=0, n_samples=int(n_estimated[0])))
-    # subsample_level_0_samples = q_value.samples(chunk_spec=chunk_spec)
-    #
-    # chunk_spec = next(sample_storage.chunks(level_id=0, n_samples=int(n_estimated[1])))
-    # subsample_level_1_samples = q_value.samples(chunk_spec=chunk_spec)
-    # print("subsample level 0 samples ", subsample_level_0_samples.shape)
-    # print("subsample level 1 samples ", subsample_level_1_samples.shape)
-    #
-    #
-    #
-    # sample_moments_mean_level_1 = np.nanmean(subsample_level_1_samples, axis=1)
-    # print("sample_moments_mean_level_1 ", sample_moments_mean_level_1)
-    # sample_moments_mean_level_1_fine = sample_moments_mean_level_1[..., 0]
-    # sample_moments_mean_level_1_coarse = sample_moments_mean_level_1[..., 1]
-    #
-    # #mean_at_level(estimate_obj_moments_quantity, n_estimated)
-    # exit()
-
-
-    # n_ops = [64, 150, 300]
-    # n_ops[0] = 85
-
-    # n_ops = [36, 75, 120]
-
-    # n_ops = [36.23067711011784, 848.5677567292186, 3115.1620610555015]
-
-    # n_ops = [50.74231049047417, 150.8056385226611, 300.4481985032301]
-
-    print("level variances ", variances)
-    print("n ops ", n_ops)
-
-    print("n estimated ", n_estimated)
-    #return 0, 0, 0
-
-    # n_ops = [2.1530759945526734, 424.25148745817296, 2510.9868827356786]
-    # n_ops = [10, 25, 120]
-    # n_ops = [130, 150]
-    print("total cost ", np.sum(n_ops * n_estimated))  # np.array(sample_storage.get_n_collected())))
-
-    # moments_quantity = moments(root_quantity, moments_fn=moments_fn, mom_at_bottom=True)
-    # moments_mean = estimate_mean(moments_quantity)
-    # conductivity_mean = moments_mean['cond_tn']
-    # time_mean = conductivity_mean[1]  # times: [1]
-    # location_mean = time_mean['0']  # locations: ['0']
-    # values_mean = location_mean[0]  # result shape: (1,)
-    # value_mean = values_mean[0]
-    # assert value_mean.mean == 1
 
     l_0_samples = estimate_obj.get_level_samples(level_id=0, n_samples=sample_storage.get_n_collected()[0])
 
@@ -805,40 +735,21 @@ def process(mlmc_file_path, mlmc_info={}, target_var=1e-6):
     print(" INITIAL GUESS")
     print("----------------------------------")
 
-    var_est, level_variances = mean_at_level_quantity(q_value, sample_storage, sample_vec)
-    initial_guess_n_estimated = estimator.estimate_n_samples_for_target_variance(target_var, level_variances, n_ops,
-                                                                         n_levels=n_levels)
+    # var_est, level_variances, _, _ = mean_at_level_quantity(q_value, sample_storage, sample_vec)
+    # print("level variances ", level_variances)
+    # print("var est ", var_est)
+
+    var_est, level_variances, _, _, _,  = mean_var_at_level_quantity(q_value, sample_storage, sample_vec)
+    print("level variances ", level_variances)
+    print("var est ", var_est)
+    initial_guess_n_estimated = estimator.estimate_n_samples_for_target_variance(target_var, level_variances,
+                                                                                 cost_file_n_ops, n_levels=n_levels)
+    initial_guess_n_estimated = np.max([sample_vec, initial_guess_n_estimated], axis=0)
     print("initial_guess_n_estimated ", initial_guess_n_estimated)
-    improved_guess_variances, improved_guess_level_variances = mean_at_level_quantity(q_value, sample_storage, initial_guess_n_estimated)
+    improved_guess_variances, improved_guess_level_variances, _, _, _,  = mean_var_at_level_quantity(q_value, sample_storage, initial_guess_n_estimated)
 
     print("improved_guess_variances ", improved_guess_variances)
     print("improved_guess_level_variances ", improved_guess_level_variances)
-
-
-    #print("initial guess N estimated ", n_estimated)
-    # import mlmc.quantity.quantity_estimate as qe
-    # sample_vec = [100, 10]
-    # q_value_subsample = q_value.subsample(sample_vec)
-    # #true_domain_subsample = mlmc.estimator.Estimate.estimate_domain(q_value_subsample, sample_storage, quantile=quantile)
-    # #moments_fn_subsample = Monomial(n_moments, true_domain_subsample)
-    # moments_fn_subsample = moments_fn
-    #
-    # estimate_obj_subsample = mlmc.estimator.Estimate(quantity=q_value_subsample, sample_storage=sample_storage, moments_fn=moments_fn_subsample)
-    # means, vars = estimate_obj_subsample.estimate_moments(moments_fn_subsample)
-    # # moments_quantity = qe.moments(q_value_subsample, moments_fn_subsample)
-    # # estimate_obj_moments_quantity = mlmc.estimator.Estimate(quantity=moments_quantity,
-    # #                                                         sample_storage=sample_storage, moments_fn=moments_fn_subsample)
-    #
-    # print("vars ", vars)
-    # print('means ', means)
-    # variances, n_ops = estimate_obj_subsample.estimate_diff_vars_regression(sample_storage.get_n_collected())
-    # n_estimated = estimator.estimate_n_samples_for_target_variance(target_var, variances, n_ops,
-    #                                                                n_levels=n_levels)
-    #
-    # print("level variances ", variances)
-    # print("n ops ", n_ops)
-    # print("n estimated ", n_estimated)
-    # print("total cost ", np.sum(n_ops * n_estimated))  # np.array(sample_storage.get_n_collected())))
 
 
     print("----------------------------------")
@@ -866,24 +777,31 @@ def process(mlmc_file_path, mlmc_info={}, target_var=1e-6):
     #                                                         sample_storage=sample_storage,
     #                                                         moments_fn=moments_fn_subsample)
 
-    final_n_estimated = estimator.estimate_n_samples_for_target_variance(target_var, improved_guess_level_variances, n_ops,
+    final_n_estimated = estimator.estimate_n_samples_for_target_variance(target_var, improved_guess_level_variances, cost_file_n_ops,
                                                                    n_levels=n_levels)
 
+    final_n_estimated = np.max([sample_vec, final_n_estimated], axis=0)
     print("final n estimated ", final_n_estimated)
 
     #mean_at_level(estimate_obj_moments_quantity, n_estimated)
-    final_variances, final_level_variances = mean_at_level_quantity(q_value, sample_storage, final_n_estimated)
-    print("FINAL VARIANCE ", final_variances)
+    final_variances, final_level_variances, moments_diffs_on_levels, finest_moments, total_moments = mean_var_at_level_quantity(q_value, sample_storage, final_n_estimated)
+    print("FINAL ESTIMATOR VARIANCE ", final_variances)
+    print("FINAL mean diffs on levels ", moments_diffs_on_levels[0])
+    print("FINAL var diffs on levels ", moments_diffs_on_levels[1])
+    print("FINAL skewness diffs on levels ", moments_diffs_on_levels[2])
+    print("FINAL kurtosis diffs on levels ", moments_diffs_on_levels[3])
 
-    #variances, n_ops = estimate_obj_subsample.estimate_diff_vars_regression(n_estimated)
+    print("finest moments mean ", finest_moments[0])
+    print("finest moments var ", finest_moments[1])
+    print("finest moments skewness ", finest_moments[2])
+    print("finest moments kurtosis ", finest_moments[3])
 
-
+    # variances, n_ops = estimate_obj_subsample.estimate_diff_vars_regression(n_estimated)
     # print("final n estimated ", final_n_estimated)
     # q_value_subsample = q_value.subsample(np.array(final_n_estimated))
     # true_domain_subsample = mlmc.estimator.Estimate.estimate_domain(q_value_subsample, sample_storage, quantile=quantile)
     # moments_fn_subsample = Monomial(n_moments, true_domain_subsample)
     # moments_fn_subsample = moments_fn
-    #
     # estimate_obj_subsample = mlmc.estimator.Estimate(quantity=q_value_subsample, sample_storage=sample_storage,
     #                                                  moments_fn=moments_fn_subsample)
     # means, vars = estimate_obj_subsample.estimate_moments(moments_fn_subsample)
@@ -893,12 +811,19 @@ def process(mlmc_file_path, mlmc_info={}, target_var=1e-6):
     #                                                         moments_fn=moments_fn_subsample)
 
     print("level variances ", final_level_variances)
-    print("n ops ", n_ops)
     print("FINAL n estimated ", final_n_estimated)
-    print("FINAL total cost ", np.sum(n_ops * final_n_estimated))  # np.array(sample_storage.get_n_collected())))
+    print("FINAL total cost ", np.sum(cost_file_n_ops * final_n_estimated))  # np.array(sample_storage.get_n_collected())))
+    print("FINAL total MEAN ", np.sum(moments_diffs_on_levels[0], axis=0) + finest_moments[0])
+    print("FINAL total VAR ", np.sum(moments_diffs_on_levels[1], axis=0) + finest_moments[1])
+    # print("FINAL total SKEWNESS ", np.sum(moments_diffs_on_levels[2], axis=0) + finest_moments[2])
+    # print("FINAL total KURTOSIS ", np.sum(moments_diffs_on_levels[3], axis=0) + finest_moments[3])
+    # print("FINAL MOMENTS: [{}, {}, {}, {}]".format(np.sum(moments_diffs_on_levels[0], axis=0) + finest_moments[0],
+    #                                                np.sum(moments_diffs_on_levels[1], axis=0) + finest_moments[1],
+    #                                                np.sum(moments_diffs_on_levels[2], axis=0) + finest_moments[2],
+    #                                                np.sum(moments_diffs_on_levels[3], axis=0) + finest_moments[3]
+    #                                                ))
 
     #variances, n_ops = estimate_obj_subsample.estimate_diff_vars_regression(n_estimated)
-
 
     print("------------------------------------")
     print("------------------------------------")
@@ -927,14 +852,12 @@ def process(mlmc_file_path, mlmc_info={}, target_var=1e-6):
     # distr_plot.add_raw_samples(np.squeeze(samples))  # add histogram
     # distr_plot.show()
 
-    return level_parameters, final_level_variances, n_ops
+    return level_parameters, final_level_variances, cost_file_n_ops
 
 
 def mean_at_level(estimate_obj_moments_quantity, n_estimated):
     print("n estimated ", n_estimated)
     cache_clear()
-
-
 
     if len(n_estimated) == 2:
         n_est_level_0 = int(n_estimated[0])
@@ -959,33 +882,126 @@ def mean_at_level(estimate_obj_moments_quantity, n_estimated):
         print("sample_moments_mean_level_0 - sample_moments_mean_level_1_coarse ", sample_moments_mean_level_0 - sample_moments_mean_level_1_coarse)
 
 
+def estimate_domain(all_samples, quantile=None):
+    """
+    Estimate moments domain from MLMC samples.
+    :param quantity: mlmc.quantity.Quantity instance, represents the real quantity
+    :param sample_storage: mlmc.sample_storage.SampleStorage instance, provides all the samples
+    :param quantile: float in interval (0, 1), None means whole sample range
+    :return: lower_bound, upper_bound
+    """
+    ranges = []
+    if quantile is None:
+        quantile = 0.01
+
+    for level_samples in all_samples:
+        if len(level_samples) == 0:
+            continue
+        fine_samples = level_samples[..., 0]  # Fine samples at level 0
+        fine_samples = np.squeeze(fine_samples)
+        #print("fine samples ", fine_samples)
+        fine_samples = fine_samples[~np.isnan(fine_samples)]  # remove NaN
+        print("fine samples.shape ", fine_samples.shape)
+        ranges.append(np.percentile(fine_samples, [100 * quantile, 100 * (1 - quantile)]))
+
+    ranges = np.array(ranges)
+    return np.min(ranges[:, 0]), np.max(ranges[:, 1])
+
+
 def mean_at_level_quantity(quantity, sample_storage, n_estimated):
+
+    print("n estimated ", n_estimated)
+
+    ###############
+    # GET SAMPLES #
+    ###############
+    samples_level_0 = []
+    samples_level_1 = []
+    samples_level_2 = []
+    samples_level_3 = []
+    if len(n_estimated) in [2,3,4]:
+        n_est_level_0 = int(n_estimated[0])
+        chunk_spec = next(sample_storage.chunks(level_id=0, n_samples=sample_storage.get_n_collected()[0]))
+        samples_level_0 = np.squeeze(quantity.samples(chunk_spec=chunk_spec))
+
+        if len(samples_level_0) < n_est_level_0:
+            print("INSUFFICIENT NUMBER OF SAMPLES: len(samples_level_0) {} < n_est_level_0 {}".format(
+                len(samples_level_0), n_est_level_0))
+            n_est_level_0 = np.min([len(samples_level_0), n_est_level_0])
+
+        start = np.random.randint(0, len(samples_level_0) - n_est_level_0 + 1)
+        samples_level_0 = samples_level_0[start:start + n_est_level_0]
+
+        ####
+        # Level 1
+        ####
+        n_est_level_1 = int(n_estimated[1])
+        chunk_spec = next(sample_storage.chunks(level_id=1, n_samples=sample_storage.get_n_collected()[1]))
+        samples_level_1 = np.squeeze(quantity.samples(chunk_spec=chunk_spec))
+
+        if len(samples_level_1) < n_est_level_1:
+            print("INSUFFICIENT NUMBER OF SAMPLES: len(samples_level_1) {} < n_est_level_1 {}".format(
+                len(samples_level_1), n_est_level_1))
+        n_est_level_1 = np.min([len(samples_level_1), n_est_level_1])
+
+        start = np.random.randint(0, len(samples_level_1) - n_est_level_1 + 1)
+        samples_level_1 = samples_level_1[start:start + n_est_level_1]
+
+    if len(n_estimated) in [3, 4]:
+        ####
+        # Level 2
+        ####
+        n_est_level_2 = int(n_estimated[2])
+        chunk_spec = next(sample_storage.chunks(level_id=2, n_samples=sample_storage.get_n_collected()[2]))
+        samples_level_2 = np.squeeze(quantity.samples(chunk_spec=chunk_spec))
+
+        if len(samples_level_2) < n_est_level_2:
+            print("INSUFFICIENT NUMBER OF SAMPLES: len(samples_level_2) {} < n_est_level_2 {}".format(len(samples_level_2), n_est_level_2))
+            n_est_level_2 = np.min([len(samples_level_2), n_est_level_2])
+
+        start = np.random.randint(0, len(samples_level_2) - n_est_level_2 + 1)
+        samples_level_2 = samples_level_2[start:start + n_est_level_2]
+
+    if len(n_estimated) in [4]:
+        ####
+        # Level 3
+        ####
+        n_est_level_3 = int(n_estimated[3])
+        chunk_spec = next(sample_storage.chunks(level_id=3, n_samples=sample_storage.get_n_collected()[3]))
+        samples_level_3 = np.squeeze(quantity.samples(chunk_spec=chunk_spec))
+
+        if len(samples_level_3) < n_est_level_3:
+            print("INSUFFICIENT NUMBER OF SAMPLES: len(samples_level_3) {} < n_est_level_3 {}".format(len(samples_level_3), n_est_level_3))
+            n_est_level_3 = np.min([len(samples_level_3), n_est_level_3])
+
+        start = np.random.randint(0, len(samples_level_3) - n_est_level_3 + 1)
+        samples_level_3 = samples_level_3[start:start + n_est_level_3]
+
+    ########################
+    # GET MOMENTS FUNCTION #
+    ########################
     quantile = 1e-3
     n_moments = 3
-    true_domain = mlmc.estimator.Estimate.estimate_domain(quantity, sample_storage, quantile=quantile)
-    moments_fn = Monomial(n_moments, true_domain)
+    all_samples = [samples_level_0, samples_level_1, samples_level_2, samples_level_3]
+    true_domain = estimate_domain(all_samples, quantile=quantile)
+    print("true domain ", true_domain)
+    moments_fn = Monomial(n_moments, true_domain, ref_domain=true_domain)
 
     total_var = 0
     level_variances = []
+    mean_diffs_on_levels = []
     if len(n_estimated) in [2, 3, 4]:
         ####
         # Level 0
         ####
-        n_est_level_0 = int(n_estimated[0])
-        chunk_spec = next(sample_storage.chunks(level_id=0, n_samples=n_est_level_0))
-        samples_level_0 = quantity.samples(chunk_spec=chunk_spec)
-        moments_level_0 = np.squeeze(moments_fn(samples_level_0))
+        moments_level_0 = moments_fn(samples_level_0)
         sample_moments_mean_level_0 = np.nanmean(moments_level_0, axis=0)
         sample_moments_var_level_0 = np.nanvar(moments_level_0, axis=0)
 
         ####
         # Level 1
         ####
-        n_est_level_1 = int(n_estimated[1])
-        chunk_spec = next(sample_storage.chunks(level_id=1, n_samples=n_est_level_1))
-        print("chunk spec ", chunk_spec)
-        samples_level_1 = quantity.samples(chunk_spec=chunk_spec)
-        moments_level_1 = np.squeeze(moments_fn(samples_level_1))
+        moments_level_1 = moments_fn(samples_level_1)
         moments_mean_level_1 = np.nanmean(moments_level_1, axis=0)
         moments_mean_level_1_fine = moments_mean_level_1[0]
         moments_mean_level_1_coarse = moments_mean_level_1[1]
@@ -994,13 +1010,17 @@ def mean_at_level_quantity(quantity, sample_storage, n_estimated):
         print("moments_mean_level_1_coarse ", moments_mean_level_1_coarse)
 
         level_variances.append(sample_moments_var_level_0)
-        level_variances.append(np.nanvar(moments_level_1[:, 0,: ]-moments_level_1[:, 1,: ], axis=0))
+        level_variances.append(np.nanvar(moments_level_1[:, 0,: ]-moments_level_1[:, 1, :], axis=0))
 
         total_var = sample_moments_var_level_0 / len(moments_level_0) + \
-                    (np.nanvar(moments_level_1[:, 0, : ]-moments_level_1[:, 1, : ], axis=0)) / len(moments_level_1)
+                    (np.nanvar(moments_level_1[:, 0, : ]-moments_level_1[:, 1, :], axis=0)) / len(moments_level_1)
 
-        print("sample_moments_mean_level_0 - sample_moments_mean_level_1_coarse ",
-              sample_moments_mean_level_0 - moments_mean_level_1_coarse)
+        moments_mean_level_0_fine_1_coarse_diff = sample_moments_mean_level_0 - moments_mean_level_1_coarse
+
+        mean_diffs_on_levels.append(moments_mean_level_0_fine_1_coarse_diff)
+
+        total_mean = moments_mean_level_0_fine_1_coarse_diff
+        finest_mean = moments_mean_level_1_fine
 
         print("#########################")
         print("Covariance between levels")
@@ -1017,28 +1037,51 @@ def mean_at_level_quantity(quantity, sample_storage, n_estimated):
         ####
         # Level 2
         ####
-        n_est_level_2 = int(n_estimated[2])
-        chunk_spec = next(sample_storage.chunks(level_id=2, n_samples=n_est_level_2))
-        samples_level_2 = quantity.samples(chunk_spec=chunk_spec)
-        moments_level_2 = np.squeeze(moments_fn(samples_level_2))
+        # n_est_level_2 = int(n_estimated[2])
+        # chunk_spec = next(sample_storage.chunks(level_id=2, n_samples=sample_storage.get_n_collected()[2]))
+        # samples_level_2 = np.squeeze(quantity.samples(chunk_spec=chunk_spec))
+        #
+        # if len(samples_level_2) < n_est_level_2:
+        #     print("INSUFFICIENT NUMBER OF SAMPLES: len(samples_level_2) {} < n_est_level_2 {}".format(len(samples_level_2), n_est_level_2))
+        #     n_est_level_2 = np.min([len(samples_level_2), n_est_level_2])
+        #
+        # start = np.random.randint(0, len(samples_level_2) - n_est_level_2 + 1)
+        # samples_level_2 = samples_level_2[start:start + n_est_level_2]
+
+        moments_level_2 = moments_fn(samples_level_2)
+
         moments_mean_level_2 = np.nanmean(moments_level_2, axis=0)
         moments_mean_level_2_fine = moments_mean_level_2[0]
         moments_mean_level_2_coarse = moments_mean_level_2[1]
 
-        total_var += (np.nanvar(moments_level_2[:, 0,: ]-moments_level_2[:, 1,: ],axis=0)) / len(moments_level_2)
+
+        total_var += (np.nanvar(moments_level_2[:, 0,: ] - moments_level_2[:, 1,: ],axis=0)) / len(moments_level_2)
 
         level_variances.append(np.nanvar(moments_level_2[:, 0, :]-moments_level_2[:, 1, :], axis=0))
 
-        print("sample_moments_mean_level_1_fine - sample_moments_mean_level_2_coarse ", moments_mean_level_1_fine - moments_mean_level_2_coarse)
+        moments_mean_level_1_fine_2_coarse_diff = moments_mean_level_1_fine - moments_mean_level_2_coarse
+
+        mean_diffs_on_levels.append(moments_mean_level_1_fine_2_coarse_diff)
+
+        total_mean += moments_mean_level_1_fine_2_coarse_diff
+        finest_mean = moments_mean_level_2_fine
 
     if len(n_estimated) in [4]:
         ####
         # Level 3
         ####
-        n_est_level_3 = int(n_estimated[3])
-        chunk_spec = next(sample_storage.chunks(level_id=3, n_samples=n_est_level_3))
-        samples_level_3 = quantity.samples(chunk_spec=chunk_spec)
-        moments_level_3 = np.squeeze(moments_fn(samples_level_3))
+        # n_est_level_3 = int(n_estimated[3])
+        # chunk_spec = next(sample_storage.chunks(level_id=3, n_samples=sample_storage.get_n_collected()[3]))
+        # samples_level_3 = np.squeeze(quantity.samples(chunk_spec=chunk_spec))
+        #
+        # if len(samples_level_3) < n_est_level_3:
+        #     print("INSUFFICIENT NUMBER OF SAMPLES: len(samples_level_3) {} < n_est_level_3 {}".format(len(samples_level_3), n_est_level_3))
+        #     n_est_level_3 = np.min([len(samples_level_3), n_est_level_3])
+        #
+        # start = np.random.randint(0, len(samples_level_3) - n_est_level_3 + 1)
+        # samples_level_3 = samples_level_3[start:start + n_est_level_3]
+
+        moments_level_3 = moments_fn(samples_level_3)
         moments_mean_level_3 = np.nanmean(moments_level_3, axis=0)
         moments_mean_level_3_fine = moments_mean_level_3[0]
         moments_mean_level_3_coarse = moments_mean_level_3[1]
@@ -1047,13 +1090,347 @@ def mean_at_level_quantity(quantity, sample_storage, n_estimated):
 
         level_variances.append(np.nanvar(moments_level_3[:, 0, :] - moments_level_3[:, 1, :], axis=0))
 
-        print("sample_moments_mean_level_2_fine - sample_moments_mean_level_3_coarse ",
-              moments_mean_level_2_fine - moments_mean_level_3_coarse)
+        moments_mean_level_2_fine_3_coarse_diff = moments_mean_level_2_fine - moments_mean_level_3_coarse
+
+        total_mean += moments_mean_level_2_fine_3_coarse_diff
+        finest_mean = moments_mean_level_3_fine
+
+        mean_diffs_on_levels.append(moments_mean_level_2_fine_3_coarse_diff)
 
     print("total var ", total_var)
     print("level variances ", level_variances)
 
-    return total_var, np.array(level_variances)
+    return total_var, np.array(level_variances), mean_diffs_on_levels, finest_mean
+
+
+def mean_var_at_level_quantity(quantity, sample_storage, n_estimated):
+    print("n estimated ", n_estimated)
+
+    ###############
+    # GET SAMPLES #
+    ###############
+    samples_level_0 = []
+    samples_level_1 = []
+    samples_level_2 = []
+    samples_level_3 = []
+
+    if len(n_estimated) == 1:
+        n_est_level_0 = int(n_estimated[0])
+        chunk_spec = next(sample_storage.chunks(level_id=0, n_samples=sample_storage.get_n_collected()[0]))
+        samples_level_0 = np.squeeze(quantity.samples(chunk_spec=chunk_spec))
+
+        if len(samples_level_0) < n_est_level_0:
+            print("INSUFFICIENT NUMBER OF SAMPLES: len(samples_level_0) {} < n_est_level_0 {}".format(
+                len(samples_level_0), n_est_level_0))
+            n_est_level_0 = np.min([len(samples_level_0), n_est_level_0])
+
+        start = np.random.randint(0, len(samples_level_0) - n_est_level_0 + 1)
+        samples_level_0 = samples_level_0[start:start + n_est_level_0]
+
+    if len(n_estimated) in [2, 3, 4]:
+        n_est_level_0 = int(n_estimated[0])
+        chunk_spec = next(sample_storage.chunks(level_id=0, n_samples=sample_storage.get_n_collected()[0]))
+        samples_level_0 = np.squeeze(quantity.samples(chunk_spec=chunk_spec))
+
+        if len(samples_level_0) < n_est_level_0:
+            print("INSUFFICIENT NUMBER OF SAMPLES: len(samples_level_0) {} < n_est_level_0 {}".format(
+                len(samples_level_0), n_est_level_0))
+            n_est_level_0 = np.min([len(samples_level_0), n_est_level_0])
+
+        start = np.random.randint(0, len(samples_level_0) - n_est_level_0 + 1)
+        samples_level_0 = samples_level_0[start:start + n_est_level_0]
+
+        ####
+        # Level 1
+        ####
+        n_est_level_1 = int(n_estimated[1])
+        chunk_spec = next(sample_storage.chunks(level_id=1, n_samples=sample_storage.get_n_collected()[1]))
+        samples_level_1 = np.squeeze(quantity.samples(chunk_spec=chunk_spec))
+
+        if len(samples_level_1) < n_est_level_1:
+            print("INSUFFICIENT NUMBER OF SAMPLES: len(samples_level_1) {} < n_est_level_1 {}".format(
+                len(samples_level_1), n_est_level_1))
+        n_est_level_1 = np.min([len(samples_level_1), n_est_level_1])
+
+        start = np.random.randint(0, len(samples_level_1) - n_est_level_1 + 1)
+        samples_level_1 = samples_level_1[start:start + n_est_level_1]
+
+    if len(n_estimated) in [3, 4]:
+        ####
+        # Level 2
+        ####
+        n_est_level_2 = int(n_estimated[2])
+        chunk_spec = next(sample_storage.chunks(level_id=2, n_samples=sample_storage.get_n_collected()[2]))
+        samples_level_2 = np.squeeze(quantity.samples(chunk_spec=chunk_spec))
+
+        if len(samples_level_2) < n_est_level_2:
+            print("INSUFFICIENT NUMBER OF SAMPLES: len(samples_level_2) {} < n_est_level_2 {}".format(len(samples_level_2), n_est_level_2))
+            n_est_level_2 = np.min([len(samples_level_2), n_est_level_2])
+
+        start = np.random.randint(0, len(samples_level_2) - n_est_level_2 + 1)
+        samples_level_2 = samples_level_2[start:start + n_est_level_2]
+
+    if len(n_estimated) in [4]:
+        ####
+        # Level 3
+        ####
+        n_est_level_3 = int(n_estimated[3])
+        chunk_spec = next(sample_storage.chunks(level_id=3, n_samples=sample_storage.get_n_collected()[3]))
+        samples_level_3 = np.squeeze(quantity.samples(chunk_spec=chunk_spec))
+
+        if len(samples_level_3) < n_est_level_3:
+            print("INSUFFICIENT NUMBER OF SAMPLES: len(samples_level_3) {} < n_est_level_3 {}".format(len(samples_level_3), n_est_level_3))
+            n_est_level_3 = np.min([len(samples_level_3), n_est_level_3])
+
+        start = np.random.randint(0, len(samples_level_3) - n_est_level_3 + 1)
+        samples_level_3 = samples_level_3[start:start + n_est_level_3]
+
+    ########################
+    # GET MOMENTS FUNCTION #
+    ########################
+    quantile = 1e-3
+    n_moments = 3
+    #all_samples = [samples_level_0, samples_level_1, samples_level_2, samples_level_3]
+    #true_domain = estimate_domain(all_samples, quantile=quantile)
+    #print("true domain ", true_domain)
+    #moments_fn = Monomial(n_moments, true_domain, ref_domain=true_domain)
+
+    total_var = [0, 0]
+    level_variances = []
+    mean_diffs_on_levels = []
+    var_diffs_on_levels = []
+    skewness_diffs_on_levels = []
+    kurtosis_diffs_on_levels = []
+    if len(n_estimated) == 1:
+        ####
+        # Level 0
+        ####
+        moments_mean_level_0 = np.nanmean(samples_level_0, axis=0)
+        moments_var_level_0 = np.nanvar(samples_level_0, axis=0)
+
+        print("moments_var_level_0 ", moments_var_level_0)
+
+        mean_diffs_on_levels.append([])
+        var_diffs_on_levels.append([])
+
+        total_moments_mean = 0
+        total_moments_var = 0
+        total_moments_skewness = 0
+        total_moments_kurtosis = 0
+
+        finest_moments_mean = moments_mean_level_0
+
+        second_moment = (samples_level_0 - moments_mean_level_0) ** 2
+        third_moment = ((samples_level_0 - moments_mean_level_0) / np.sqrt(moments_var_level_0)) ** 3
+        fourth_moment = ((samples_level_0 - moments_mean_level_0) / np.sqrt(moments_var_level_0)) ** 4
+
+        finest_moments_var = np.mean(second_moment)
+        finest_moments_skewness = np.mean(third_moment)
+        finest_moments_kurtosis = np.mean(fourth_moment)
+
+        print("finest_moments_skewness ", finest_moments_skewness)
+        print("finest_moments_kurtosis ", finest_moments_kurtosis)
+        level_variances.append([moments_var_level_0, np.nanvar(second_moment, axis=0), np.nanvar(third_moment, axis=0), np.nanvar(fourth_moment, axis=0)])
+
+        total_var[0] = moments_var_level_0 / len(samples_level_0)
+        total_var[1] = np.nanvar(second_moment, axis=0) / len(samples_level_0)
+
+    if len(n_estimated) in [2, 3, 4]:
+        ####
+        # Level 0
+        ####
+        moments_mean_level_0 = np.nanmean(samples_level_0, axis=0)
+        moments_var_level_0 = np.nanvar(samples_level_0, axis=0)
+
+        second_moment_level_0 = (samples_level_0 - moments_mean_level_0) ** 2
+        third_moment_level_0 = ((samples_level_0 - moments_mean_level_0) / np.sqrt(moments_var_level_0)) ** 3
+        fourth_moment_level_0 = ((samples_level_0 - moments_mean_level_0) / np.sqrt(moments_var_level_0)) ** 4
+
+        moments_skewness_level_0 = np.mean(third_moment_level_0, axis=0)
+        moments_kurtosis_level_0 = np.mean(fourth_moment_level_0, axis=0)
+
+        print("moments_var_level_0 ", moments_var_level_0)
+
+        calc_moments_var_level_0 = np.mean((samples_level_0 - moments_mean_level_0)**2)
+        print("calc_moments_var_level_0 ", calc_moments_var_level_0)
+
+        ####
+        # Level 1
+        ####
+        print("samples_level_1.shape ", samples_level_1.shape)
+        moments_mean_level_1 = np.nanmean(samples_level_1, axis=0)
+        moments_mean_level_1_fine = moments_mean_level_1[0]
+        moments_mean_level_1_coarse = moments_mean_level_1[1]
+
+        moments_var_level_1 = np.nanvar(samples_level_1, axis=0)
+        moments_var_level_1_fine = moments_var_level_1[0]
+        moments_var_level_1_coarse = moments_var_level_1[1]
+
+        second_moment_level_1 = (samples_level_1 - moments_mean_level_1) ** 2
+        third_moment_level_1 = ((samples_level_1 - moments_mean_level_1) / np.sqrt(moments_var_level_1)) ** 3
+        fourth_moment_level_1 = ((samples_level_1 - moments_mean_level_1) / np.sqrt(moments_var_level_1)) ** 4
+
+        moments_skewness_level_1 = np.mean(third_moment_level_1, axis=0)
+        moments_skewness_level_1_fine = moments_skewness_level_1[0]
+        moments_skewness_level_1_coarse = moments_skewness_level_1[1]
+        moments_kurtosis_level_1 = np.mean(fourth_moment_level_1, axis=0)
+        moments_kurtosis_level_1_fine = moments_kurtosis_level_1[0]
+        moments_kurtosis_level_1_coarse = moments_kurtosis_level_1[1]
+
+        # print("mean_level_1_fine ", mean_level_1_fine)
+        # print("mean_level_1_coarse ", mean_level_1_coarse)
+
+        level_variances.append([moments_var_level_0, np.nanvar(second_moment_level_0, axis=0), np.nanvar(third_moment_level_0, axis=0), np.nanvar(fourth_moment_level_0, axis=0)])
+        level_variances.append([np.nanvar(samples_level_1[:, 0] - samples_level_1[:, 1], axis=0),
+                                np.nanvar(second_moment_level_1[:, 0] - second_moment_level_1[:, 1], axis=0),
+                                np.nanvar(third_moment_level_1[:, 0] - third_moment_level_1[:, 1], axis=0),
+                                np.nanvar(fourth_moment_level_1[:, 0] - fourth_moment_level_1[:, 1], axis=0),
+                                ])
+
+        total_var[0] = moments_var_level_0 / len(samples_level_0) + \
+                    (np.nanvar(samples_level_1[:, 0]-samples_level_1[:, 1], axis=0)) / len(samples_level_1)
+        total_var[1] = np.nanvar(second_moment_level_0, axis=0) / len(samples_level_0) + \
+                       (np.nanvar(second_moment_level_1[:, 0] - second_moment_level_1[:, 1], axis=0)) / len(samples_level_1)
+
+        mean_level_0_fine_1_coarse_diff = moments_mean_level_0 - moments_mean_level_1_coarse
+        var_level_0_fine_1_coarse_diff = moments_var_level_0 - moments_var_level_1_coarse
+        skewness_level_0_fine_1_coarse_diff = moments_skewness_level_0 - moments_skewness_level_1_coarse
+        kurtosis_level_0_fine_1_coarse_diff = moments_kurtosis_level_0 - moments_kurtosis_level_1_coarse
+
+        mean_diffs_on_levels.append(mean_level_0_fine_1_coarse_diff)
+        var_diffs_on_levels.append(var_level_0_fine_1_coarse_diff)
+        skewness_diffs_on_levels.append(skewness_level_0_fine_1_coarse_diff)
+        kurtosis_diffs_on_levels.append(kurtosis_level_0_fine_1_coarse_diff)
+
+        total_moments_mean = mean_level_0_fine_1_coarse_diff
+        total_moments_var = var_level_0_fine_1_coarse_diff
+        total_moments_skewness = skewness_level_0_fine_1_coarse_diff
+        total_moments_kurtosis = kurtosis_level_0_fine_1_coarse_diff
+
+        finest_moments_mean = moments_mean_level_1_fine
+        finest_moments_var = moments_var_level_1_fine
+        finest_moments_skewness = moments_skewness_level_1_fine
+        finest_moments_kurtosis = moments_kurtosis_level_1_fine
+
+        print("#########################")
+        print("Covariance between levels")
+        print("#########################")
+
+        # level_1_diff = moments_level_1[:, 0,: ] - moments_level_1[:, 1,: ]
+        # print("level 1 diff", level_1_diff.shape)
+        # print("moments_level_0 ", moments_level_0.shape)
+        #
+        # cov_level_0_level_1 = np.cov(moments_level_0[:, 0], level_1_diff[:, 0])
+        # print("cov level 0 level 1 ", cov_level_0_level_1)
+
+    if len(n_estimated) in [3, 4]:
+        ####
+        # Level 2
+        ####
+        moments_mean_level_2 = np.nanmean(samples_level_2, axis=0)
+        moments_mean_level_2_fine = moments_mean_level_2[0]
+        moments_mean_level_2_coarse = moments_mean_level_2[1]
+
+        moments_var_level_2 = np.nanvar(samples_level_2, axis=0)
+        moments_var_level_2_fine = moments_var_level_2[0]
+        moments_var_level_2_coarse = moments_var_level_2[1]
+
+        second_moment_level_2 = (samples_level_2 - moments_mean_level_2) ** 2
+
+        moments_skewness_level_2 = np.mean(((samples_level_2 - moments_mean_level_2) / np.sqrt(moments_var_level_2)) ** 3)
+        moments_skewness_level_2_fine = moments_skewness_level_2[0]
+        moments_skewness_level_2_coarse = moments_skewness_level_2[1]
+        moments_kurtosis_level_2 = np.mean(((samples_level_2 - moments_mean_level_2) / np.sqrt(moments_var_level_2)) ** 4)
+        moments_kurtosis_level_2_fine = moments_kurtosis_level_2[0]
+        moments_kurtosis_level_2_coarse = moments_kurtosis_level_2[1]
+
+        total_var[0] += (np.nanvar(samples_level_2[:, 0] - samples_level_2[:, 1],axis=0)) / len(samples_level_2)
+        total_var[1] += (np.nanvar(second_moment_level_2[:, 0] - second_moment_level_2[:, 1], axis=0)) / len(samples_level_2)
+
+        level_variances.append(np.nanvar(samples_level_2[:, 0]-samples_level_2[:, 1], axis=0))
+
+        mean_level_1_fine_2_coarse_diff = moments_mean_level_1_fine - moments_mean_level_2_coarse
+        var_level_1_fine_2_coarse_diff = moments_var_level_1_fine - moments_var_level_2_coarse
+        skewness_level_1_fine_2_coarse_diff = moments_skewness_level_1_fine - moments_skewness_level_2_coarse
+        kurtosis_level_1_fine_2_coarse_diff = moments_kurtosis_level_1_fine - moments_kurtosis_level_2_coarse
+
+        mean_diffs_on_levels.append(mean_level_1_fine_2_coarse_diff)
+        var_diffs_on_levels.append(var_level_1_fine_2_coarse_diff)
+        skewness_diffs_on_levels.append(skewness_level_1_fine_2_coarse_diff)
+        kurtosis_diffs_on_levels.append(kurtosis_level_1_fine_2_coarse_diff)
+
+        total_moments_mean += mean_level_1_fine_2_coarse_diff
+        total_moments_var += var_level_1_fine_2_coarse_diff
+        total_moments_skewness += skewness_level_1_fine_2_coarse_diff
+        total_moments_kurtosis += kurtosis_level_1_fine_2_coarse_diff
+
+        finest_moments_mean = moments_mean_level_2_fine
+        finest_moments_var = moments_var_level_2_fine
+        finest_moments_skewness = moments_skewness_level_2_fine
+        finest_moments_kurtosis = moments_kurtosis_level_2_fine
+
+    if len(n_estimated) in [4]:
+        ####
+        # Level 3
+        ####
+        moments_mean_level_3 = np.nanmean(samples_level_3, axis=0)
+        moments_mean_level_3_fine = moments_mean_level_3[0]
+        moments_mean_level_3_coarse = moments_mean_level_3[1]
+
+        moments_var_level_3 = np.nanvar(samples_level_3, axis=0)
+        moments_var_level_3_fine = moments_var_level_3[0]
+        moments_var_level_3_coarse = moments_var_level_3[1]
+
+        second_moment_level_3 = (samples_level_3 - moments_mean_level_3) ** 2
+
+        moments_skewness_level_3 = np.mean(((samples_level_3 - moments_mean_level_3) / np.sqrt(moments_var_level_3)) ** 3)
+        moments_skewness_level_3_fine = moments_skewness_level_3[0]
+        moments_skewness_level_3_coarse = moments_skewness_level_3[1]
+        moments_kurtosis_level_3 = np.mean(((samples_level_3 - moments_mean_level_3) / np.sqrt(moments_var_level_3)) ** 4)
+        moments_kurtosis_level_3_fine = moments_kurtosis_level_3[0]
+        moments_kurtosis_level_3_coarse = moments_kurtosis_level_3[1]
+
+        total_var[0] += (np.nanvar(samples_level_3[:, 0, :] - samples_level_3[:, 1, :], axis=0)) / len(samples_level_3)
+        total_var[1] += (np.nanvar(second_moment_level_3[:, 0] - second_moment_level_3[:, 1], axis=0)) / len(samples_level_3)
+
+        level_variances.append(np.nanvar(samples_level_3[:, 0, :] - samples_level_3[:, 1, :], axis=0))
+
+        mean_level_2_fine_3_coarse_diff = moments_mean_level_2_fine - moments_mean_level_3_coarse
+        var_level_2_fine_3_coarse_diff = moments_var_level_2_fine - moments_var_level_3_coarse
+        skewness_level_2_fine_3_coarse_diff = moments_skewness_level_2_fine - moments_skewness_level_3_coarse
+        kurtosis_level_2_fine_3_coarse_diff = moments_kurtosis_level_2_fine - moments_kurtosis_level_3_coarse
+
+        mean_diffs_on_levels.append(mean_level_2_fine_3_coarse_diff)
+        var_diffs_on_levels.append(var_level_2_fine_3_coarse_diff)
+        skewness_diffs_on_levels.append(skewness_level_2_fine_3_coarse_diff)
+        kurtosis_diffs_on_levels.append(kurtosis_level_2_fine_3_coarse_diff)
+
+        total_moments_mean += mean_level_2_fine_3_coarse_diff
+        total_moments_var += var_level_2_fine_3_coarse_diff
+        total_moments_skewness += skewness_level_2_fine_3_coarse_diff
+        total_moments_kurtosis += kurtosis_level_2_fine_3_coarse_diff
+
+        finest_moments_mean = moments_mean_level_3_fine
+        finest_moments_var = moments_var_level_3_fine
+        finest_moments_skewness = moments_skewness_level_3_fine
+        finest_moments_kurtosis = moments_kurtosis_level_3_fine
+
+
+    print("total var ", total_var)
+    print("level variances ", level_variances)
+
+    total_moments = [total_moments_mean, total_moments_var, total_moments_skewness, total_moments_kurtosis]
+    diffs_on_levels = [mean_diffs_on_levels, var_diffs_on_levels, skewness_diffs_on_levels, kurtosis_diffs_on_levels]
+    finest_moments = [finest_moments_mean, finest_moments_var, finest_moments_skewness, finest_moments_kurtosis]
+
+    # total_moments = [total_moments_mean, total_moments_var]
+    # diffs_on_levels = [mean_diffs_on_levels, var_diffs_on_levels]
+    # finest_moments = [finest_moments_mean, finest_moments_var]
+    level_variances = np.array(level_variances)[:, :2]
+
+    return total_var, np.array(level_variances), diffs_on_levels, finest_moments, total_moments
+
+
 
 
 ########
@@ -1076,13 +1453,20 @@ def mean_at_level_quantity(quantity, sample_storage, n_estimated):
 # ]
 
 mlmc_file_paths = {
-"/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/2LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_H_75_h_5_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_extended_domain_orig_kept_fixed/mlmc_2.hdf5": {"name": '2LMC-1', "n_subdomains": [1728], "init_sample_vec": [500, 10]},
-"/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/2LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_H_10_h_5_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_extended_domain_orig_kept_fixed/mlmc_2.hdf5": {"name": '2LMC-2', "n_subdomains": [729], "init_sample_vec": [500, 14]},
-"/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/2LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_H_125_h_5_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_extended_domain_orig_kept_fixed/mlmc_2.hdf5": {"name": '2LMC-3', "n_subdomains": [343],  "init_sample_vec": [500, 30]},
-"/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/2LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_H_15_h_5_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_extended_domain_orig_kept_fixed/mlmc_2.hdf5": {"name": '2LMC-4', "n_subdomains": [216], "init_sample_vec": [500, 47]},
-"/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/2LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_H_20_h_5_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_extended_domain_orig_kept_fixed/mlmc_2.hdf5": {"name": '2LMC-5', "n_subdomains": [125], "init_sample_vec": [500, 80]},
-#"/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/2LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_H_40_h_5_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_extended_domain_orig_kept_fixed/mlmc_2.hdf5": {"name": '2LMC-6', "n_subdomains": [27], "init_sample_vec": [500, 370]},
-#"/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/2LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_H_40_h_5_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_extended_domain_orig_kept_2/mlmc_2.hdf5": {"name": '2LMC-6B', "n_subdomains": [0], "init_sample_vec": [500, 370]}
+"/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/2LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_H_75_h_5_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_extended_domain_orig_kept_fixed/mlmc_2.hdf5": {"name": '2LMC-1', "n_subdomains": [1728], "init_sample_vec": [500, 10],
+                                                                                                                                                                                                                                                                                                                                           "cost_file": "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/2LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_H_75_h_5_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_extended_domain_orig_kept_fixed/mlmc_2.hdf5"},
+"/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/2LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_H_10_h_5_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_extended_domain_orig_kept_fixed/mlmc_2.hdf5": {"name": '2LMC-2', "n_subdomains": [729], "init_sample_vec": [500, 14],
+                                                                                                                                                                                                                                                                                                                                           "cost_file": "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/2LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_H_10_h_5_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_extended_domain_orig_kept_fixed/mlmc_2.hdf5"},
+"/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/2LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_H_125_h_5_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_extended_domain_orig_kept_fixed/mlmc_2.hdf5": {"name": '2LMC-3', "n_subdomains": [343],  "init_sample_vec": [500, 30],
+                                                                                                                                                                                                                                                                                                                                            "cost_file": "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/2LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_H_125_h_5_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_extended_domain_orig_kept_fixed/mlmc_2.hdf5"},
+"/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/2LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_H_15_h_5_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_extended_domain_orig_kept_fixed/mlmc_2.hdf5": {"name": '2LMC-4', "n_subdomains": [216], "init_sample_vec": [500, 47],
+                                                                                                                                                                                                                                                                                                                                           "cost_file": "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/2LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_H_15_h_5_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_extended_domain_orig_kept_fixed/mlmc_2.hdf5"},
+"/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/2LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_H_20_h_5_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_extended_domain_orig_kept_fixed/mlmc_2.hdf5": {"name": '2LMC-5', "n_subdomains": [125], "init_sample_vec": [500, 80],
+                                                                                                                                                                                                                                                                                                                                           "cost_file": "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/2LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_H_20_h_5_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_extended_domain_orig_kept_fixed/mlmc_2.hdf5"},
+"/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/2LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_H_40_h_5_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_extended_domain_orig_kept_fixed/mlmc_2.hdf5": {"name": '2LMC-6', "n_subdomains": [27], "init_sample_vec": [500, 370],
+                                                                                                                                                                                                                                                                                                                                           "cost_file": "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/2LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_H_40_h_5_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_extended_domain_orig_kept_fixed/mlmc_2.hdf5"},
+"/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/2LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_H_40_h_5_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_extended_domain_orig_kept_2/mlmc_2.hdf5": {"name": '2LMC-6B', "n_subdomains": [0], "init_sample_vec": [500, 370],
+                                                                                                                                                                                                                                                                                                                                           "cost_file": "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/2LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_H_40_h_5_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_extended_domain_orig_kept_fixed_2/mlmc_2.hdf5"}
 }
 
 ##########
@@ -1101,12 +1485,15 @@ mlmc_file_paths = {
 # ]
 
 # mlmc_file_paths = {
-# "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/3LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_h_5_75_1125_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_samples_population_latest_fixed/mlmc_3.hdf5": {"name": '3LMC-1'},
-# "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/3LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_h_5_10_20_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_samples_population_fixed/mlmc_3.hdf5": {"name": '3LMC-2'},
-# "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/3LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_h_5_10_30_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_samples_population_latest_fixed/mlmc_3.hdf5": {"name": '3LMC-3'},
+# "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/3LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_h_5_75_1125_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_samples_population_latest_fixed/mlmc_3.hdf5": {"name": '3LMC-1', "n_subdomains": [729, 1728], "init_sample_vec": [500, 20, 10],
+#                                                                                                                                                                                                                                                                                                                                               "cost_file":"/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/3LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_h_5_75_1125_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_samples_population_latest_fixed/mlmc_3_cost.hdf5"},
+# #"/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/3LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_h_5_10_20_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_samples_population_fixed/mlmc_3.hdf5": {"name": '3LMC-2', "n_subdomains": [729], "init_sample_vec": [500, 10],
+#  #                                                                                                                                                                                                                                                                                                                                    "cost_file": "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/3LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_h_5_10_20_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_samples_population_fixed/mlmc_3.hdf5"},
+# #"/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/3LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_h_5_10_30_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_samples_population_latest_fixed/mlmc_3.hdf5": {"name": '3LMC-3', "n_subdomains": [729], "init_sample_vec": [500, 10],
+#  #                                                                                                                                                                                                                                                                                                                                           "cost_file": "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/3LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_h_5_10_30_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_samples_population_latest_fixed/mlmc_3.hdf5"},
 # #"/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/3LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_h_5_8_16_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_samples_population_latest_fixed/mlmc_3.hdf5",
 # #"/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/3LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_h_5_12_24_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_samples_population_latest_fixed/mlmc_3.hdf5"
-# "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/3LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_h_5_125_3125_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_samples_population_latest_fixed/mlmc_3.hdf5": {"name": '3LMC-4'}
+# #"/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/3LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_h_5_125_3125_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_samples_population_latest_fixed/mlmc_3.hdf5": {"name": '3LMC-4', "n_subdomains": [343], "init_sample_vec": [100, 75, 75],                                                                                                                                                                                                                                                                                                                                          "cost_file":"/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/3LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_h_5_125_3125_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_samples_population_latest_fixed/mlmc_3.hdf5"}
 # }
 
 
@@ -1114,10 +1501,13 @@ mlmc_file_paths = {
 ## 4LMC ##
 ##########
 # mlmc_file_paths = {
-# "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/4LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_h_5_75_1125_16875_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_samples_population_fixed/mlmc_4.hdf5": {"name": '4LMC-1', "n_subdomains": [216, 512, 1728], "init_sample_vec": [500, 47, 20, 10]},
-# "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/4LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_h_5_875_153_268_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_samples_population_fixed/mlmc_4.hdf5": {"name": '4LMC-2', "n_subdomains": [1728], "init_sample_vec": [500, 10]},
-# "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/4LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_h_5_10_20_40_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_samples_population_fixed/mlmc_4.hdf5": {"name": '4LMC-3', "n_subdomains": [9, 125, 729], "init_sample_vec": [500, 1111, 80, 10]},
-# "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/4LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_h_5_10_20_40_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_samples_population_fixed_2/mlmc_4.hdf5": {"name": '4LMC-3B', "n_subdomains": [1728], "init_sample_vec": [500, 10]},
+# #"/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/4LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_h_5_75_1125_16875_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_samples_population_fixed/mlmc_4.hdf5": {"name": '4LMC-1', "n_subdomains": [216, 512, 1728], "init_sample_vec": [500, 47, 20, 10],
+#     # "cost_file":"/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/4LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_h_5_75_1125_16875_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_samples_population_fixed},
+# #"/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/4LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_h_5_875_153_268_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_samples_population_fixed/mlmc_4.hdf5": {"name": '4LMC-2', "n_subdomains": [1000], "init_sample_vec": [500, 10],
+#     # "cost_file":"/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/4LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_h_5_875_153_268_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_samples_population_fixed/mlmc_4.hdf5"},
+# ##"/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/4LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_h_5_10_20_40_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_samples_population_fixed/mlmc_4.hdf5": {"name": '4LMC-3', "n_subdomains": [9, 125, 729], "init_sample_vec": [500, 1111, 80, 10]},
+# "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/4LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_h_5_10_20_40_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_samples_population_fixed_2/mlmc_4.hdf5": {"name": '4LMC-3B', "n_subdomains": [1728], "init_sample_vec": [500, 1111, 80, 10],
+#                                                                                                                                                                                                                                                                                                                                           "cost_file": "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/4LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_h_5_10_20_40_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_samples_population_fixed_2/mlmc_4.hdf5"},
 # }
 
 # mlmc_file_paths = [#"/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/3LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_h_5_75_1125_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_samples_population_latest/mlmc_3.hdf5",
@@ -1132,7 +1522,8 @@ mlmc_file_paths = {
 #                    "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/4LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_h_5_875_153_268_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_samples_population/mlmc_4.hdf5"]
 
 
-reference_mc = "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/1LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ref_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_h_5_seed_12345_SRF_direct_gen/mlmc_1.hdf5"
+reference_mc_path = "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/1LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ref_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_h_5_seed_12345_SRF_direct_gen/mlmc_1.hdf5"
+reference_mc_info = {"name": 'MC_ref', "n_subdomains": [1728], "init_sample_vec": [500], "cost_file": "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/1LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ref_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_h_5_seed_12345_SRF_direct_gen/mlmc_1.hdf5"}
 
 ##############
 ## COND TN  ##
@@ -1140,15 +1531,19 @@ reference_mc = "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/
 
 ##########
 ## 2LMC ##
-# # ##########
-# mlmc_file_paths = [
-# #"/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/2LMC/cond_frac_1_5/fractures_diag_cond/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_H_75_h_5_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_extended_domain_orig_kept_fixed/mlmc_2.hdf5",
-# "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/2LMC/cond_frac_1_5/fractures_diag_cond/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_H_10_h_5_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_extended_domain_orig_kept_fixed/mlmc_2.hdf5",
-# "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/2LMC/cond_frac_1_5/fractures_diag_cond/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_H_125_h_5_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_extended_domain_orig_kept_fixed/mlmc_2.hdf5",
-# #"/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/2LMC/cond_frac_1_5/fractures_diag_cond/outflow/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_H_15_h_5_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_extended_domain_orig_kept/mlmc_2.hdf5",
-# "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/2LMC/cond_frac_1_5/fractures_diag_cond/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_H_20_h_5_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_extended_domain_orig_kept_fixed/mlmc_2.hdf5",
-# "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/2LMC/cond_frac_1_5/fractures_diag_cond/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_H_40_h_5_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_extended_domain_orig_kept_fixed/mlmc_2.hdf5",
-# ]
+# ##########
+# mlmc_file_paths = {
+# "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/2LMC/cond_frac_1_5/fractures_diag_cond/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_H_75_h_5_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_extended_domain_orig_kept_fixed/mlmc_2.hdf5": {"name": '2LMC-1', "n_subdomains": [1728], "init_sample_vec": [500, 250],
+#                                                                                                                                                                                                                                                                                                                                    "cost_file": "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/2LMC/cond_frac_1_5/fractures_diag_cond/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_H_75_h_5_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_extended_domain_orig_kept_fixed/mlmc_2.hdf5"},
+# "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/2LMC/cond_frac_1_5/fractures_diag_cond/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_H_10_h_5_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_extended_domain_orig_kept_fixed/mlmc_2.hdf5": {"name": '2LMC-2', "n_subdomains": [729], "init_sample_vec": [500, 14],
+#                                                                                                                                                                                                                                                                                                                                    "cost_file": "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/2LMC/cond_frac_1_5/fractures_diag_cond/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_H_10_h_5_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_extended_domain_orig_kept_fixed/mlmc_2.hdf5"},
+# "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/2LMC/cond_frac_1_5/fractures_diag_cond/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_H_125_h_5_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_extended_domain_orig_kept_fixed/mlmc_2.hdf5": {"name": '2LMC-3', "n_subdomains": [343],  "init_sample_vec": [500, 30],
+#                                                                                                                                                                                                                                                                                                                                     "cost_file": "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/2LMC/cond_frac_1_5/fractures_diag_cond/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_H_125_h_5_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_extended_domain_orig_kept_fixed/mlmc_2.hdf5"},
+# "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/2LMC/cond_frac_1_5/fractures_diag_cond/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_H_20_h_5_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_extended_domain_orig_kept_fixed/mlmc_2.hdf5": {"name": '2LMC-5', "n_subdomains": [125], "init_sample_vec": [500, 80],
+#                                                                                                                                                                                                                                                                                                                                    "cost_file": "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/2LMC/cond_frac_1_5/fractures_diag_cond/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_H_20_h_5_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_extended_domain_orig_kept_fixed/mlmc_2.hdf5"},
+# "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/2LMC/cond_frac_1_5/fractures_diag_cond/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_H_40_h_5_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_extended_domain_orig_kept_fixed/mlmc_2.hdf5": {"name": '2LMC-6', "n_subdomains": [0], "init_sample_vec": [500, 370],
+#                                                                                                                                                                                                                                                                                                                                 "cost_file": "/home/martin/Documents/MLMC-DFM_3D_data/MLMC-DFM_3D_experiments/MLMC/2LMC/cond_frac_1_5/fractures_diag_cond/domain_60/ratio_MLMC-DFM_3D_n_voxels_64_save_bulk_avg_eq_tn_hom_domain_60_max_frac_limit_cl_10_fine_coarse_H_40_h_5_regular_grid_interp_seed_12345_L0_test_SRF_gen_gpu_extended_domain_orig_kept_fixed/mlmc_2.hdf5"},
+# }
 #
 #
 # # ##########
@@ -1167,7 +1562,7 @@ if __name__ == "__main__":
     all_n_ops = []
     all_l_vars = []
 
-    #ref_level_parameters, ref_moments_mean_obj, ref_n_ops = process(reference_mc, target_var=5e-8)
+    ref_level_parameters, ref_moments_mean_obj, ref_n_ops = process(reference_mc_path, reference_mc_info, target_var=7.5e-10)
 
     mlmc_info_names = []
     for mlmc_file_path, mlmc_info in mlmc_file_paths.items():
@@ -1177,7 +1572,7 @@ if __name__ == "__main__":
         print("mlmc file path ", mlmc_file_path)
         print("mlmc_info ", mlmc_info)
         mlmc_info_names.append(mlmc_info["name"])
-        level_parameters, l_vars, n_ops = process(mlmc_file_path, mlmc_info, target_var=1e-6)
+        level_parameters, l_vars, n_ops = process(mlmc_file_path, mlmc_info, target_var=5e-8)
 
         all_level_parameters.append(level_parameters)
         #all_moments_mean_obj.append(moments_mean_obj)

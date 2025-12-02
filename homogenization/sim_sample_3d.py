@@ -1824,7 +1824,6 @@ class DFMSim3D(Simulation):
             assert np.all(bulk_cond[:, i_ax, i_ax] <= rasterized[:, i_ax, i_ax])
         for i_ax in range(3):
             assert np.all(rasterized[:, i_ax, i_ax].max() <= fr_cond[:, i_ax, i_ax].max())
-
         return rasterized
 
     @staticmethod
@@ -3129,7 +3128,7 @@ class DFMSim3D(Simulation):
                 )
 
         print(
-            "_calculate_subdomains_hom_box_fixed "
+            "_calculate_subdomains_hom_box "
             "subdomain box: {}, n subdomains per axes: {}, n_nonoverlap_subdomains: {}, hom_block_centers: {}".format(
                 subdomain_box, n_subdomains_per_axes, n_nonoverlap_subdomains, hom_block_centers
             )
