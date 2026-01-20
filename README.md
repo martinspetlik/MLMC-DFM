@@ -69,13 +69,12 @@ export PYTHONPATH=.
 To generate datasets as we did for our experiments (numerical homogenization, rasterization, Zarr formatting), run
 
 ```bash
-python mlmc_dfm_3d.py run work_dir scratch_dir
+python gen_train_samples.py work_dir scratch_dir
 ```
 - `work_dir`: Working directory (e.g. `test/01_cond_field` - has to contain simulation config - similar to [`test/01_cond_field/sim_config_3D_homogenization_samples.yaml`](test/01_cond_field/sim_config_3D_homogenization_samples.yaml)
 - `scratch_dir`: Fast scratch directory (set to `""` - if not applicable or available)
 
-> The paths to Flow123d and GMSH executables are configured inside the `set_environment_variables()` method in `mlmc_dfm_3d.py`.
-> Use `self.n_levels = 1` in mlmc_dfm_3d.py
+> The paths to Flow123d and GMSH executables are configured inside the `set_environment_variables()` method in `gen_train_samples.py`.
 
 ---
 
