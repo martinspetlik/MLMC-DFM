@@ -33,7 +33,7 @@ from bgem import stochastic
 from bgem.gmsh import gmsh, options
 from mesh_class import Mesh
 from bgem.core import call_flow, dotdict, workdir as workdir_mng
-from bgem.upscale import fem_plot, fem, voigt_to_tn, tn_to_voigt, FracturedMedia, voxelize
+#from bgem.upscale import fem_plot, fem, voigt_to_tn, tn_to_voigt, FracturedMedia, voxelize
 from bgem.upscale.homogenization import equivalent_posdef_tensor
 from typing import *
 import zarr
@@ -1739,7 +1739,7 @@ class DFMSim3D(Simulation):
             'in_field': in_field,
             'out_field': out_field}
 
-        pv_grid = fem_plot.grid_fields_vtk(grid, cell_fields, vtk_path=outpath)
+        #pv_grid = fem_plot.grid_fields_vtk(grid, cell_fields, vtk_path=outpath)
 
         # plotter = fem_plot.create_plotter()  # off_screen=True, window_size=(1024, 768))
         # plotter.add_mesh(pv_grid, scalars='cell_field')
@@ -1824,7 +1824,6 @@ class DFMSim3D(Simulation):
             assert np.all(bulk_cond[:, i_ax, i_ax] <= rasterized[:, i_ax, i_ax])
         for i_ax in range(3):
             assert np.all(rasterized[:, i_ax, i_ax].max() <= fr_cond[:, i_ax, i_ax].max())
-
         return rasterized
 
     @staticmethod
@@ -2642,6 +2641,8 @@ class DFMSim3D(Simulation):
 
         # Round or keep as floats depending on whether you require integer pixel centers
         centers_pixels = np.ceil(centers_pixels_f).astype(int)
+        centers_pixels[0] = np.floor(centers_pixels_f[0]).astype(int)
+        centers_pixels[-1] = np.ceil(centers_pixels_f[-1]).astype(int)
 
         print(
             "pixel size:{}, total_pixels: {}, half_block_px: {}, domain_min: {}, centers_pixels_f: {}, center_pixels: {}".format(
@@ -2747,8 +2748,8 @@ class DFMSim3D(Simulation):
         config_for_homogenization["sim_config"]["geometry"]["hom_domain_box"] = domain_box
 
         import re
-        config_for_homogenization["fine"]["cond_tn_pop_file"] = re.sub(r"l_step_\d+", f'l_step_{config_for_homogenization["fine"]["step"]}', config_for_homogenization["fine"]["cond_tn_pop_file"])
-        config_for_homogenization["fine"]["cond_tn_pop_coords_file"] = re.sub(r"l_step_\d+",
+        config_for_homogenization["fine"]["cond_tn_pop_file"] = re.sub(r"l_step_\d+(?:\.\d+)?", f'l_step_{config_for_homogenization["fine"]["step"]}', config_for_homogenization["fine"]["cond_tn_pop_file"])
+        config_for_homogenization["fine"]["cond_tn_pop_coords_file"] = re.sub(r"l_step_\d+(?:\.\d+)?",
                                                                        f'l_step_{config_for_homogenization["fine"]["step"]}',
                                                                        config_for_homogenization["fine"]["cond_tn_pop_coords_file"])
 
@@ -2771,11 +2772,13 @@ class DFMSim3D(Simulation):
             n_steps_cond_grid_size = int(hom_boxes_per_domain * 16)
             n_steps_cond_grid = (n_steps_cond_grid_size,) * 3
 
+            fem_grid_cond_domain_size = domain_box[0] + config_for_homogenization["fine"]["step"]
+
             fem_grid_cond = fem.fem_grid(
-                n_steps_cond_grid_size,
+                fem_grid_cond_domain_size,
                 n_steps_cond_grid,
                 fem.Fe.Q(dim=3),
-                origin=-n_steps_cond_grid_size / 2,
+                origin=-fem_grid_cond_domain_size / 2
             )
             print("fine SRF FEM GRID COND", fem_grid_cond)
 
@@ -2801,12 +2804,14 @@ class DFMSim3D(Simulation):
                 )
 
         elif previous_level_index in config["sim_config"]["levels_fine_srf_from_population"]:
+            print("SRFFromTensorPopulation")
             # Generate SRF from precomputed tensor population
             bulk_model = SRFFromTensorPopulation(config_for_homogenization)
             bulk_cond_values, bulk_cond_points = bulk_model.generate_field(
                 reuse_sample=False,
                 location_population=False,
             )
+            print("bulk cond points ", bulk_cond_points)
 
         # -----------------
         # Upscaling process
@@ -3019,6 +3024,7 @@ class DFMSim3D(Simulation):
                 bulk_cond_values, bulk_cond_points, (0, 0, 0), dimensions)
             print('bulk_cond_points_for_fine_sample ', bulk_cond_points_for_fine_sample)
             print("bulk_cond_points_for_fine_sample.shape ", bulk_cond_points_for_fine_sample.shape)
+            print("bulk_cond_points ", bulk_cond_points)
 
         else:
             bulk_cond_values, bulk_cond_points = DFMSim3D.fine_SRF_from_homogenization(dfn, config, sample_seed)
@@ -3124,7 +3130,7 @@ class DFMSim3D(Simulation):
                 )
 
         print(
-            "_calculate_subdomains_hom_box_fixed "
+            "_calculate_subdomains_hom_box "
             "subdomain box: {}, n subdomains per axes: {}, n_nonoverlap_subdomains: {}, hom_block_centers: {}".format(
                 subdomain_box, n_subdomains_per_axes, n_nonoverlap_subdomains, hom_block_centers
             )
