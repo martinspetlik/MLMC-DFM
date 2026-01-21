@@ -59,7 +59,7 @@ export PYTHONPATH=.
 
 ---
 
-## 📦 Dataset Generation
+## 🧱 Dataset Generation
 
 > **Prerequisite:** Ensure that both [Flow123d](https://flow123d.github.io/) and [GMSH](https://gmsh.info/) are installed and accessible from the command line.
 

@@ -57,12 +57,15 @@ class ProcessSimple:
         self.debug = args.debug  # Keep temporary sample directories
         self.use_pbs = False
         self.generate_samples_per_level = True
-        self.n_levels = 3  # Number of MLMC levels
-        self._levels_fine_srf_from_population = [0]
+        self.n_levels = 2  # Number of MLMC levels
+        self._levels_fine_srf_from_population = []
         self.n_moments = 3
 
         step_range = [12.5, 5]
+        #step_range = [20, 5]
         self.level_parameters = estimator.determine_level_parameters(self.n_levels, step_range)
+
+        #self.level_parameters = [[12.5], [8.0], [5.0]]
 
         print("self.level_parameters ", self.level_parameters)
 
@@ -98,7 +101,7 @@ class ProcessSimple:
         if recollect:
             raise NotImplementedError("Recollection mode not supported in this version")
         else:
-            self.generate_jobs(sampler, n_samples=[3, 3], renew=renew, target_var=1e-4)
+            self.generate_jobs(sampler, n_samples=[10, 10], renew=renew, target_var=1e-4)
             self.all_collect(sampler)
 
     def setup_config(self, clean):

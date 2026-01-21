@@ -33,7 +33,7 @@ from bgem import stochastic
 from bgem.gmsh import gmsh, options
 from mesh_class import Mesh
 from bgem.core import call_flow, dotdict, workdir as workdir_mng
-from bgem.upscale import fem_plot, fem, voigt_to_tn, tn_to_voigt, FracturedMedia, voxelize
+#from bgem.upscale import fem_plot, fem, voigt_to_tn, tn_to_voigt, FracturedMedia, voxelize
 from bgem.upscale.homogenization import equivalent_posdef_tensor
 from typing import *
 import zarr
@@ -1739,7 +1739,7 @@ class DFMSim3D(Simulation):
             'in_field': in_field,
             'out_field': out_field}
 
-        pv_grid = fem_plot.grid_fields_vtk(grid, cell_fields, vtk_path=outpath)
+        #pv_grid = fem_plot.grid_fields_vtk(grid, cell_fields, vtk_path=outpath)
 
         # plotter = fem_plot.create_plotter()  # off_screen=True, window_size=(1024, 768))
         # plotter.add_mesh(pv_grid, scalars='cell_field')
@@ -2772,11 +2772,13 @@ class DFMSim3D(Simulation):
             n_steps_cond_grid_size = int(hom_boxes_per_domain * 16)
             n_steps_cond_grid = (n_steps_cond_grid_size,) * 3
 
+            fem_grid_cond_domain_size = domain_box[0] + config_for_homogenization["fine"]["step"]
+
             fem_grid_cond = fem.fem_grid(
-                n_steps_cond_grid_size,
+                fem_grid_cond_domain_size,
                 n_steps_cond_grid,
                 fem.Fe.Q(dim=3),
-                origin=-n_steps_cond_grid_size / 2,
+                origin=-fem_grid_cond_domain_size / 2
             )
             print("fine SRF FEM GRID COND", fem_grid_cond)
 
